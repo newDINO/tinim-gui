@@ -1,7 +1,5 @@
 //! Backend-agnostic paint data for [`tinim`](https://github.com/) — a tiny immediate mode GUI.
 //!
-//! The model is deliberately the same as `egui`/`epaint`, minus paint callbacks:
-//!
 //! ```
 //! use tinim_paint::{pos2, vec2, ClippedShape, Color32, Rect, Shape, Tessellator};
 //!
