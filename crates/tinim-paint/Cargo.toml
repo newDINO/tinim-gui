@@ -9,4 +9,3 @@ license.workspace = true
 [dependencies]
 glam.workspace = true
 bytemuck.workspace = true
-cosmic-text.workspace = true

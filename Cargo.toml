@@ -12,7 +12,6 @@ license = "MIT OR Apache-2.0"
 # Runtime dependencies.
 glam = "0.34.1"
 bytemuck = { version = "1", features = ["derive"] }
-cosmic-text = "0.19.0"
 wgpu = "30.0.1"
 tinim-paint = { path = "crates/tinim-paint" }
 
