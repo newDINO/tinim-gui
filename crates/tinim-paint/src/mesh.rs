@@ -6,14 +6,17 @@ use crate::{Color32, Pos2, Rect};
 
 /// Which texture a [`Mesh`] samples from.
 ///
-/// `TextureId(0)` is the font atlas, which also holds an opaque white texel at `(0, 0)` used by
-/// all untextured geometry.
+/// [`TextureId::WHITE`] is reserved for the renderer's 1×1 opaque white texture, which all
+/// untextured geometry samples. User textures must use a different id.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TextureId(pub u64);
 
 impl TextureId {
-    /// The font atlas (and the white texel).
-    pub const FONT_ATLAS: Self = Self(0);
+    /// The renderer's 1×1 opaque white texture, used by untextured geometry.
+    ///
+    /// This id is reserved. Since [`TextureId`] derives [`Default`], it is also what a
+    /// default-constructed mesh samples.
+    pub const WHITE: Self = Self(0);
 }
 
 /// A single vertex. Kept at 16 bytes on purpose.
@@ -29,7 +32,7 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    /// The uv of the opaque white texel in the atlas.
+    /// The uv of the opaque white texel in [`TextureId::WHITE`].
     pub const WHITE_UV: [u16; 2] = [0, 0];
 
     #[inline]
@@ -175,7 +178,7 @@ mod tests {
 
     #[test]
     fn add_rect_with_uv_covers_the_quad() {
-        let mut mesh = Mesh::with_texture(TextureId::FONT_ATLAS);
+        let mut mesh = Mesh::with_texture(TextureId::WHITE);
         mesh.add_rect_with_uv(
             Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
             Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),

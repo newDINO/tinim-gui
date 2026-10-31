@@ -35,7 +35,7 @@ impl Painter {
             canvas_size: Vec2::ZERO,
             pixels_per_point: sanitize_ppp(pixels_per_point),
             clip_rect: Rect::NOTHING,
-            texture_id: TextureId::FONT_ATLAS,
+            texture_id: TextureId::WHITE,
             run_start: 0,
             list: PaintList::new(),
         };
@@ -112,7 +112,7 @@ impl Painter {
     pub fn clear(&mut self) {
         self.list.clear();
         self.run_start = 0;
-        self.texture_id = TextureId::FONT_ATLAS;
+        self.texture_id = TextureId::WHITE;
     }
 
     /// Add a shape using the current clip.
@@ -125,15 +125,15 @@ impl Painter {
 
         match shape {
             Shape::Rect(shape) => {
-                self.use_texture(TextureId::FONT_ATLAS);
+                self.use_texture(TextureId::WHITE);
                 add_rect(&mut self.list, &shape, self.pixels_per_point);
             }
             Shape::Circle(shape) => {
-                self.use_texture(TextureId::FONT_ATLAS);
+                self.use_texture(TextureId::WHITE);
                 add_circle(&mut self.list, &shape, self.pixels_per_point);
             }
             Shape::Line(shape) => {
-                self.use_texture(TextureId::FONT_ATLAS);
+                self.use_texture(TextureId::WHITE);
                 add_line(
                     &mut self.list,
                     &shape.points,
@@ -151,7 +151,7 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::FONT_ATLAS);
+        self.use_texture(TextureId::WHITE);
         add_rect(
             &mut self.list,
             &RectShape::new(rect, fill),
@@ -164,7 +164,7 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::FONT_ATLAS);
+        self.use_texture(TextureId::WHITE);
         add_circle(
             &mut self.list,
             &CircleShape::new(center, radius, fill),
@@ -177,7 +177,7 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::FONT_ATLAS);
+        self.use_texture(TextureId::WHITE);
         add_line(&mut self.list, points, width, color, self.pixels_per_point);
     }
 

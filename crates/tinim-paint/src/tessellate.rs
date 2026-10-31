@@ -1,8 +1,8 @@
 //! Turning [`Shape`](crate::Shape)s into triangles.
 //!
 //! Everything here is CPU-only and backend-agnostic: geometry is appended directly to a
-//! [`PaintList`]'s shared vertex/index buffers. There is no anti-aliasing for shapes; text gets its
-//! smoothness from glyph coverage in the atlas.
+//! [`PaintList`]'s shared vertex/index buffers. There is no anti-aliasing for shapes; text (when
+//! added) can get its smoothness from glyph coverage in a texture.
 
 use std::f32::consts::PI;
 

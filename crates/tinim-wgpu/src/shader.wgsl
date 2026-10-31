@@ -6,10 +6,10 @@ struct Globals {
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 
-// The atlas holds glyph coverage in alpha and an opaque white texel at (0, 0) for untextured
-// geometry.
-@group(1) @binding(0) var atlas: texture_2d<f32>;
-@group(1) @binding(1) var atlas_sampler: sampler;
+// The bound texture supplies color and coverage. Untextured geometry samples the renderer's
+// opaque white texel (TextureId::WHITE).
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var tex_sampler: sampler;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -44,7 +44,7 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas, atlas_sampler, in.uv);
+    let texel = textureSample(tex, tex_sampler, in.uv);
     let alpha = in.color.a * texel.a;
     // Premultiplied alpha: color is already multiplied by alpha.
     let rgb = srgb_to_linear(in.color.rgb) * texel.rgb * alpha;

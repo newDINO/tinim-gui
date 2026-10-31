@@ -1,4 +1,4 @@
-//! Texture uploads produced while tessellating (the glyph atlas lives here).
+//! Texture uploads for the renderer (images, and in the future glyph coverage).
 
 use crate::TextureId;
 

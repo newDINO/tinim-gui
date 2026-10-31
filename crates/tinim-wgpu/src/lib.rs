@@ -16,6 +16,7 @@
 mod renderer;
 mod texture;
 
-pub use renderer::{ATLAS_FORMAT, Renderer, ScreenDescriptor};
+pub use renderer::{Renderer, ScreenDescriptor};
+pub use texture::TEXTURE_FORMAT;
 pub use tinim_paint as paint;
 pub use wgpu;

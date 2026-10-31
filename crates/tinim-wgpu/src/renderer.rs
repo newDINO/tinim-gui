@@ -5,7 +5,7 @@ use std::mem::size_of;
 
 use tinim_paint::{PaintList, Rect, TextureId, TexturesDelta, Vertex};
 
-use crate::texture::{TEXTURE_FORMAT, TextureEntry};
+use crate::texture::TextureEntry;
 
 const INITIAL_VERTEX_BYTES: u64 = 16 * 1024;
 const INITIAL_INDEX_BYTES: u64 = 8 * 1024;
@@ -181,7 +181,7 @@ impl Renderer {
             queue,
             &tinim_paint::ImageDelta::full([1, 1], vec![255, 255, 255, 255]),
         );
-        textures.insert(TextureId::FONT_ATLAS, white);
+        textures.insert(TextureId::WHITE, white);
 
         Self {
             pipeline,
@@ -334,9 +334,6 @@ fn clamp_scissor(clip: Rect, target: [u32; 2]) -> Option<[u32; 4]> {
         Some([x0, y0, x1 - x0, y1 - y0])
     }
 }
-
-/// Shader-visible texture format. Exposed for tests and for callers that preallocate atlases.
-pub const ATLAS_FORMAT: wgpu::TextureFormat = TEXTURE_FORMAT;
 
 #[cfg(test)]
 mod tests {

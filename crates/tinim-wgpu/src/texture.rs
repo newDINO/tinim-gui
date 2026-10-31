@@ -1,12 +1,13 @@
 //! Texture storage for the renderer.
 //!
-//! The atlas is `Rgba8Unorm` (not sRGB): glyph coverage lives in the alpha channel, RGB is white,
-//! and the color comes from the vertex attribute. One byte of alpha plus a white texel at `(0, 0)`
-//! is all that solid geometry needs, so there is a single texture format for everything.
+//! Textures are `Rgba8Unorm` (not sRGB): color comes from the vertex attribute, while the texture
+//! can supply coverage in its alpha channel (for example glyphs). Untextured geometry samples the
+//! renderer's 1×1 opaque white texture, so there is a single texture format for everything.
 
 use tinim_paint::ImageDelta;
 
-pub(crate) const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Shader-visible texture format, shared by the white texel and user textures.
+pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,
