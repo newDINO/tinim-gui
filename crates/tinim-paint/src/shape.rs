@@ -142,20 +142,3 @@ impl Shape {
         Self::Mesh(mesh)
     }
 }
-
-/// A shape plus the rectangle it should be clipped to.
-///
-/// Widgets produce these; [`crate::Tessellator`] turns them into
-/// [`crate::ClippedPrimitive`]s.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ClippedShape {
-    pub clip_rect: Rect,
-    pub shape: Shape,
-}
-
-impl ClippedShape {
-    #[inline]
-    pub fn new(clip_rect: Rect, shape: Shape) -> Self {
-        Self { clip_rect, shape }
-    }
-}

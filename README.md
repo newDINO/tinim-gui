@@ -6,8 +6,8 @@ A tiny immediate-mode GUI.
 
 | crate | what it does |
 |---|---|
-| `tinim-paint` | math, colors, `Shape`, tessellation, text (cosmic-text + glyph atlas) |
-| `tinim-wgpu` | one wgpu pipeline that draws `ClippedPrimitive`s |
+| `tinim-paint` | math, colors, `Painter`, `PaintList`, tessellation, text (cosmic-text + glyph atlas) |
+| `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
 | `tinim-gui` | *planned*: `Context`, `Ui`, layout, interaction |
 | `tinim-winit` | *planned*: `WindowEvent` → `RawInput` |
 

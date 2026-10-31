@@ -1,10 +1,9 @@
-//! The wgpu renderer: one pipeline, one texture per [`TextureId`], one scissor per primitive.
+//! The wgpu renderer: one pipeline, one texture per [`TextureId`], one scissor per draw command.
 
 use std::collections::HashMap;
 use std::mem::size_of;
-use std::ops::Range;
 
-use tinim_paint::{ClippedPrimitive, Rect, TextureId, TexturesDelta, Vertex};
+use tinim_paint::{PaintList, Rect, TextureId, TexturesDelta, Vertex};
 
 use crate::texture::{TEXTURE_FORMAT, TextureEntry};
 
@@ -25,7 +24,7 @@ impl ScreenDescriptor {
     }
 }
 
-/// Renders [`ClippedPrimitive`]s with wgpu.
+/// Renders [`PaintList`]s with wgpu.
 ///
 /// Usage: create one `Renderer` per window/surface, call [`Renderer::update_textures`] with the
 /// [`TexturesDelta`] of the frame, then [`Renderer::render`] inside a render pass.
@@ -41,8 +40,6 @@ pub struct Renderer {
     textures: HashMap<TextureId, TextureEntry>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    vertices: Vec<Vertex>,
-    indices: Vec<u32>,
 }
 
 impl Renderer {
@@ -195,8 +192,6 @@ impl Renderer {
             textures,
             vertex_buffer: create_buffer(device, INITIAL_VERTEX_BYTES, wgpu::BufferUsages::VERTEX),
             index_buffer: create_buffer(device, INITIAL_INDEX_BYTES, wgpu::BufferUsages::INDEX),
-            vertices: Vec::new(),
-            indices: Vec::new(),
         }
     }
 
@@ -233,56 +228,29 @@ impl Renderer {
         }
     }
 
-    /// Upload the meshes and draw them.
+    /// Upload the draw list's shared buffers and issue its draw commands.
     ///
-    /// Each primitive gets its own scissor rectangle; the scissor is restored to the full target at
-    /// the end, so it is safe to draw other things afterwards.
+    /// Each draw command gets its own scissor rectangle; the scissor is restored to the full target
+    /// at the end, so it is safe to draw other things afterwards.
     pub fn render(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         pass: &mut wgpu::RenderPass<'_>,
         screen: ScreenDescriptor,
-        primitives: &[ClippedPrimitive],
+        list: &PaintList,
     ) {
         let [width, height] = screen.size_in_pixels;
-        if primitives.is_empty() || width == 0 || height == 0 {
+        if list.draws.is_empty()
+            || list.vertices.is_empty()
+            || list.indices.is_empty()
+            || width == 0
+            || height == 0
+        {
             return;
         }
 
-        self.vertices.clear();
-        self.indices.clear();
-
-        struct Draw {
-            indices: Range<u32>,
-            base_vertex: i32,
-            texture_id: TextureId,
-            clip_rect: Rect,
-        }
-
-        let mut draws = Vec::with_capacity(primitives.len());
-        for primitive in primitives {
-            let mesh = &primitive.mesh;
-            if mesh.is_empty() || mesh.vertices.is_empty() {
-                continue;
-            }
-            let base_vertex = self.vertices.len() as i32;
-            let start = self.indices.len() as u32;
-            self.vertices.extend_from_slice(&mesh.vertices);
-            self.indices.extend_from_slice(&mesh.indices);
-            draws.push(Draw {
-                indices: start..self.indices.len() as u32,
-                base_vertex,
-                texture_id: mesh.texture_id,
-                clip_rect: primitive.clip_rect,
-            });
-        }
-
-        if draws.is_empty() {
-            return;
-        }
-
-        let vertex_bytes = (self.vertices.len() * size_of::<Vertex>()) as u64;
+        let vertex_bytes = (list.vertices.len() * size_of::<Vertex>()) as u64;
         if vertex_bytes > self.vertex_buffer.size() {
             self.vertex_buffer = create_buffer(
                 device,
@@ -290,7 +258,7 @@ impl Renderer {
                 wgpu::BufferUsages::VERTEX,
             );
         }
-        let index_bytes = (self.indices.len() * size_of::<u32>()) as u64;
+        let index_bytes = (list.indices.len() * size_of::<u32>()) as u64;
         if index_bytes > self.index_buffer.size() {
             self.index_buffer = create_buffer(
                 device,
@@ -299,8 +267,8 @@ impl Renderer {
             );
         }
 
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
-        queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&self.indices));
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&list.vertices));
+        queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&list.indices));
 
         let globals = [width as f32, height as f32, 0.0, 0.0];
         queue.write_buffer(&self.globals_buffer, 0, bytemuck::cast_slice(&globals));
@@ -311,7 +279,7 @@ impl Renderer {
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
         let mut bound_texture = None;
-        for draw in draws {
+        for draw in &list.draws {
             if bound_texture != Some(draw.texture_id) {
                 let Some(texture) = self.textures.get(&draw.texture_id) else {
                     // Missing textures are skipped rather than aborting the whole frame.
@@ -326,7 +294,7 @@ impl Renderer {
                 continue;
             };
             pass.set_scissor_rect(x, y, w, h);
-            pass.draw_indexed(draw.indices, draw.base_vertex, 0..1);
+            pass.draw_indexed(draw.index_range.clone(), 0, 0..1);
         }
 
         // Leave the pass in a clean state.
@@ -343,7 +311,7 @@ fn create_buffer(device: &wgpu::Device, size: u64, usage: wgpu::BufferUsages) ->
     })
 }
 
-/// Convert a logical clip rectangle to an integer scissor rect inside the target.
+/// Convert a physical-pixel clip rectangle to an integer scissor rect inside the target.
 ///
 /// Rounds outward (never cuts a pixel that should be visible), clamps to the target (wgpu turns an
 /// out-of-bounds scissor into a validation error), and returns `None` for empty rectangles.

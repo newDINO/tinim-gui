@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use tinim_paint::{ClippedShape, Color32, Rect, RectShape, Shape, Stroke, Tessellator, pos2, vec2};
+use tinim_paint::{Color32, Painter, Rect, RectShape, Shape, Stroke, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
@@ -61,20 +61,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut renderer = Renderer::new(&device, &queue, TARGET_FORMAT);
 
-    let shapes = build_shapes();
-    let primitives = Tessellator::new().tessellate(&shapes, 1.0);
+    let mut painter = build_shapes();
+    let list = painter.finish();
     println!(
-        "{} shapes -> {} primitives, {} vertices, {} indices",
-        shapes.len(),
-        primitives.len(),
-        primitives
-            .iter()
-            .map(|p| p.mesh.vertices.len())
-            .sum::<usize>(),
-        primitives
-            .iter()
-            .map(|p| p.mesh.indices.len())
-            .sum::<usize>()
+        "{} draws, {} vertices, {} indices",
+        list.draws.len(),
+        list.vertices.len(),
+        list.indices.len()
     );
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -103,7 +96,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             &queue,
             &mut pass,
             ScreenDescriptor::new(WIDTH, HEIGHT),
-            &primitives,
+            list,
         );
     }
 
@@ -122,35 +115,31 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_shapes() -> Vec<ClippedShape> {
-    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH as f32, HEIGHT as f32));
+fn build_shapes() -> Painter {
+    let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
+    let screen = painter.canvas_rect();
 
     let button = Rect::from_min_size(pos2(140.0, 90.0), vec2(200.0, 56.0));
 
-    vec![
-        ClippedShape::new(screen, Shape::rect(screen, BACKGROUND)),
-        ClippedShape::new(
-            screen,
-            Shape::Rect(
-                RectShape::new(button, BUTTON_FILL)
-                    .with_corner_radius(8)
-                    .with_stroke(Stroke::new(2.0, BUTTON_STROKE)),
-            ),
-        ),
-        // Half of this rectangle is clipped away; the scissor must do the cutting.
-        ClippedShape::new(
-            Rect::from_min_max(pos2(20.0, 20.0), pos2(70.0, 60.0)),
-            Shape::rect(
-                Rect::from_min_size(pos2(20.0, 20.0), vec2(100.0, 40.0)),
-                CLIPPED_RED,
-            ),
-        ),
-        ClippedShape::new(screen, Shape::circle(pos2(420.0, 40.0), 24.0, CIRCLE_GREEN)),
-        ClippedShape::new(
-            screen,
-            Shape::line(vec![pos2(20.0, 200.0), pos2(460.0, 200.0)], 4.0, LINE_GRAY),
-        ),
-    ]
+    painter.rect(screen, BACKGROUND);
+    painter.add(Shape::Rect(
+        RectShape::new(button, BUTTON_FILL)
+            .with_corner_radius(8)
+            .with_stroke(Stroke::new(2.0, BUTTON_STROKE)),
+    ));
+
+    // Half of this rectangle is clipped away; the scissor must do the cutting.
+    painter.set_clip_rect(Rect::from_min_max(pos2(20.0, 20.0), pos2(70.0, 60.0)));
+    painter.rect(
+        Rect::from_min_size(pos2(20.0, 20.0), vec2(100.0, 40.0)),
+        CLIPPED_RED,
+    );
+
+    painter.reset_clip_rect();
+    painter.circle(pos2(420.0, 40.0), 24.0, CIRCLE_GREEN);
+    painter.line(&[pos2(20.0, 200.0), pos2(460.0, 200.0)], 4.0, LINE_GRAY);
+
+    painter
 }
 
 fn read_back(

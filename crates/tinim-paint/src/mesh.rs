@@ -1,5 +1,7 @@
 //! Meshes, vertices and the final draw list.
 
+use std::ops::Range;
+
 use crate::{Color32, Pos2, Rect};
 
 /// Which texture a [`Mesh`] samples from.
@@ -111,14 +113,53 @@ impl Mesh {
     }
 }
 
-/// One mesh plus the rectangle it is clipped to.
-///
-/// This is the only thing the renderer has to understand. There is no `PaintCallback`: custom
-/// drawing goes through [`crate::Shape::Mesh`].
+/// One draw call: a contiguous range of indices sharing a clip rectangle and texture.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ClippedPrimitive {
+pub struct DrawCommand {
+    /// Clip rectangle in physical pixels, matching [`PaintList::vertices`].
     pub clip_rect: Rect,
-    pub mesh: Mesh,
+    pub texture_id: TextureId,
+    /// Range into [`PaintList::indices`]. Indices are absolute.
+    pub index_range: Range<u32>,
+}
+
+/// A flat vertex/index arena plus the draw commands that reference it.
+///
+/// Vertices and clip rectangles are already in physical pixels. Indices are absolute indices into
+/// `vertices`, so the renderer can upload both buffers once and issue one `draw_indexed` per
+/// [`DrawCommand`].
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PaintList {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+    pub draws: Vec<DrawCommand>,
+}
+
+impl PaintList {
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Remove all geometry and draw commands, keeping the allocated capacity.
+    pub fn clear(&mut self) {
+        self.vertices.clear();
+        self.indices.clear();
+        self.draws.clear();
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
+    }
+
+    /// Append raw geometry, offsetting indices by the current vertex count.
+    pub(crate) fn append_geometry(&mut self, vertices: &[Vertex], indices: &[u32]) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(vertices);
+        self.indices
+            .extend(indices.iter().map(|&index| index + base));
+    }
 }
 
 #[cfg(test)]

@@ -5,13 +5,13 @@
 //! # fn demo(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) {
 //! let mut renderer = Renderer::new(device, queue, format);
 //! // ... and every frame, inside a render pass:
-//! // renderer.render(device, queue, &mut pass, ScreenDescriptor::new(800, 600), &primitives);
+//! // renderer.render(device, queue, &mut pass, ScreenDescriptor::new(800, 600), &list);
 //! # let _ = &mut renderer;
 //! # }
 //! ```
 //!
-//! The renderer is a dumb consumer of [`tinim_paint::ClippedPrimitive`]: no layout, no widgets, no
-//! text shaping. It only knows vertices, indices, a scissor rectangle and a texture id.
+//! The renderer is a dumb consumer of [`tinim_paint::PaintList`]: no layout, no widgets, no text
+//! shaping. It only knows vertices, indices, draw ranges, scissor rectangles and texture ids.
 
 mod renderer;
 mod texture;

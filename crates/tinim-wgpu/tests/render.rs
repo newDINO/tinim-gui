@@ -3,7 +3,7 @@
 //! Skipped silently when no wgpu adapter is available (e.g. a machine without a GPU and without a
 //! software Vulkan driver).
 
-use tinim_paint::{ClippedShape, Color32, Rect, Shape, Tessellator, pos2, vec2};
+use tinim_paint::{Color32, Painter, Rect, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
@@ -36,19 +36,20 @@ fn renders_quads_and_applies_the_scissor() {
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
     let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH as f32, HEIGHT as f32));
-    // Left half: green, clipped to the left half. Right half: red, not clipped.
-    let shapes = vec![
-        ClippedShape::new(
-            Rect::from_min_size(pos2(0.0, 0.0), vec2(16.0, HEIGHT as f32)),
-            Shape::rect(screen, Color32::from_rgb(0, 255, 0)),
-        ),
-        ClippedShape::new(
-            Rect::from_min_size(pos2(16.0, 0.0), vec2(16.0, HEIGHT as f32)),
-            Shape::rect(screen, Color32::from_rgb(255, 0, 0)),
-        ),
-    ];
-    let primitives = Tessellator::new().tessellate(&shapes, 1.0);
-    assert_eq!(primitives.len(), 2);
+    // Left half: green, clipped to the left half. Right half: red, clipped to the right half.
+    let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
+    painter.set_clip_rect(Rect::from_min_size(
+        pos2(0.0, 0.0),
+        vec2(16.0, HEIGHT as f32),
+    ));
+    painter.rect(screen, Color32::from_rgb(0, 255, 0));
+    painter.set_clip_rect(Rect::from_min_size(
+        pos2(16.0, 0.0),
+        vec2(16.0, HEIGHT as f32),
+    ));
+    painter.rect(screen, Color32::from_rgb(255, 0, 0));
+    let list = painter.finish();
+    assert_eq!(list.draws.len(), 2);
 
     let mut renderer = Renderer::new(&device, &queue, FORMAT);
     let mut encoder =
@@ -75,7 +76,7 @@ fn renders_quads_and_applies_the_scissor() {
             &queue,
             &mut pass,
             ScreenDescriptor::new(WIDTH, HEIGHT),
-            &primitives,
+            list,
         );
     }
 
