@@ -9,10 +9,15 @@ rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+# Runtime dependencies.
 glam = "0.34.1"
 bytemuck = { version = "1", features = ["derive"] }
 cosmic-text = "0.19.0"
 wgpu = "30.0.1"
+tinim-paint = { path = "crates/tinim-paint" }
+
+# Dev-only dependencies. Cargo has no `[workspace.dev-dependencies]`; these are just versions
+# registered here, and member crates opt in with `pollster.workspace = true` inside their own
+# `[dev-dependencies]`. Nothing is linked into the library crates.
 pollster = "1.0"
 png = "0.18"
-tinim-paint = { path = "crates/tinim-paint" }
