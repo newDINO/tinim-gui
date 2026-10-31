@@ -36,7 +36,7 @@ mod textures;
 
 pub use color::Color32;
 pub use math::{Pos2, Rangef, Rect, Vec2, pos2, vec2};
-pub use mesh::{DrawCommand, Mesh, PaintList, TextureId, Vertex};
+pub use mesh::{DrawCommand, Mesh, PaintList, TextureId, TextureMismatch, Vertex};
 pub use painter::Painter;
 pub use shape::{CircleShape, LineShape, RectShape, Shape, Stroke};
 pub use textures::{ImageDelta, TexturesDelta};

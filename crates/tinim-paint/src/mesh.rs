@@ -105,16 +105,46 @@ impl Mesh {
             .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
-    pub fn append(&mut self, other: Self) {
+    /// Append `other`, offsetting its indices by the current vertex count.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TextureMismatch`] if `other` uses a different texture. In that case `self` is
+    /// left unchanged.
+    pub fn append(&mut self, other: Self) -> Result<(), TextureMismatch> {
         if other.texture_id != self.texture_id {
-            // Merging meshes with different textures would silently draw one of them wrong.
-            debug_assert_eq!(other.texture_id, self.texture_id);
+            return Err(TextureMismatch {
+                expected: self.texture_id,
+                actual: other.texture_id,
+            });
         }
         let base = self.vertices.len() as u32;
         self.vertices.extend_from_slice(&other.vertices);
         self.indices.extend(other.indices.iter().map(|&i| i + base));
+        Ok(())
     }
 }
+
+/// Error returned when two meshes with different textures are appended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextureMismatch {
+    /// The texture of the mesh being appended to.
+    pub expected: TextureId,
+    /// The texture of the mesh that was appended.
+    pub actual: TextureId,
+}
+
+impl std::fmt::Display for TextureMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cannot append mesh with texture {:?} to mesh with texture {:?}",
+            self.actual, self.expected
+        )
+    }
+}
+
+impl std::error::Error for TextureMismatch {}
 
 /// One draw call: a contiguous range of indices sharing a clip rectangle and texture.
 #[derive(Clone, Debug, PartialEq)]
@@ -188,5 +218,41 @@ mod tests {
         assert_eq!(mesh.indices.len(), 6);
         assert_eq!(mesh.vertices[2].uv, [65535, 65535]);
         assert!(mesh.indices.iter().all(|&i| i < 4));
+    }
+
+    fn quad_mesh(texture_id: TextureId) -> Mesh {
+        let mut mesh = Mesh::with_texture(texture_id);
+        mesh.add_rect_with_uv(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        mesh
+    }
+
+    #[test]
+    fn append_offsets_indices_when_textures_match() {
+        let mut a = quad_mesh(TextureId::WHITE);
+        a.append(quad_mesh(TextureId::WHITE)).unwrap();
+
+        assert_eq!(a.vertices.len(), 8);
+        assert_eq!(a.indices.len(), 12);
+        assert_eq!(&a.indices[6..], &[4, 5, 6, 4, 6, 7]);
+    }
+
+    #[test]
+    fn append_rejects_a_different_texture() {
+        let mut a = quad_mesh(TextureId::WHITE);
+        let before = a.clone();
+
+        let error = a.append(quad_mesh(TextureId(1))).unwrap_err();
+        assert_eq!(
+            error,
+            TextureMismatch {
+                expected: TextureId::WHITE,
+                actual: TextureId(1),
+            }
+        );
+        assert_eq!(a, before);
     }
 }
