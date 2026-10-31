@@ -1,0 +1,16 @@
+[package]
+name = "tinim-wgpu"
+description = "wgpu renderer for tinim-gui paint data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tinim-paint.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+png.workspace = true
