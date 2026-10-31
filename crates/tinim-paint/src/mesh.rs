@@ -9,7 +9,7 @@ use crate::{Color32, Pos2, Rect};
 /// [`TextureId::WHITE`] is reserved for the renderer's 1×1 opaque white texture, which all
 /// untextured geometry samples. User textures must use a different id.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TextureId(pub u64);
+pub struct TextureId(pub u32);
 
 impl TextureId {
     /// The renderer's 1×1 opaque white texture, used by untextured geometry.
