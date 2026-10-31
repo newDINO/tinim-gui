@@ -9,7 +9,6 @@ rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-# Runtime dependencies.
 glam = "0.34.1"
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = "30.0.1"

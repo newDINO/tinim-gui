@@ -1,4 +1,4 @@
-//! Backend-agnostic paint data for [`tinim`](https://github.com/) — a tiny immediate mode GUI.
+//! A canvas like library that build shapes into triangle meshes.
 //!
 //! ```
 //! use tinim_paint::{pos2, vec2, Color32, Painter, PaintList, Rect};
