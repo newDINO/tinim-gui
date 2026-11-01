@@ -12,7 +12,6 @@ pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,
     pub(crate) bind_group: wgpu::BindGroup,
-    pub(crate) size: [u32; 2],
 }
 
 impl TextureEntry {
@@ -57,7 +56,6 @@ impl TextureEntry {
         Self {
             texture,
             bind_group,
-            size,
         }
     }
 
@@ -72,8 +70,8 @@ impl TextureEntry {
         };
 
         // Partial updates must stay inside the texture.
-        debug_assert!(origin.x + delta.size[0] <= self.size[0]);
-        debug_assert!(origin.y + delta.size[1] <= self.size[1]);
+        debug_assert!(origin.x + delta.size[0] <= self.texture.width());
+        debug_assert!(origin.y + delta.size[1] <= self.texture.height());
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
