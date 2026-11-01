@@ -14,3 +14,4 @@ bytemuck.workspace = true
 [dev-dependencies]
 pollster.workspace = true
 png.workspace = true
+winit.workspace = true

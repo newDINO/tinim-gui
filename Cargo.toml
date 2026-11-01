@@ -9,9 +9,11 @@ rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-glam = "0.34.1"
+glam = "0.34"
 bytemuck = { version = "1", features = ["derive"] }
-wgpu = "30.0.1"
+wgpu = "30"
+winit = { version = "0.30" }
+
 tinim-paint = { path = "crates/tinim-paint" }
 
 # Dev-only dependencies. Cargo has no `[workspace.dev-dependencies]`; these are just versions
