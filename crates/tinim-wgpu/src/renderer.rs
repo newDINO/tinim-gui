@@ -1,6 +1,7 @@
 //! The wgpu renderer: one pipeline, one texture per [`TextureId`], one scissor per draw command.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasher, RandomState};
 use std::mem::size_of;
 
 use tinim_paint::{PaintList, Rect, TextureId, TexturesDelta, Vertex};
@@ -31,22 +32,35 @@ impl ScreenDescriptor {
 ///
 /// `target_format` should be an sRGB format (`*Srgb`) so that the linear-space blending done by
 /// the shader is converted correctly on write.
-pub struct Renderer {
+pub struct Renderer<S = RandomState> {
     pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
     globals_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    textures: HashMap<TextureId, TextureEntry>,
+    textures: HashMap<TextureId, TextureEntry, S>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 }
 
-impl Renderer {
+impl Renderer<RandomState> {
+    /// Create a renderer using the standard library's default hasher.
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target_format: wgpu::TextureFormat,
+    ) -> Self {
+        Self::new_with_hasher(device, queue, target_format, RandomState::new())
+    }
+}
+
+impl<S: BuildHasher> Renderer<S> {
+    /// Create a renderer with a custom hasher for its texture map.
+    pub fn new_with_hasher(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target_format: wgpu::TextureFormat,
+        hasher: S,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tinim shader"),
@@ -168,7 +182,7 @@ impl Renderer {
             ..Default::default()
         });
 
-        let mut textures = HashMap::new();
+        let mut textures = HashMap::with_hasher(hasher);
         // A single opaque white texel: every untextured shape samples it through `WHITE_UV`.
         let white = TextureEntry::new(
             device,
