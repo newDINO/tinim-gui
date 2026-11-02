@@ -21,3 +21,6 @@ tinim-paint = { path = "crates/tinim-paint" }
 # `[dev-dependencies]`. Nothing is linked into the library crates.
 pollster = "1.0"
 png = "0.18"
+
+[profile.dev]
+debug = false
