@@ -30,7 +30,8 @@
 //! a color representation.
 //!
 //! There is no bundled font. Use [`TextSystem::add_font`] with your own bytes, or enable the
-//! `system-fonts` feature and call [`TextSystem::load_system_fonts`].
+//! `system-fonts` feature and call [`TextSystem::load_system_fonts`]. System font files are
+//! memory-mapped instead of read into the heap, so the OS can page them in on demand.
 //!
 //! ## Emoji
 //!
@@ -124,12 +125,41 @@ impl TextSystem {
     pub fn load_system_fonts(&mut self) -> usize {
         let mut added = 0;
         for path in system::font_files() {
-            let Ok(data) = std::fs::read(path) else {
+            let Ok(file) = std::fs::File::open(&path) else {
                 continue;
             };
-            added += self.add_font_bytes(data).len();
+            match system::map_font_file(&file) {
+                Ok(mmap) => added += self.add_font_mapped(std::sync::Arc::new(mmap)).len(),
+                Err(_) => {
+                    // Mapping can fail on exotic filesystems; read the file instead.
+                    let Ok(data) = std::fs::read(&path) else {
+                        continue;
+                    };
+                    added += self.add_font_bytes(data).len();
+                }
+            }
         }
         added
+    }
+
+    #[cfg(feature = "system-fonts")]
+    fn add_font_mapped(&mut self, data: std::sync::Arc<memmap2::Mmap>) -> Vec<FontId> {
+        // Faces of a collection share the same mapping instead of mapping the file once per face.
+        if let Ok(collection) = CollectionRef::new(&data[..]) {
+            let count = collection.len();
+            let mut ids = Vec::new();
+            for index in 0..count {
+                if let Ok(face) = FontFace::from_mapped(data.clone(), index) {
+                    ids.push(self.fonts.push(face));
+                }
+            }
+            ids
+        } else {
+            match FontFace::from_mapped(data, 0) {
+                Ok(face) => vec![self.fonts.push(face)],
+                Err(_) => Vec::new(),
+            }
+        }
     }
 
     #[cfg(feature = "system-fonts")]

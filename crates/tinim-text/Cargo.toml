@@ -26,10 +26,13 @@ zeno = "0.3"
 # Optional because not every user needs bitmap color fonts (CBDT/CBLC, sbix).
 png = { workspace = true, optional = true }
 
+# Optional: keep system font files memory-mapped instead of reading them into the heap.
+memmap2 = { workspace = true, optional = true }
+
 [features]
 default = ["fallback", "emoji-bitmap"]
 fallback = []
-system-fonts = []
+system-fonts = ["dep:memmap2"]
 emoji-bitmap = ["dep:png"]
 
 [dev-dependencies]

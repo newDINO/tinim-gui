@@ -2,6 +2,23 @@
 
 use std::path::{Path, PathBuf};
 
+/// Memory-maps a font file, preferring [`memmap2::MmapOptions::map_if_safe`].
+///
+/// `map_if_safe` only succeeds when the kernel can prove the file cannot change underneath the
+/// mapping (a sealed memfd or an fs-verity file). Regular system font files cannot be proven
+/// immutable, so they take the unsafe path below.
+pub(crate) fn map_font_file(file: &std::fs::File) -> std::io::Result<memmap2::Mmap> {
+    match memmap2::MmapOptions::new().map_if_safe(file) {
+        Ok(mmap) => Ok(mmap),
+        Err(_) => {
+            // SAFETY: the file is opened read-only and the mapping is read-only. As with any
+            // memory map, replacing or truncating the file while it is mapped could fault, but
+            // system font files are not modified while text is being rendered.
+            unsafe { memmap2::MmapOptions::new().map(file) }
+        }
+    }
+}
+
 /// Returns every font file in the usual system font directories.
 pub(crate) fn font_files() -> Vec<PathBuf> {
     let mut directories = Vec::new();
@@ -66,4 +83,24 @@ fn is_font_file(path: &Path) -> bool {
                 || extension.eq_ignore_ascii_case("ttc")
                 || extension.eq_ignore_ascii_case("otc")
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_a_font_file() {
+        // A regular file cannot take the safe path, so this also covers the unsafe fallback.
+        let path = std::env::temp_dir().join(format!("tinim-map-{}.ttf", std::process::id()));
+        std::fs::write(&path, font_test_data::AHEM).unwrap();
+
+        let file = std::fs::File::open(&path).unwrap();
+        let mapped = map_font_file(&file).unwrap();
+        assert_eq!(&mapped[..], font_test_data::AHEM);
+
+        drop(mapped);
+        drop(file);
+        std::fs::remove_file(&path).unwrap();
+    }
 }

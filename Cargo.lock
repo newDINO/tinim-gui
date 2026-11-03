@@ -1838,6 +1838,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "font-test-data",
  "harfrust",
+ "memmap2",
  "png",
  "skrifa",
  "tinim-paint",

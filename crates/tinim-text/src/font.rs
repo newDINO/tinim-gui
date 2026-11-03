@@ -14,13 +14,34 @@ use crate::error::FontError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FontId(pub(crate) u32);
 
+/// The bytes behind a [`FontFace`].
+///
+/// User-provided fonts are owned, while system fonts stay memory-mapped so that the OS can page
+/// them in on demand instead of keeping every installed font resident in the heap.
+#[derive(Clone)]
+enum FontData {
+    Owned(Arc<[u8]>),
+    #[cfg(feature = "system-fonts")]
+    Mapped(Arc<memmap2::Mmap>),
+}
+
+impl FontData {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Owned(data) => data,
+            #[cfg(feature = "system-fonts")]
+            Self::Mapped(data) => data,
+        }
+    }
+}
+
 /// A parsed font face, kept alive for as long as the [`crate::TextSystem`] exists.
 ///
 /// The font is parsed again on every use. `FontRef` is a cheap view over the bytes (it only
 /// validates the table directory), so this avoids self-referential structs and any `unsafe`.
 #[derive(Clone)]
 pub struct FontFace {
-    data: Arc<[u8]>,
+    data: FontData,
     index: u32,
     units_per_em: u16,
 }
@@ -41,7 +62,17 @@ impl FontFace {
 
     /// Creates a face from bytes that may be shared with other faces of the same collection.
     pub(crate) fn from_shared(data: Arc<[u8]>, index: u32) -> Result<Self, FontError> {
-        let font = FontRef::from_index(&data, index).map_err(|err| match err {
+        Self::from_data(FontData::Owned(data), index)
+    }
+
+    /// Creates a face backed by a memory-mapped system font file.
+    #[cfg(feature = "system-fonts")]
+    pub(crate) fn from_mapped(data: Arc<memmap2::Mmap>, index: u32) -> Result<Self, FontError> {
+        Self::from_data(FontData::Mapped(data), index)
+    }
+
+    fn from_data(data: FontData, index: u32) -> Result<Self, FontError> {
+        let font = FontRef::from_index(data.as_slice(), index).map_err(|err| match err {
             skrifa::raw::ReadError::InvalidCollectionIndex(index) => FontError::InvalidIndex(index),
             _ => FontError::InvalidFont,
         })?;
@@ -59,7 +90,7 @@ impl FontFace {
 
     /// Parses this face again. Cheap: the table directory is validated, no glyph data is read.
     pub(crate) fn font(&self) -> Result<FontRef<'_>, FontError> {
-        FontRef::from_index(&self.data, self.index).map_err(|_| FontError::InvalidFont)
+        FontRef::from_index(self.data.as_slice(), self.index).map_err(|_| FontError::InvalidFont)
     }
 
     /// Font design units per em.

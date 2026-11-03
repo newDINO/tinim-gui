@@ -18,9 +18,11 @@ tinim-paint = { path = "crates/tinim-paint" }
 tinim-text = { path = "crates/tinim-text" }
 
 # Versions shared across crates. `pollster` and `winit` are only used by tinim-wgpu's examples;
-# `png` is also the optional decoder behind tinim-text's `emoji-bitmap` feature.
+# `png` is also the optional decoder behind tinim-text's `emoji-bitmap` feature, and `memmap2`
+# backs its optional `system-fonts` feature.
 pollster = "1.0"
 png = "0.18"
+memmap2 = "0.9.12"
 
 [profile.dev]
 debug = false
