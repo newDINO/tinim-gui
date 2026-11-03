@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tinim-paint", "crates/tinim-wgpu"]
+members = ["crates/tinim-paint", "crates/tinim-text", "crates/tinim-wgpu"]
 
 [workspace.package]
 version = "0.1.0-alpha.1"
@@ -15,10 +15,10 @@ wgpu = "30"
 winit = { version = "0.30" }
 
 tinim-paint = { path = "crates/tinim-paint" }
+tinim-text = { path = "crates/tinim-text" }
 
-# Dev-only dependencies. Cargo has no `[workspace.dev-dependencies]`; these are just versions
-# registered here, and member crates opt in with `pollster.workspace = true` inside their own
-# `[dev-dependencies]`. Nothing is linked into the library crates.
+# Versions shared across crates. `pollster` and `winit` are only used by tinim-wgpu's examples;
+# `png` is also the optional decoder behind tinim-text's `emoji-bitmap` feature.
 pollster = "1.0"
 png = "0.18"
 
