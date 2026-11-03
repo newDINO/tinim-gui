@@ -3,9 +3,10 @@
 //! Run with `cargo run -p tinim-wgpu --example text`.
 //! Without a GPU, install a software Vulkan driver first (on Fedora: `mesa-vulkan-drivers`).
 //!
-//! The example uses the first system font it finds, because the fonts bundled with
-//! `font-test-data` are metrics/feature test fonts whose Latin glyphs are solid rectangles. Pass a
-//! font file to use it instead: `cargo run -p tinim-wgpu --example text -- /path/to/font.ttf`.
+//! The fonts bundled with `font-test-data` are metrics/feature test fonts whose Latin glyphs are
+//! solid rectangles, so the example loads every font it finds in the system font directories and
+//! prints how many faces it added and how long that took. Pass a font file to load only that file
+//! instead: `cargo run -p tinim-wgpu --example text -- /path/to/font.ttf`.
 //!
 //! The example goes through the whole pipeline: `TextSystem::layout` shapes the string,
 //! `TextSystem::prepare` rasterizes the glyphs and builds meshes, `Painter` adds them to a draw
@@ -20,7 +21,7 @@ use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
 const WIDTH: u32 = 640;
-const HEIGHT: u32 = 320;
+const HEIGHT: u32 = 360;
 const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 const BACKGROUND: Color32 = Color32::from_rgb(24, 26, 32);
@@ -30,8 +31,12 @@ const ACCENT: Color32 = Color32::from_rgb(90, 170, 255);
 
 const GLYPH_TEXTURE: TextureId = TextureId(1);
 
-/// Regular-weight system fonts to try before falling back to scanning font directories.
-const REGULAR_FONT_FILES: &[&str] = &[
+/// Regular-weight system fonts to try as the primary face.
+///
+/// Discovery order depends on the filesystem, so without this the first face might be bold or
+/// oblique. Every system font is still loaded afterwards, so the reported load time covers the
+/// full directory scan.
+const PRIMARY_FONT_FILES: &[&str] = &[
     "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -44,6 +49,12 @@ const REGULAR_FONT_FILES: &[&str] = &[
     "C:/Windows/Fonts/segoeui.ttf",
     "C:/Windows/Fonts/arial.ttf",
 ];
+
+/// CJK sample: Chinese, Japanese and Korean, which normally need fallback faces.
+const CJK_TEXT: &str = "你好，世界 · こんにちは · 안녕하세요";
+
+/// Right-to-left sample: Arabic and Hebrew, which also exercise bidi reordering and shaping.
+const RTL_TEXT: &str = "مرحبا بالعالم · שלום עולם";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     pollster::block_on(run())
@@ -69,8 +80,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    // AHEM is a metrics test font: every glyph is a solid rectangle. Prefer a real system font
-    // (or the font file passed on the command line) for legible text.
+    // AHEM is a metrics test font: every glyph is a solid rectangle. Prefer real system fonts (or
+    // the font file passed on the command line) for legible text.
     let mut text = TextSystem::new(GLYPH_TEXTURE);
     let loaded = match std::env::args().nth(1) {
         Some(path) => {
@@ -78,11 +89,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             true
         }
         None => {
-            // Discovery alone is unordered, so try the usual regular-weight faces first.
-            let explicit = REGULAR_FONT_FILES
+            let primary = PRIMARY_FONT_FILES
                 .iter()
-                .any(|path| text.add_font_file(path).is_ok());
-            explicit || text.load_system_fonts() > 0
+                .find_map(|path| text.add_font_file(path).ok());
+            let start = std::time::Instant::now();
+            let faces = text.load_system_fonts();
+            println!("loaded {faces} system font faces in {:?}", start.elapsed());
+            primary.is_some() || faces > 0
         }
     };
     if !loaded {
@@ -95,6 +108,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // CBDT supplies a PNG-backed color emoji. The emoji is used through the fallback path and
     // exercises the bitmap + color-glyph code.
     text.add_font(font_test_data::CBDT.to_vec())?;
+
+    for (label, sample) in [("CJK", CJK_TEXT), ("RTL", RTL_TEXT)] {
+        let missing: String = sample
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && *ch != '·')
+            .filter(|ch| !text.fonts().iter().any(|(_, face)| face.has_char(*ch)))
+            .collect();
+        if !missing.is_empty() {
+            eprintln!("warning: no loaded font covers {label} character(s): {missing:?}");
+        }
+    }
 
     let title = text.layout(
         "Hello, tinim! \u{1F600}",
@@ -116,6 +140,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
         Some((WIDTH - 80) as f32),
     );
+    let cjk = text.layout(
+        CJK_TEXT,
+        &TextStyle {
+            font_size: 22.0,
+            color: FOREGROUND,
+            line_height: Some(32.0),
+            ..Default::default()
+        },
+        Some((WIDTH - 80) as f32),
+    );
+    let rtl = text.layout(
+        RTL_TEXT,
+        &TextStyle {
+            font_size: 24.0,
+            color: ACCENT,
+            line_height: Some(34.0),
+            ..Default::default()
+        },
+        Some((WIDTH - 80) as f32),
+    );
 
     let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
     painter.rect(painter.canvas_rect(), BACKGROUND);
@@ -125,11 +169,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     painter.add_mesh(text.prepare(&title, pos2(60.0, 32.0), 1.0));
-    painter.add_mesh(text.prepare(&body, pos2(60.0, 150.0), 1.0));
+    painter.add_mesh(text.prepare(&body, pos2(60.0, 130.0), 1.0));
+    painter.add_mesh(text.prepare(&cjk, pos2(60.0, 230.0), 1.0));
+    painter.add_mesh(text.prepare(&rtl, pos2(60.0, 280.0), 1.0));
     let list = painter.finish();
     println!(
         "{} lines, {} draws, {} vertices",
-        title.line_count() + body.line_count(),
+        title.line_count() + body.line_count() + cjk.line_count() + rtl.line_count(),
         list.draws.len(),
         list.vertices.len()
     );

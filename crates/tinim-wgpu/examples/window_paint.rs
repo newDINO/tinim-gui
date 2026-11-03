@@ -20,6 +20,8 @@ struct AppInner {
 
     painter: tinim_paint::Painter,
     d2_renderer: tinim_wgpu::Renderer,
+
+    text_system: tinim_text::TextSystem,
 }
 
 impl AppInner {
@@ -55,7 +57,7 @@ impl AppInner {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -65,6 +67,8 @@ impl AppInner {
 
         let painter = tinim_paint::Painter::new(size.width as f32, size.height as f32, 1.0);
         let d2_renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
+        let mut text_system = tinim_text::TextSystem::new(tinim_paint::TextureId(1));
+        text_system.load_system_fonts();
 
         Self {
             window,
@@ -75,6 +79,7 @@ impl AppInner {
 
             painter,
             d2_renderer,
+            text_system,
         }
     }
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -97,16 +102,29 @@ impl AppInner {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.painter.clear();
-        self.painter.rect(
-            tinim_paint::Rect {
-                min: vec2(100.0, 100.0),
-                max: vec2(300.0, 200.0),
-            },
-            Color32::from_rgb(127, 127, 127),
-        );
-        self.painter
-            .circle(vec2(100.0, 190.0), 50.0, Color32::from_rgb(255, 255, 0));
+        {
+            self.painter.clear();
+            self.painter.rect(
+                tinim_paint::Rect {
+                    min: vec2(100.0, 100.0),
+                    max: vec2(300.0, 200.0),
+                },
+                Color32::from_rgb(127, 127, 127),
+            );
+            self.painter
+                .circle(vec2(100.0, 190.0), 50.0, Color32::from_rgb(255, 255, 0));
+
+            let layout = self.text_system.layout(
+                "Hello, world! 你好，世界！",
+                &tinim_text::TextStyle {
+                    color: Color32::WHITE,
+                    ..Default::default()
+                },
+                None,
+            );
+            self.painter
+                .add_mesh(self.text_system.prepare(&layout, vec2(10.0, 10.0), 1.0));
+        }
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -126,6 +144,9 @@ impl AppInner {
                 multiview_mask: None,
             });
 
+            let text_texture_delta = self.text_system.take_textures();
+            self.d2_renderer
+                .update_textures(&self.device, &self.queue, &text_texture_delta);
             let paint_list = self.painter.finish();
             self.d2_renderer.render(
                 &self.device,
