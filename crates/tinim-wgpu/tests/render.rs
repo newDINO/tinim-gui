@@ -3,7 +3,7 @@
 //! Skipped silently when no wgpu adapter is available (e.g. a machine without a GPU and without a
 //! software Vulkan driver).
 
-use tinim_paint::{Color32, Painter, Rect, pos2, vec2};
+use tinim_paint::{Color32, ImageDelta, Mesh, Painter, Rect, TextureId, TexturesDelta, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
@@ -83,6 +83,86 @@ fn renders_quads_and_applies_the_scissor() {
     let rgba = read_back(&device, &queue, encoder, &target);
     assert_pixel(&rgba, 4, 8, [0, 255, 0]);
     assert_pixel(&rgba, 20, 8, [255, 0, 0]);
+}
+
+#[test]
+fn samples_srgb_textures_in_linear_space() {
+    let Some((device, queue)) = setup() else {
+        eprintln!("skipping: no wgpu adapter available");
+        return;
+    };
+
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("srgb test target"),
+        size: wgpu::Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let texture_id = TextureId(1);
+    let mut mesh = Mesh::with_texture(texture_id);
+    mesh.add_rect_with_uv(
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH as f32, HEIGHT as f32)),
+        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+        Color32::WHITE,
+    );
+
+    let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
+    painter.add_mesh(mesh);
+    let list = painter.finish();
+
+    let textures = TexturesDelta {
+        set: vec![(
+            texture_id,
+            ImageDelta::full([1, 1], vec![128, 128, 128, 255]),
+        )],
+        free: Vec::new(),
+    };
+
+    let mut renderer = Renderer::new(&device, &queue, FORMAT);
+    renderer.update_textures(&device, &queue, &textures);
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(CLEAR),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        renderer.render(
+            &device,
+            &queue,
+            &mut pass,
+            ScreenDescriptor::new(WIDTH, HEIGHT),
+            list,
+        );
+    }
+
+    let rgba = read_back(&device, &queue, encoder, &target);
+    // A 128 sRGB texel decodes to linear and the target re-encodes it to 128. Treating the texel
+    // as already-linear would produce roughly 188 instead.
+    assert_pixel(&rgba, 4, 8, [128, 128, 128]);
 }
 
 fn setup() -> Option<(wgpu::Device, wgpu::Queue)> {

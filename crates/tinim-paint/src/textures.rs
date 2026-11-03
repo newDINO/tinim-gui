@@ -1,4 +1,8 @@
 //! Texture uploads for the renderer (images, and in the future glyph coverage).
+//!
+//! Pixel data is straight-alpha sRGB: RGB is sRGB color and alpha is linear coverage. The renderer
+//! uploads it into an sRGB texture, so the sampler converts RGB to linear space. Non-color data
+//! (masks, normals, lookup tables) does not belong in this format.
 
 use crate::TextureId;
 
@@ -9,7 +13,7 @@ pub struct ImageDelta {
     pub pos: Option<[u32; 2]>,
     /// Size in pixels of the uploaded region.
     pub size: [u32; 2],
-    /// Tightly packed RGBA8 pixels (`size[0] * size[1] * 4` bytes).
+    /// Tightly packed RGBA8 pixels (`size[0] * size[1] * 4` bytes), straight-alpha sRGB.
     pub rgba: Vec<u8>,
 }
 

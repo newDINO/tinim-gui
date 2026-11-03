@@ -36,7 +36,8 @@ pub(crate) struct GlyphSlot {
 /// A glyph rasterized into RGBA8.
 ///
 /// For coverage glyphs the RGB channels are opaque white and alpha is the coverage. For color
-/// glyphs the RGB channels are *straight, linear* color and alpha is the coverage.
+/// glyphs the RGB channels are *straight sRGB* color and alpha is the coverage. The renderer
+/// samples the atlas through an sRGB texture, so the sampler converts RGB to linear space.
 pub(crate) struct RasterGlyph {
     pub width: u32,
     pub height: u32,

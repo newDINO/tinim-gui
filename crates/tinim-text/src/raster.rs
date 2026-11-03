@@ -121,8 +121,8 @@ fn rasterize_bitmap(
     if width > 4096 || height > 4096 {
         return None;
     }
-    let scaled = scale_rgba(&source, source_width, source_height, width, height);
-    let pixels = linearize_rgba(&scaled);
+    // Keep the bitmap in sRGB space: the renderer's sRGB texture format decodes it on sample.
+    let pixels = scale_rgba(&source, source_width, source_height, width, height);
 
     // The outer bearings (`bearing_x`/`bearing_y`) are in font units; the inner bearings are in
     // strike pixels. This mirrors Skia's fontations port, which is tested against CoreText.
@@ -327,16 +327,6 @@ fn sample_premultiplied(source: &[u8], width: u32, x: u32, y: u32) -> [f32; 4] {
     ]
 }
 
-fn linearize_rgba(source: &[u8]) -> Vec<u8> {
-    let mut out = source.to_vec();
-    for pixel in out.as_chunks_mut::<4>().0 {
-        pixel[0] = srgb_to_linear_u8(pixel[0]);
-        pixel[1] = srgb_to_linear_u8(pixel[1]);
-        pixel[2] = srgb_to_linear_u8(pixel[2]);
-    }
-    out
-}
-
 fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterGlyph> {
     let palette: Vec<[u8; 4]> = font
         .color_palettes()
@@ -457,9 +447,8 @@ fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
         let offset = index * 4;
         if alpha > 0.0 {
             for channel in 0..3 {
-                pixels[offset + channel] = (premultiplied[channel] / alpha * 255.0)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
+                // Layers are composited in linear space above, but the atlas stores sRGB.
+                pixels[offset + channel] = linear_to_srgb_u8(premultiplied[channel] / alpha);
             }
         }
         pixels[offset + 3] = (alpha * 255.0).round() as u8;
@@ -525,8 +514,14 @@ fn srgb_to_linear(channel: u8) -> f32 {
     }
 }
 
-fn srgb_to_linear_u8(channel: u8) -> u8 {
-    (srgb_to_linear(channel) * 255.0).round() as u8
+fn linear_to_srgb_u8(channel: f32) -> u8 {
+    let value = channel.clamp(0.0, 1.0);
+    let encoded = if value <= 0.003_130_8 {
+        12.92 * value
+    } else {
+        1.055 * value.powf(1.0 / 2.4) - 0.055
+    };
+    (encoded * 255.0).round() as u8
 }
 
 #[cfg(test)]
@@ -534,10 +529,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn srgb_endpoints_are_preserved() {
-        assert_eq!(srgb_to_linear_u8(0), 0);
-        assert_eq!(srgb_to_linear_u8(255), 255);
-        assert!(srgb_to_linear_u8(128) < 128);
+    fn srgb_round_trips_through_linear() {
+        for channel in [0u8, 1, 16, 64, 128, 192, 254, 255] {
+            let round_trip = linear_to_srgb_u8(srgb_to_linear(channel));
+            assert!(
+                (round_trip as i32 - channel as i32).abs() <= 1,
+                "{channel} became {round_trip}"
+            );
+        }
     }
 
     #[test]

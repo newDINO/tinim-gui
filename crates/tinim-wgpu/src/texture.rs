@@ -1,13 +1,19 @@
 //! Texture storage for the renderer.
 //!
-//! Textures are `Rgba8Unorm` (not sRGB): color comes from the vertex attribute, while the texture
-//! can supply coverage in its alpha channel (for example glyphs). Untextured geometry samples the
-//! renderer's 1×1 opaque white texture, so there is a single texture format for everything.
+//! Textures are `Rgba8UnormSrgb`: RGB is sRGB color with straight alpha, and the sampler converts
+//! it to linear space for the shader. Alpha is linear coverage (for example glyph coverage) and is
+//! not affected by the sRGB conversion. Untextured geometry samples the renderer's 1×1 opaque
+//! white texture, so there is a single texture format for everything.
+//!
+//! Uploads must therefore contain straight-alpha sRGB pixels. Non-color data (masks, normals,
+//! lookup tables) and premultiplied-alpha images need a different format or a preprocessing step.
 
 use tinim_paint::ImageDelta;
 
 /// Shader-visible texture format, shared by the white texel and user textures.
-pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+///
+/// The sampler decodes RGB from sRGB to linear; upload sRGB-encoded, straight-alpha pixels.
+pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,

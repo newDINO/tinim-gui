@@ -6,7 +6,8 @@ struct Globals {
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 
-// The bound texture supplies color and coverage. Untextured geometry samples the renderer's
+// The bound texture supplies color and coverage. It is an sRGB texture, so the sampler has already
+// converted its RGB to linear space; alpha stays linear. Untextured geometry samples the renderer's
 // opaque white texel (TextureId::WHITE).
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var tex_sampler: sampler;
