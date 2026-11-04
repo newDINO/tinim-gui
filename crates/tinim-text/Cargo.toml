@@ -36,4 +36,9 @@ system-fonts = ["dep:memmap2"]
 emoji-bitmap = ["dep:png"]
 
 [dev-dependencies]
+criterion = "0.8"
 font-test-data = "0.10"
+
+[[bench]]
+name = "text"
+harness = false
