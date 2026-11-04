@@ -106,7 +106,14 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     let mut system = TextSystem::with_atlas_size(TextureId(1), 64);
     system.add_font(AHEM.to_vec()).unwrap();
 
+    // First frame: the texture is allocated at the initial size.
     let first = system.layout("a", &style(16.0), None);
+    system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    let textures = system.take_textures();
+    assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
+    assert_eq!(textures.set.len(), 1);
+
+    // Next frame: a mesh is built before the overflowing layout is prepared.
     system.prepare(&first, pos2(0.0, 0.0), 1.0);
 
     let text = "abcdefghijklmnopqrstuvwxyz";
@@ -379,6 +386,10 @@ fn empty_text_has_no_lines() {
     assert_eq!(layout.line_count(), 0);
     assert_eq!(layout.size(), tinim_paint::Vec2::ZERO);
     assert!(system.prepare(&layout, pos2(0.0, 0.0), 1.0).is_empty());
+    assert!(
+        system.take_textures().is_empty(),
+        "no glyph was rasterized, so no texture is allocated"
+    );
 }
 
 #[cfg(feature = "emoji-bitmap")]

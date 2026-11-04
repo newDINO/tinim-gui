@@ -72,8 +72,7 @@ const MAX_PPEM: f32 = MAX_ATLAS_SIZE as f32;
 
 /// What to do to the atlas at the start of the next frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingAtlasAction {
-    None,
+enum AtlasAction {
     Grow,
     Reset,
 }
@@ -84,11 +83,11 @@ pub struct TextSystem {
     atlas: Atlas,
     /// Whether a mesh has been built since the last [`TextSystem::take_textures`].
     ///
-    /// Growing the atlas re-packs every glyph, so it must not happen after a mesh from the same
-    /// frame has been built. If the atlas overflows in that situation the frame skips the
-    /// glyphs that do not fit and the action is deferred to the next frame.
+    /// Growing or clearing the atlas re-packs every glyph, so it must not happen after a mesh
+    /// from the same frame has been built. If the atlas overflows in that situation the frame
+    /// skips the glyphs that do not fit and the action is deferred to the next frame.
     prepared_since_take: bool,
-    pending_atlas: PendingAtlasAction,
+    pending_atlas: Option<AtlasAction>,
 }
 
 impl TextSystem {
@@ -110,7 +109,7 @@ impl TextSystem {
             fonts: FontStack::default(),
             atlas: Atlas::new(texture_id, size, size, max_size),
             prepared_since_take: false,
-            pending_atlas: PendingAtlasAction::None,
+            pending_atlas: None,
         }
     }
 
@@ -234,52 +233,60 @@ impl TextSystem {
             .round()
             .clamp(1.0, MAX_PPEM) as u32;
 
-        if !self.prepared_since_take {
-            match self.pending_atlas {
-                PendingAtlasAction::None => {}
-                PendingAtlasAction::Grow => {
-                    self.pending_atlas = PendingAtlasAction::None;
-                    let _ = self.grow_atlas();
-                }
-                PendingAtlasAction::Reset => {
-                    self.pending_atlas = PendingAtlasAction::None;
-                    self.atlas.reset();
-                }
-            }
-        }
+        self.apply_pending_atlas_action();
 
-        // Grow the atlas before falling back to clearing it. Growth re-rasterizes cached glyphs,
-        // so no CPU-side copy of the texture is needed. Building the mesh only after every glyph
-        // has been allocated makes the retry safe: no stale UVs are left behind.
-        let mut skip_overflow = false;
+        // If the atlas overflows there are two cases:
+        //
+        // * No mesh has been built since the last take: re-packing the atlas is safe, so grow it
+        //   (or clear it once it is at the maximum size) and retry.
+        // * A mesh already references the current atlas: moving glyphs would invalidate that
+        //   mesh. Defer the action and draw only the glyphs that fit in this frame.
+        //
+        // Building the mesh only after every glyph has been allocated makes both retries safe:
+        // no stale UVs are left behind.
+        let can_repack = !self.prepared_since_take;
+        let mut allow_overflow = false;
         loop {
-            match self.try_prepare(layout, origin, pixels_per_point, ppem, skip_overflow) {
-                Some(mesh) => {
-                    self.prepared_since_take = true;
-                    return mesh;
-                }
-                None if !skip_overflow && !self.prepared_since_take && self.grow_atlas() => {}
-                None if !skip_overflow && !self.prepared_since_take => {
-                    // At the maximum size. No mesh from this frame exists yet, so clearing is safe.
-                    self.atlas.reset();
-                    skip_overflow = true;
-                }
-                None if !skip_overflow => {
-                    // A mesh from this frame already uses the current atlas. Growing now would
-                    // move every cached glyph and invalidate that mesh, so skip the glyphs that
-                    // do not fit and grow at the start of the next frame instead.
-                    self.pending_atlas = if self.atlas.can_grow() {
-                        PendingAtlasAction::Grow
-                    } else {
-                        PendingAtlasAction::Reset
-                    };
-                    skip_overflow = true;
-                }
-                None => {
-                    // With `skip_overflow` set, `try_prepare` always produces a mesh.
+            if let Some(mesh) =
+                self.try_prepare(layout, origin, pixels_per_point, ppem, allow_overflow)
+            {
+                self.prepared_since_take = true;
+                return mesh;
+            }
+
+            if !can_repack {
+                self.pending_atlas = Some(if self.atlas.can_grow() {
+                    AtlasAction::Grow
+                } else {
+                    AtlasAction::Reset
+                });
+                allow_overflow = true;
+                continue;
+            }
+
+            // Growth keeps the cached glyphs; clearing is the fallback when they can never all
+            // fit in one texture.
+            if !allow_overflow && self.grow_atlas() {
+                continue;
+            }
+            self.atlas.reset();
+            allow_overflow = true;
+        }
+    }
+
+    /// Applies a growth or reset that was deferred from the previous frame.
+    fn apply_pending_atlas_action(&mut self) {
+        if self.prepared_since_take {
+            return;
+        }
+        match self.pending_atlas.take() {
+            Some(AtlasAction::Grow) => {
+                if !self.grow_atlas() {
                     self.atlas.reset();
                 }
             }
+            Some(AtlasAction::Reset) => self.atlas.reset(),
+            None => {}
         }
     }
 
@@ -412,6 +419,6 @@ impl TextSystem {
     pub fn reset_atlas(&mut self) {
         self.atlas.reset();
         self.prepared_since_take = false;
-        self.pending_atlas = PendingAtlasAction::None;
+        self.pending_atlas = None;
     }
 }

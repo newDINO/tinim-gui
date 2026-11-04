@@ -68,10 +68,12 @@ pub(crate) struct Atlas {
     /// Glyph pixels waiting to be uploaded. Each entry is the exact rectangle of one glyph, so
     /// the atlas never has to keep a full CPU-side copy of the texture.
     uploads: Vec<ImageDelta>,
-    /// Whether the renderer has been told to allocate the texture.
-    created: bool,
-    /// Set when the atlas grows and the renderer must replace the texture with a larger one.
-    needs_recreate: bool,
+    /// The texture size the renderer currently has, or `None` before it has been told about the
+    /// atlas at all.
+    ///
+    /// Comparing this against the current size is enough to detect both the initial allocation
+    /// and every later growth, without keeping separate "created" and "recreate" flags.
+    uploaded_size: Option<[u32; 2]>,
 }
 
 impl Atlas {
@@ -89,8 +91,7 @@ impl Atlas {
             slots: HashMap::new(),
             order: Vec::new(),
             uploads: Vec::new(),
-            created: false,
-            needs_recreate: false,
+            uploaded_size: None,
         }
     }
 
@@ -187,7 +188,6 @@ impl Atlas {
         self.slots.clear();
         self.order.clear();
         self.uploads.clear();
-        self.needs_recreate = true;
         true
     }
 
@@ -228,14 +228,14 @@ impl Atlas {
     /// Returns this frame's uploads and clears the pending state.
     pub(crate) fn take_textures(&mut self) -> TexturesDelta {
         let mut delta = TexturesDelta::default();
+        let size = [self.width, self.height];
 
-        // A grown atlas needs a new texture even when no glyph was queued afterwards.
-        if !self.created || self.needs_recreate {
-            self.created = true;
-            self.needs_recreate = false;
-            delta
-                .create
-                .push((self.texture_id, [self.width, self.height]));
+        // Allocate the texture on first use, or replace it after the atlas grew. A system that
+        // never produced a glyph does not allocate anything, even though no texture exists yet.
+        let size_changed = self.uploaded_size != Some(size);
+        if size_changed && (!self.uploads.is_empty() || self.uploaded_size.is_some()) {
+            self.uploaded_size = Some(size);
+            delta.create.push((self.texture_id, size));
         }
 
         delta.set.extend(
