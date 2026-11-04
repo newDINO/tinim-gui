@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/tinim-paint", "crates/tinim-text", "crates/tinim-wgpu"]
+members = [
+    "crates/tinim-paint",
+    "crates/tinim-text",
+    "crates/tinim-wgpu",
+    "crates/tinim-gui",
+    "crates/tinim-winit",
+]
 
 [workspace.package]
 version = "0.1.0-alpha.1"
@@ -16,6 +22,9 @@ winit = { version = "0.30", default-features = false }
 
 tinim-paint = { path = "crates/tinim-paint" }
 tinim-text = { path = "crates/tinim-text" }
+tinim-wgpu = { path = "crates/tinim-wgpu" }
+tinim-gui = { path = "crates/tinim-gui" }
+tinim-winit = { path = "crates/tinim-winit" }
 
 # Versions shared across crates. `pollster` and `winit` are only used by tinim-wgpu's examples;
 # `png` is also the optional decoder behind tinim-text's `emoji-bitmap` feature, and `memmap2`

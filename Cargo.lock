@@ -1955,6 +1955,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinim-gui"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "font-test-data",
+ "tinim-paint",
+ "tinim-text",
+]
+
+[[package]]
 name = "tinim-paint"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -1991,6 +2000,17 @@ dependencies = [
  "tinim-paint",
  "tinim-text",
  "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "tinim-winit"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "pollster",
+ "tinim-gui",
+ "tinim-text",
+ "tinim-wgpu",
  "winit",
 ]
 

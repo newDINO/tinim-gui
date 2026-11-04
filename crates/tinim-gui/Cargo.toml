@@ -1,0 +1,14 @@
+[package]
+name = "tinim-gui"
+description = "Immediate-mode GUI on top of tinim-paint and tinim-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tinim-paint.workspace = true
+tinim-text.workspace = true
+
+[dev-dependencies]
+font-test-data = "0.10"

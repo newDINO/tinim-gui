@@ -160,11 +160,7 @@ fn bench_prepare_warm(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::from_parameter(sample.name),
             layout,
-            |b, layout| {
-                b.iter(|| {
-                    black_box(text.prepare(black_box(layout), pos2(0.0, 0.0), 1.0))
-                })
-            },
+            |b, layout| b.iter(|| black_box(text.prepare(black_box(layout), pos2(0.0, 0.0), 1.0))),
         );
     }
     group.finish();

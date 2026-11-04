@@ -1,0 +1,16 @@
+[package]
+name = "tinim-winit"
+description = "winit input adapter for tinim-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tinim-gui.workspace = true
+winit = { workspace = true, features = ["rwh_06", "x11"] }
+
+[dev-dependencies]
+pollster.workspace = true
+tinim-text = { workspace = true, features = ["system-fonts"] }
+tinim-wgpu.workspace = true
