@@ -2,21 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-/// Memory-maps a font file, preferring [`memmap2::MmapOptions::map_if_safe`].
-///
-/// `map_if_safe` only succeeds when the kernel can prove the file cannot change underneath the
-/// mapping (a sealed memfd or an fs-verity file). Regular system font files cannot be proven
-/// immutable, so they take the unsafe path below.
+/// Memory-maps a font file.
 pub(crate) fn map_font_file(file: &std::fs::File) -> std::io::Result<memmap2::Mmap> {
-    match memmap2::MmapOptions::new().map_if_safe(file) {
-        Ok(mmap) => Ok(mmap),
-        Err(_) => {
-            // SAFETY: the file is opened read-only and the mapping is read-only. As with any
-            // memory map, replacing or truncating the file while it is mapped could fault, but
-            // system font files are not modified while text is being rendered.
-            unsafe { memmap2::MmapOptions::new().map(file) }
-        }
-    }
+    // SAFETY: the file is opened read-only and the mapping is read-only. As with any
+    // memory map, replacing or truncating the file while it is mapped could fault, but
+    // system font files are not modified while text is being rendered.
+    unsafe { memmap2::MmapOptions::new().map(file) }
 }
 
 /// Returns every font file in the usual system font directories.
