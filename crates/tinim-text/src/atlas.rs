@@ -58,29 +58,39 @@ pub(crate) struct Atlas {
     texture_id: TextureId,
     width: u32,
     height: u32,
+    /// Largest square the atlas may grow to.
+    max_size: u32,
     shelves: Vec<Shelf>,
     next_y: u32,
     slots: HashMap<GlyphKey, GlyphSlot>,
+    /// Cached glyphs in insertion order, used to re-pack the atlas when it grows.
+    order: Vec<GlyphKey>,
     /// Glyph pixels waiting to be uploaded. Each entry is the exact rectangle of one glyph, so
     /// the atlas never has to keep a full CPU-side copy of the texture.
     uploads: Vec<ImageDelta>,
     /// Whether the renderer has been told to allocate the texture.
     created: bool,
+    /// Set when the atlas grows and the renderer must replace the texture with a larger one.
+    needs_recreate: bool,
 }
 
 impl Atlas {
-    pub(crate) fn new(texture_id: TextureId, width: u32, height: u32) -> Self {
+    pub(crate) fn new(texture_id: TextureId, width: u32, height: u32, max_size: u32) -> Self {
         let width = width.max(1);
         let height = height.max(1);
+        let max_size = max_size.max(width).max(height);
         Self {
             texture_id,
             width,
             height,
+            max_size,
             shelves: Vec::new(),
             next_y: 0,
             slots: HashMap::new(),
+            order: Vec::new(),
             uploads: Vec::new(),
             created: false,
+            needs_recreate: false,
         }
     }
 
@@ -90,6 +100,11 @@ impl Atlas {
 
     pub(crate) fn get(&self, key: &GlyphKey) -> Option<GlyphSlot> {
         self.slots.get(key).copied()
+    }
+
+    /// Whether a glyph of this size could fit even at the maximum atlas size.
+    pub(crate) fn can_ever_fit(&self, width: u32, height: u32) -> bool {
+        width + PADDING <= self.max_size && height + PADDING <= self.max_size
     }
 
     /// Reserves a slot for a glyph and queues its pixels for upload.
@@ -140,7 +155,40 @@ impl Atlas {
             color,
         };
         self.slots.insert(key, slot);
+        self.order.push(key);
         Some(slot)
+    }
+
+    /// The cached glyphs, in the order they were first rasterized.
+    pub(crate) fn keys(&self) -> Vec<GlyphKey> {
+        self.order.clone()
+    }
+
+    /// Whether the atlas can still double its dimensions.
+    pub(crate) fn can_grow(&self) -> bool {
+        let current = self.width.max(self.height);
+        current.saturating_mul(2).min(self.max_size) > current
+    }
+
+    /// Doubles the atlas dimensions and forgets every slot so the caller can re-pack.
+    ///
+    /// Returns `false` when the atlas has already reached its maximum size.
+    pub(crate) fn grow(&mut self) -> bool {
+        let current = self.width.max(self.height);
+        let next = current.saturating_mul(2).min(self.max_size);
+        if next <= current {
+            return false;
+        }
+
+        self.width = next;
+        self.height = next;
+        self.shelves.clear();
+        self.next_y = 0;
+        self.slots.clear();
+        self.order.clear();
+        self.uploads.clear();
+        self.needs_recreate = true;
+        true
     }
 
     fn find_position(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
@@ -173,22 +221,23 @@ impl Atlas {
         self.shelves.clear();
         self.next_y = 0;
         self.slots.clear();
+        self.order.clear();
         self.uploads.clear();
     }
 
     /// Returns this frame's uploads and clears the pending state.
     pub(crate) fn take_textures(&mut self) -> TexturesDelta {
         let mut delta = TexturesDelta::default();
-        if self.uploads.is_empty() {
-            return delta;
-        }
 
-        if !self.created {
+        // A grown atlas needs a new texture even when no glyph was queued afterwards.
+        if !self.created || self.needs_recreate {
             self.created = true;
+            self.needs_recreate = false;
             delta
                 .create
                 .push((self.texture_id, [self.width, self.height]));
         }
+
         delta.set.extend(
             self.uploads
                 .drain(..)

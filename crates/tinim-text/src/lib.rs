@@ -61,30 +61,56 @@ pub use layout::{PositionedGlyph, TextDirection, TextLayout, TextLine, TextStyle
 
 use atlas::{Atlas, GlyphKey};
 
-const DEFAULT_ATLAS_SIZE: u32 = 2048;
+/// The atlas starts small and doubles when it fills up.
+const INITIAL_ATLAS_SIZE: u32 = 512;
+
+/// Upper bound for automatic growth. `with_atlas_size` can start larger than this.
+const MAX_ATLAS_SIZE: u32 = 2048;
 
 /// Glyphs larger than this are not useful in a default atlas and only waste memory.
-const MAX_PPEM: f32 = DEFAULT_ATLAS_SIZE as f32;
+const MAX_PPEM: f32 = MAX_ATLAS_SIZE as f32;
+
+/// What to do to the atlas at the start of the next frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingAtlasAction {
+    None,
+    Grow,
+    Reset,
+}
 
 /// Owns the font stack, the glyph atlas and the rasterization cache.
 pub struct TextSystem {
     fonts: FontStack,
     atlas: Atlas,
+    /// Whether a mesh has been built since the last [`TextSystem::take_textures`].
+    ///
+    /// Growing the atlas re-packs every glyph, so it must not happen after a mesh from the same
+    /// frame has been built. If the atlas overflows in that situation the frame skips the
+    /// glyphs that do not fit and the action is deferred to the next frame.
+    prepared_since_take: bool,
+    pending_atlas: PendingAtlasAction,
 }
 
 impl TextSystem {
     /// Creates a text system whose glyph atlas is uploaded as `texture_id`.
     ///
-    /// `TextureId::WHITE` is reserved by the renderer, so use another id.
+    /// The atlas starts small and grows on demand. `TextureId::WHITE` is reserved by the
+    /// renderer, so use another id.
     pub fn new(texture_id: TextureId) -> Self {
-        Self::with_atlas_size(texture_id, DEFAULT_ATLAS_SIZE)
+        Self::with_atlas_size(texture_id, INITIAL_ATLAS_SIZE)
     }
 
-    /// Creates a text system with a custom square atlas size.
+    /// Creates a text system with a custom initial square atlas size.
+    ///
+    /// The atlas doubles its dimensions when it fills up, up to the built-in maximum (or the
+    /// given size, if that is larger).
     pub fn with_atlas_size(texture_id: TextureId, size: u32) -> Self {
+        let max_size = MAX_ATLAS_SIZE.max(size);
         Self {
             fonts: FontStack::default(),
-            atlas: Atlas::new(texture_id, size, size),
+            atlas: Atlas::new(texture_id, size, size, max_size),
+            prepared_since_take: false,
+            pending_atlas: PendingAtlasAction::None,
         }
     }
 
@@ -208,16 +234,84 @@ impl TextSystem {
             .round()
             .clamp(1.0, MAX_PPEM) as u32;
 
-        // If the atlas fills up we clear it and start over. Building the mesh only after every
-        // glyph has been allocated makes that retry safe: no stale UVs are left behind.
-        let mut cleared = false;
-        loop {
-            match self.try_prepare(layout, origin, pixels_per_point, ppem, cleared) {
-                Some(mesh) => return mesh,
-                None => {
-                    self.atlas.reset();
-                    cleared = true;
+        if !self.prepared_since_take {
+            match self.pending_atlas {
+                PendingAtlasAction::None => {}
+                PendingAtlasAction::Grow => {
+                    self.pending_atlas = PendingAtlasAction::None;
+                    let _ = self.grow_atlas();
                 }
+                PendingAtlasAction::Reset => {
+                    self.pending_atlas = PendingAtlasAction::None;
+                    self.atlas.reset();
+                }
+            }
+        }
+
+        // Grow the atlas before falling back to clearing it. Growth re-rasterizes cached glyphs,
+        // so no CPU-side copy of the texture is needed. Building the mesh only after every glyph
+        // has been allocated makes the retry safe: no stale UVs are left behind.
+        let mut skip_overflow = false;
+        loop {
+            match self.try_prepare(layout, origin, pixels_per_point, ppem, skip_overflow) {
+                Some(mesh) => {
+                    self.prepared_since_take = true;
+                    return mesh;
+                }
+                None if !skip_overflow && !self.prepared_since_take && self.grow_atlas() => {}
+                None if !skip_overflow && !self.prepared_since_take => {
+                    // At the maximum size. No mesh from this frame exists yet, so clearing is safe.
+                    self.atlas.reset();
+                    skip_overflow = true;
+                }
+                None if !skip_overflow => {
+                    // A mesh from this frame already uses the current atlas. Growing now would
+                    // move every cached glyph and invalidate that mesh, so skip the glyphs that
+                    // do not fit and grow at the start of the next frame instead.
+                    self.pending_atlas = if self.atlas.can_grow() {
+                        PendingAtlasAction::Grow
+                    } else {
+                        PendingAtlasAction::Reset
+                    };
+                    skip_overflow = true;
+                }
+                None => {
+                    // With `skip_overflow` set, `try_prepare` always produces a mesh.
+                    self.atlas.reset();
+                }
+            }
+        }
+    }
+
+    /// Grows the atlas and re-packs every cached glyph.
+    ///
+    /// Returns `false` if the atlas is already at its maximum size or the cached glyphs still do
+    /// not fit after growing.
+    fn grow_atlas(&mut self) -> bool {
+        let keys = self.atlas.keys();
+        loop {
+            if !self.atlas.grow() {
+                return false;
+            }
+
+            let mut all_fit = true;
+            for key in &keys {
+                let raster = {
+                    let Some(face) = self.fonts.get(key.font) else {
+                        continue;
+                    };
+                    raster::rasterize(face, GlyphId::new(key.glyph_id), key.ppem as f32)
+                };
+                let Some(raster) = raster else {
+                    continue;
+                };
+                if self.atlas.alloc(*key, raster).is_none() {
+                    all_fit = false;
+                    break;
+                }
+            }
+            if all_fit {
+                return true;
             }
         }
     }
@@ -254,6 +348,16 @@ impl TextSystem {
                     slots.push(None);
                     continue;
                 };
+                // Empty glyphs (spaces, missing outlines) never need atlas space and must not
+                // trigger growth.
+                if raster.width == 0 || raster.height == 0 {
+                    slots.push(None);
+                    continue;
+                }
+                if !self.atlas.can_ever_fit(raster.width, raster.height) {
+                    slots.push(None);
+                    continue;
+                }
                 match self.atlas.alloc(key, raster) {
                     Some(slot) => slots.push(Some(slot)),
                     None if skip_overflow => slots.push(None),
@@ -292,6 +396,7 @@ impl TextSystem {
 
     /// Returns this frame's atlas uploads and clears the dirty state.
     pub fn take_textures(&mut self) -> TexturesDelta {
+        self.prepared_since_take = false;
         self.atlas.take_textures()
     }
 
@@ -306,5 +411,7 @@ impl TextSystem {
     /// glyphs are uploaded into their own rectangles as they are rasterized.
     pub fn reset_atlas(&mut self) {
         self.atlas.reset();
+        self.prepared_since_take = false;
+        self.pending_atlas = PendingAtlasAction::None;
     }
 }

@@ -52,6 +52,92 @@ fn ahem_layout_and_atlas_upload() {
 }
 
 #[test]
+fn atlas_grows_instead_of_resetting() {
+    let mut system = TextSystem::with_atlas_size(TextureId(1), 64);
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let text = "abcdefghijklmnopqrstuvwxyz";
+    let layout = system.layout(text, &style(16.0), None);
+    let glyph_count = layout.lines()[0].glyphs().len();
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    assert_eq!(mesh.vertices.len(), glyph_count * 4);
+
+    let textures = system.take_textures();
+    assert_eq!(textures.create.len(), 1);
+    let [width, height] = textures.create[0].1;
+    assert!(width > 64, "the atlas should grow beyond its initial size");
+    assert_eq!(width, height);
+    assert!(
+        textures.set.len() >= glyph_count,
+        "every cached glyph is re-uploaded after growth"
+    );
+
+    // Growth re-packs the cache, so the same layout must not upload anything again.
+    let mesh_again = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    assert_eq!(mesh_again.vertices.len(), mesh.vertices.len());
+    assert!(system.take_textures().is_empty());
+}
+
+#[test]
+fn growth_recreates_an_existing_texture() {
+    let mut system = TextSystem::with_atlas_size(TextureId(1), 64);
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let small = system.layout("a", &style(16.0), None);
+    system.prepare(&small, pos2(0.0, 0.0), 1.0);
+    let textures = system.take_textures();
+    assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
+    assert_eq!(textures.set.len(), 1);
+
+    let text = "abcdefghijklmnopqrstuvwxyz";
+    let big = system.layout(text, &style(16.0), None);
+    system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    let textures = system.take_textures();
+    assert_eq!(textures.create.len(), 1);
+    assert!(
+        textures.create[0].1[0] > 64,
+        "the renderer is told to replace the texture"
+    );
+    assert!(textures.set.len() > 1);
+}
+
+#[test]
+fn growth_is_deferred_when_a_mesh_already_exists() {
+    let mut system = TextSystem::with_atlas_size(TextureId(1), 64);
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let first = system.layout("a", &style(16.0), None);
+    system.prepare(&first, pos2(0.0, 0.0), 1.0);
+
+    let text = "abcdefghijklmnopqrstuvwxyz";
+    let big = system.layout(text, &style(16.0), None);
+    let glyph_count = big.lines()[0].glyphs().len();
+    let partial = system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    assert!(
+        partial.vertices.len() < glyph_count * 4,
+        "the current frame skips glyphs that do not fit"
+    );
+    assert!(!partial.is_empty());
+
+    // The earlier glyph is still cached, so its mesh can be rebuilt without growth.
+    let again = system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    assert_eq!(again.vertices.len(), 4);
+
+    let textures = system.take_textures();
+    assert!(
+        textures.create.is_empty(),
+        "growth is deferred to the start of the next frame"
+    );
+
+    // The next frame grows before building any mesh, so the full layout fits.
+    let full = system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    assert_eq!(full.vertices.len(), glyph_count * 4);
+    let textures = system.take_textures();
+    assert_eq!(textures.create.len(), 1);
+    assert!(textures.create[0].1[0] > 64);
+}
+
+#[test]
 fn glyphs_sit_on_the_baseline() {
     let mut system = TextSystem::new(TextureId(1));
     system.add_font(VAZIRMATN_VAR.to_vec()).unwrap();
