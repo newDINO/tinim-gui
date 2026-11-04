@@ -216,6 +216,17 @@ impl<S: BuildHasher> Renderer<S> {
         queue: &wgpu::Queue,
         delta: &TexturesDelta,
     ) {
+        for (id, size) in &delta.create {
+            let entry = TextureEntry::new(
+                device,
+                &self.texture_layout,
+                &self.sampler,
+                [size[0].max(1), size[1].max(1)],
+                "tinim texture",
+            );
+            self.textures.insert(*id, entry);
+        }
+
         for (id, image) in &delta.set {
             let needs_new_texture = image.pos.is_none() || !self.textures.contains_key(id);
             if needs_new_texture {

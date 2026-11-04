@@ -217,9 +217,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let textures = timed("take textures", || text.take_textures());
     assert_eq!(
-        textures.set.len(),
+        textures.create.len(),
         1,
-        "the first frame uploads the glyph atlas once"
+        "the first frame creates the glyph atlas once"
+    );
+    assert!(
+        !textures.set.is_empty(),
+        "the first frame uploads the rasterized glyphs"
     );
 
     let target = timed("create target", || {

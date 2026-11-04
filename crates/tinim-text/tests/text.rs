@@ -33,10 +33,16 @@ fn ahem_layout_and_atlas_upload() {
     assert_eq!(mesh.texture_id, TextureId(1));
 
     let textures = system.take_textures();
-    assert_eq!(textures.set.len(), 1);
+    assert_eq!(
+        textures.create.len(),
+        1,
+        "the first frame creates the texture"
+    );
+    assert_eq!(textures.create[0].0, TextureId(1));
+    assert_eq!(textures.set.len(), 1, "only the new glyph is uploaded");
     assert!(
-        textures.set[0].1.pos.is_none(),
-        "the first upload is a full texture"
+        textures.set[0].1.pos.is_some(),
+        "glyphs are uploaded into their own rectangle"
     );
 
     // Preparing the same layout again must not re-upload anything.
@@ -110,12 +116,14 @@ fn second_upload_is_partial() {
     let first = system.layout("a", &style(16.0), None);
     system.prepare(&first, pos2(0.0, 0.0), 1.0);
     let textures = system.take_textures();
-    assert!(textures.set[0].1.pos.is_none());
+    assert_eq!(textures.create.len(), 1);
+    assert!(textures.set[0].1.pos.is_some());
 
     let second = system.layout("z", &style(16.0), None);
     let mesh = system.prepare(&second, pos2(0.0, 0.0), 1.0);
     assert!(!mesh.is_empty());
     let textures = system.take_textures();
+    assert!(textures.create.is_empty(), "the texture already exists");
     assert_eq!(textures.set.len(), 1);
     assert!(textures.set[0].1.pos.is_some(), "later uploads are partial");
 }

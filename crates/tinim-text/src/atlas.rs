@@ -1,4 +1,4 @@
-//! A shelf-packed RGBA8 atlas for rasterized glyphs.
+//! A shelf-packed RGBA8 atlas that uploads glyphs as individual texture patches.
 
 use std::collections::HashMap;
 
@@ -54,39 +54,18 @@ struct Shelf {
     x: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct PixelRect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-
-impl PixelRect {
-    fn union(self, other: Self) -> Self {
-        let x = self.x.min(other.x);
-        let y = self.y.min(other.y);
-        let right = (self.x + self.width).max(other.x + other.width);
-        let bottom = (self.y + self.height).max(other.y + other.height);
-        Self {
-            x,
-            y,
-            width: right - x,
-            height: bottom - y,
-        }
-    }
-}
-
 pub(crate) struct Atlas {
     texture_id: TextureId,
     width: u32,
     height: u32,
-    pixels: Vec<u8>,
     shelves: Vec<Shelf>,
     next_y: u32,
     slots: HashMap<GlyphKey, GlyphSlot>,
-    dirty: Option<PixelRect>,
-    needs_full_upload: bool,
+    /// Glyph pixels waiting to be uploaded. Each entry is the exact rectangle of one glyph, so
+    /// the atlas never has to keep a full CPU-side copy of the texture.
+    uploads: Vec<ImageDelta>,
+    /// Whether the renderer has been told to allocate the texture.
+    created: bool,
 }
 
 impl Atlas {
@@ -97,12 +76,11 @@ impl Atlas {
             texture_id,
             width,
             height,
-            pixels: vec![0; width as usize * height as usize * 4],
             shelves: Vec::new(),
             next_y: 0,
             slots: HashMap::new(),
-            dirty: None,
-            needs_full_upload: true,
+            uploads: Vec::new(),
+            created: false,
         }
     }
 
@@ -114,24 +92,33 @@ impl Atlas {
         self.slots.get(key).copied()
     }
 
-    /// Copies a glyph into the atlas.
+    /// Reserves a slot for a glyph and queues its pixels for upload.
     ///
     /// Returns `None` when there is no room left. The caller is expected to reset the atlas and
     /// try again.
-    pub(crate) fn alloc(&mut self, key: GlyphKey, glyph: &RasterGlyph) -> Option<GlyphSlot> {
+    pub(crate) fn alloc(&mut self, key: GlyphKey, glyph: RasterGlyph) -> Option<GlyphSlot> {
         if let Some(slot) = self.slots.get(&key) {
             return Some(*slot);
         }
-        if glyph.width == 0 || glyph.height == 0 {
+
+        let RasterGlyph {
+            width,
+            height,
+            left,
+            top,
+            color,
+            pixels,
+        } = glyph;
+        if width == 0 || height == 0 {
             return None;
         }
-        if glyph.width + PADDING > self.width || glyph.height + PADDING > self.height {
+        if width + PADDING > self.width || height + PADDING > self.height {
             return None;
         }
 
-        let position = self.find_position(glyph.width, glyph.height)?;
-        let (x, y) = position;
-        self.blit(x, y, glyph);
+        let (x, y) = self.find_position(width, height)?;
+        self.uploads
+            .push(ImageDelta::partial([x, y], [width, height], pixels));
 
         let inverse_width = 1.0 / self.width as f32;
         let inverse_height = 1.0 / self.height as f32;
@@ -142,15 +129,15 @@ impl Atlas {
                     (y as f32 + 0.5) * inverse_height,
                 ),
                 pos2(
-                    (x + glyph.width) as f32 * inverse_width - 0.5 * inverse_width,
-                    (y + glyph.height) as f32 * inverse_height - 0.5 * inverse_height,
+                    (x + width) as f32 * inverse_width - 0.5 * inverse_width,
+                    (y + height) as f32 * inverse_height - 0.5 * inverse_height,
                 ),
             ),
-            left: glyph.left,
-            top: glyph.top,
-            width: glyph.width as f32,
-            height: glyph.height as f32,
-            color: glyph.color,
+            left,
+            top,
+            width: width as f32,
+            height: height as f32,
+            color,
         };
         self.slots.insert(key, slot);
         Some(slot)
@@ -178,67 +165,35 @@ impl Atlas {
         Some((0, y))
     }
 
-    fn blit(&mut self, x: u32, y: u32, glyph: &RasterGlyph) {
-        let row_bytes = glyph.width as usize * 4;
-        debug_assert_eq!(glyph.pixels.len(), row_bytes * glyph.height as usize);
-        for row in 0..glyph.height as usize {
-            let src = &glyph.pixels[row * row_bytes..(row + 1) * row_bytes];
-            let dst_offset = ((y as usize + row) * self.width as usize + x as usize) * 4;
-            self.pixels[dst_offset..dst_offset + row_bytes].copy_from_slice(src);
-        }
-
-        let dirty = PixelRect {
-            x,
-            y,
-            width: glyph.width,
-            height: glyph.height,
-        };
-        self.dirty = Some(match self.dirty {
-            Some(current) => current.union(dirty),
-            None => dirty,
-        });
-    }
-
-    /// Forgets every glyph and requests a full upload on the next [`Atlas::take_textures`].
+    /// Forgets every glyph and discards queued uploads.
+    ///
+    /// The texture is not cleared: no mesh references the old glyphs any more, and new glyphs
+    /// overwrite their own rectangles. This avoids uploading a full-size zeroed image.
     pub(crate) fn reset(&mut self) {
-        self.pixels.fill(0);
         self.shelves.clear();
         self.next_y = 0;
         self.slots.clear();
-        self.dirty = None;
-        self.needs_full_upload = true;
+        self.uploads.clear();
     }
 
-    /// Returns this frame's uploads and clears the dirty state.
+    /// Returns this frame's uploads and clears the pending state.
     pub(crate) fn take_textures(&mut self) -> TexturesDelta {
         let mut delta = TexturesDelta::default();
-        if self.needs_full_upload {
-            self.needs_full_upload = false;
-            self.dirty = None;
-            delta.set.push((
-                self.texture_id,
-                ImageDelta::full([self.width, self.height], self.pixels.clone()),
-            ));
-        } else if let Some(dirty) = self.dirty.take() {
-            delta.set.push((
-                self.texture_id,
-                ImageDelta::partial(
-                    [dirty.x, dirty.y],
-                    [dirty.width, dirty.height],
-                    self.extract(dirty),
-                ),
-            ));
+        if self.uploads.is_empty() {
+            return delta;
         }
-        delta
-    }
 
-    fn extract(&self, rect: PixelRect) -> Vec<u8> {
-        let row_bytes = rect.width as usize * 4;
-        let mut out = Vec::with_capacity(row_bytes * rect.height as usize);
-        for row in 0..rect.height as usize {
-            let offset = ((rect.y as usize + row) * self.width as usize + rect.x as usize) * 4;
-            out.extend_from_slice(&self.pixels[offset..offset + row_bytes]);
+        if !self.created {
+            self.created = true;
+            delta
+                .create
+                .push((self.texture_id, [self.width, self.height]));
         }
-        out
+        delta.set.extend(
+            self.uploads
+                .drain(..)
+                .map(|upload| (self.texture_id, upload)),
+        );
+        delta
     }
 }

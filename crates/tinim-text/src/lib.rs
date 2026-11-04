@@ -254,7 +254,7 @@ impl TextSystem {
                     slots.push(None);
                     continue;
                 };
-                match self.atlas.alloc(key, &raster) {
+                match self.atlas.alloc(key, raster) {
                     Some(slot) => slots.push(Some(slot)),
                     None if skip_overflow => slots.push(None),
                     None => return None,
@@ -300,7 +300,10 @@ impl TextSystem {
         self.atlas.texture_id()
     }
 
-    /// Forgets every cached glyph. The next upload replaces the whole texture.
+    /// Forgets every cached glyph.
+    ///
+    /// The GPU texture is left untouched; the old texels are simply no longer referenced. New
+    /// glyphs are uploaded into their own rectangles as they are rasterized.
     pub fn reset_atlas(&mut self) {
         self.atlas.reset();
     }

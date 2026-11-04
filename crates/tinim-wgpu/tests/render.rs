@@ -121,11 +121,12 @@ fn samples_srgb_textures_in_linear_space() {
     let list = painter.finish();
 
     let textures = TexturesDelta {
+        create: vec![(texture_id, [1, 1])],
         set: vec![(
             texture_id,
-            ImageDelta::full([1, 1], vec![128, 128, 128, 255]),
+            ImageDelta::partial([0, 0], [1, 1], vec![128, 128, 128, 255]),
         )],
-        free: Vec::new(),
+        ..Default::default()
     };
 
     let mut renderer = Renderer::new(&device, &queue, FORMAT);

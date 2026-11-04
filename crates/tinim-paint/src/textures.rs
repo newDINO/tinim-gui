@@ -1,4 +1,4 @@
-//! Texture uploads for the renderer (images, and in the future glyph coverage).
+//! Texture uploads for the renderer (images and glyph coverage).
 //!
 //! Pixel data is straight-alpha sRGB: RGB is sRGB color and alpha is linear coverage. The renderer
 //! uploads it into an sRGB texture, so the sampler converts RGB to linear space. Non-color data
@@ -48,6 +48,11 @@ impl ImageDelta {
 /// All texture changes of one frame, as produced by tessellation.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TexturesDelta {
+    /// Textures to allocate before applying [`TexturesDelta::set`], with their size in pixels.
+    ///
+    /// New textures are zero-initialized. A partial update can therefore be uploaded without
+    /// first sending a full-size image.
+    pub create: Vec<(TextureId, [u32; 2])>,
     pub set: Vec<(TextureId, ImageDelta)>,
     pub free: Vec<TextureId>,
 }
@@ -55,11 +60,12 @@ pub struct TexturesDelta {
 impl TexturesDelta {
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.set.is_empty() && self.free.is_empty()
+        self.create.is_empty() && self.set.is_empty() && self.free.is_empty()
     }
 
     #[inline]
     pub fn clear(&mut self) {
+        self.create.clear();
         self.set.clear();
         self.free.clear();
     }
