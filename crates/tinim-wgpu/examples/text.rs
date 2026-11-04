@@ -57,41 +57,54 @@ const CJK_TEXT: &str = "你好，世界 · こんにちは · 안녕하세요";
 const RTL_TEXT: &str = "مرحبا بالعالم · שלום עולם";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    pollster::block_on(run())
+    let start = std::time::Instant::now();
+    pollster::block_on(run())?;
+    println!("total: {:?}", start.elapsed());
+    Ok(())
+}
+
+fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
+    let start = std::time::Instant::now();
+    let value = f();
+    println!("{label}: {:?}", start.elapsed());
+    value
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
+    let instance = timed("create instance", || {
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env())
+    });
+    let adapter = timed("request adapter", || {
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
-        })
-        .await?;
+        }))
+    })?;
     println!("{:?}", adapter.get_info());
 
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = timed("request device", || {
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("tinim text offscreen"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
             ..Default::default()
-        })
-        .await?;
+        }))
+    })?;
 
     // AHEM is a metrics test font: every glyph is a solid rectangle. Prefer real system fonts (or
     // the font file passed on the command line) for legible text.
-    let mut text = TextSystem::new(GLYPH_TEXTURE);
+    let mut text = timed("create text system", || TextSystem::new(GLYPH_TEXTURE));
     let loaded = match std::env::args().nth(1) {
         Some(path) => {
-            text.add_font_file(path)?;
+            timed("add font file", || text.add_font_file(path))?;
             true
         }
         None => {
-            let primary = PRIMARY_FONT_FILES
-                .iter()
-                .find_map(|path| text.add_font_file(path).ok());
+            let primary = timed("add primary font", || {
+                PRIMARY_FONT_FILES
+                    .iter()
+                    .find_map(|path| text.add_font_file(path).ok())
+            });
             let start = std::time::Instant::now();
             let faces = text.load_system_fonts();
             println!("loaded {faces} system font faces in {:?}", start.elapsed());
@@ -107,72 +120,94 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     // CBDT supplies a PNG-backed color emoji. The emoji is used through the fallback path and
     // exercises the bitmap + color-glyph code.
-    text.add_font(font_test_data::CBDT.to_vec())?;
+    timed("add emoji font", || {
+        text.add_font(font_test_data::CBDT.to_vec())
+    })?;
 
-    for (label, sample) in [("CJK", CJK_TEXT), ("RTL", RTL_TEXT)] {
-        let missing: String = sample
-            .chars()
-            .filter(|ch| !ch.is_whitespace() && *ch != '·')
-            .filter(|ch| !text.fonts().iter().any(|(_, face)| face.has_char(*ch)))
-            .collect();
-        if !missing.is_empty() {
-            eprintln!("warning: no loaded font covers {label} character(s): {missing:?}");
+    timed("check coverage", || {
+        for (label, sample) in [("CJK", CJK_TEXT), ("RTL", RTL_TEXT)] {
+            let missing: String = sample
+                .chars()
+                .filter(|ch| !ch.is_whitespace() && *ch != '·')
+                .filter(|ch| !text.fonts().iter().any(|(_, face)| face.has_char(*ch)))
+                .collect();
+            if !missing.is_empty() {
+                eprintln!("warning: no loaded font covers {label} character(s): {missing:?}");
+            }
         }
-    }
+    });
 
-    let title = text.layout(
-        "Hello, tinim! \u{1F600}",
-        &TextStyle {
-            font_size: 36.0,
-            color: FOREGROUND,
-            ..Default::default()
-        },
-        Some((WIDTH - 80) as f32),
-    );
-    let body = text.layout(
-        "Text shaping, line breaking and a glyph atlas.\n\
-         Everything is drawn into one RGBA8 texture.",
-        &TextStyle {
-            font_size: 20.0,
-            color: MUTED,
-            line_height: Some(28.0),
-            ..Default::default()
-        },
-        Some((WIDTH - 80) as f32),
-    );
-    let cjk = text.layout(
-        CJK_TEXT,
-        &TextStyle {
-            font_size: 22.0,
-            color: FOREGROUND,
-            line_height: Some(32.0),
-            ..Default::default()
-        },
-        Some((WIDTH - 80) as f32),
-    );
-    let rtl = text.layout(
-        RTL_TEXT,
-        &TextStyle {
-            font_size: 24.0,
-            color: ACCENT,
-            line_height: Some(34.0),
-            ..Default::default()
-        },
-        Some((WIDTH - 80) as f32),
-    );
+    let title = timed("layout title", || {
+        text.layout(
+            "Hello, tinim! \u{1F600}",
+            &TextStyle {
+                font_size: 36.0,
+                color: FOREGROUND,
+                ..Default::default()
+            },
+            Some((WIDTH - 80) as f32),
+        )
+    });
+    let body = timed("layout body", || {
+        text.layout(
+            "Text shaping, line breaking and a glyph atlas.\n\
+             Everything is drawn into one RGBA8 texture.",
+            &TextStyle {
+                font_size: 20.0,
+                color: MUTED,
+                line_height: Some(28.0),
+                ..Default::default()
+            },
+            Some((WIDTH - 80) as f32),
+        )
+    });
+    let cjk = timed("layout cjk", || {
+        text.layout(
+            CJK_TEXT,
+            &TextStyle {
+                font_size: 22.0,
+                color: FOREGROUND,
+                line_height: Some(32.0),
+                ..Default::default()
+            },
+            Some((WIDTH - 80) as f32),
+        )
+    });
+    let rtl = timed("layout rtl", || {
+        text.layout(
+            RTL_TEXT,
+            &TextStyle {
+                font_size: 24.0,
+                color: ACCENT,
+                line_height: Some(34.0),
+                ..Default::default()
+            },
+            Some((WIDTH - 80) as f32),
+        )
+    });
 
-    let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
+    let mut painter = timed("create painter", || {
+        Painter::new(WIDTH as f32, HEIGHT as f32, 1.0)
+    });
     painter.rect(painter.canvas_rect(), BACKGROUND);
     painter.rect(
         tinim_paint::Rect::from_min_size(pos2(40.0, 36.0), tinim_paint::vec2(4.0, 54.0)),
         ACCENT,
     );
 
-    painter.add_mesh(text.prepare(&title, pos2(60.0, 32.0), 1.0));
-    painter.add_mesh(text.prepare(&body, pos2(60.0, 130.0), 1.0));
-    painter.add_mesh(text.prepare(&cjk, pos2(60.0, 230.0), 1.0));
-    painter.add_mesh(text.prepare(&rtl, pos2(60.0, 280.0), 1.0));
-    let list = painter.finish();
+    timed("prepare title", || {
+        painter.add_mesh(text.prepare(&title, pos2(60.0, 32.0), 1.0))
+    });
+    timed("prepare body", || {
+        painter.add_mesh(text.prepare(&body, pos2(60.0, 130.0), 1.0))
+    });
+    timed("prepare cjk", || {
+        painter.add_mesh(text.prepare(&cjk, pos2(60.0, 230.0), 1.0))
+    });
+    timed("prepare rtl", || {
+        painter.add_mesh(text.prepare(&rtl, pos2(60.0, 280.0), 1.0))
+    });
+    let list = timed("finish painter", || painter.finish());
     println!(
         "{} lines, {} draws, {} vertices",
         title.line_count() + body.line_count() + cjk.line_count() + rtl.line_count(),
@@ -180,36 +215,42 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         list.vertices.len()
     );
 
-    let textures = text.take_textures();
+    let textures = timed("take textures", || text.take_textures());
     assert_eq!(
         textures.set.len(),
         1,
         "the first frame uploads the glyph atlas once"
     );
 
-    let target = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("tinim text target"),
-        size: wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: TARGET_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
+    let target = timed("create target", || {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("tinim text target"),
+            size: wgpu::Extent3d {
+                width: WIDTH,
+                height: HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TARGET_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let mut renderer = Renderer::new(&device, &queue, TARGET_FORMAT);
-    renderer.update_textures(&device, &queue, &textures);
+    let mut renderer = timed("create renderer", || {
+        Renderer::new(&device, &queue, TARGET_FORMAT)
+    });
+    timed("update textures", || {
+        renderer.update_textures(&device, &queue, &textures)
+    });
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("tinim text frame"),
     });
-    {
+    timed("render pass", || {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("tinim text pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -233,27 +274,31 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             ScreenDescriptor::new(WIDTH, HEIGHT),
             list,
         );
-    }
+    });
 
-    let rgba = read_back(&device, &queue, encoder, &target);
+    let rgba = timed("read back", || read_back(&device, &queue, encoder, &target));
 
     // Loose checks: the title region must contain light text pixels and the emoji must bring in
     // actual chroma (the monochrome text and the muted background are nearly neutral).
-    let title_light = count_pixels(&rgba, 40, 20, 620, 120, |[r, g, b, _]| {
-        r > 180 && g > 180 && b > 180
+    let title_light = timed("count title pixels", || {
+        count_pixels(&rgba, 40, 20, 620, 120, |[r, g, b, _]| {
+            r > 180 && g > 180 && b > 180
+        })
     });
     assert!(title_light > 200, "title text is missing: {title_light} px");
     // The emoji sits after the text, so its x position depends on the font's advances; scan the
     // whole title band (the accent bar at x = 40..44 is outside it).
-    let emoji_chroma = count_pixels(&rgba, 60, 20, 620, 140, |[r, g, b, _]| {
-        r.max(g).max(b) - r.min(g).min(b) > 40
+    let emoji_chroma = timed("count emoji pixels", || {
+        count_pixels(&rgba, 60, 20, 620, 140, |[r, g, b, _]| {
+            r.max(g).max(b) - r.min(g).min(b) > 40
+        })
     });
     assert!(
         emoji_chroma > 40,
         "fallback emoji did not render in color: {emoji_chroma} px"
     );
 
-    write_png(&rgba)?;
+    timed("write png", || write_png(&rgba))?;
     Ok(())
 }
 

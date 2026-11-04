@@ -254,39 +254,70 @@ fn wrap_lines(
     let mut break_index = 0usize;
 
     while start < text.len() {
-        let mut best = None;
-        let mut first = None;
-        let mut index = break_index;
-
-        while index < breaks.len() {
-            let (position, opportunity) = breaks[index];
-            if position <= start {
-                index += 1;
-                continue;
-            }
-
-            let content_end = trim_end(text, start, position);
-            let mandatory = opportunity == BreakOpportunity::Mandatory;
-            if first.is_none() {
-                first = Some((position, content_end, mandatory));
-            }
-            let width = measure(fonts, text, bidi, start..content_end, style, allow_fallback);
-            if width <= max_width {
-                best = Some((position, content_end, mandatory));
-                index += 1;
-                if mandatory {
-                    break;
-                }
-            } else {
-                break;
-            }
+        // The first break opportunity that advances past the current line start.
+        let mut first_index = break_index;
+        while first_index < breaks.len() && breaks[first_index].0 <= start {
+            first_index += 1;
         }
 
-        let (position, content_end, _mandatory) = match best {
-            Some(best) => best,
+        // Only consider breaks up to (and including) the next mandatory break. A paragraph must
+        // not be joined with the following one even when the width would allow it.
+        let mut last_index = first_index;
+        while last_index < breaks.len() && breaks[last_index].1 != BreakOpportunity::Mandatory {
+            last_index += 1;
+        }
+        if last_index >= breaks.len() {
+            last_index = breaks.len().saturating_sub(1);
+        }
+
+        let candidate = |index: usize| {
+            let position = breaks[index].0;
+            let content_end = trim_end(text, start, position);
+            (position, content_end)
+        };
+
+        let best = if first_index >= breaks.len() {
+            None
+        } else {
+            // Most lines fit completely, so check the last candidate before searching for the
+            // first one that overflows. This turns the common case into a single measurement.
+            let (_, last_end) = candidate(last_index);
+            if measure(fonts, text, bidi, start..last_end, style, allow_fallback) <= max_width {
+                Some(last_index)
+            } else {
+                // Widths are non-decreasing as more text is added (the same assumption the
+                // linear scan made), so binary search for the last candidate that fits.
+                let mut lo = first_index;
+                let mut hi = last_index;
+                let mut best = None;
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    let (_, content_end) = candidate(mid);
+                    if measure(fonts, text, bidi, start..content_end, style, allow_fallback)
+                        <= max_width
+                    {
+                        best = Some(mid);
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                best
+            }
+        };
+
+        let (position, content_end) = match best {
+            Some(index) => {
+                let (position, content_end) = candidate(index);
+                break_index = index + 1;
+                (position, content_end)
+            }
             None => {
-                let (fallback_position, fallback_end, fallback_mandatory) =
-                    first.unwrap_or_else(|| (text.len(), trim_end(text, start, text.len()), true));
+                let (fallback_position, fallback_end) = if first_index < breaks.len() {
+                    candidate(first_index)
+                } else {
+                    (text.len(), trim_end(text, start, text.len()))
+                };
                 match emergency_break(
                     fonts,
                     text,
@@ -296,14 +327,13 @@ fn wrap_lines(
                     max_width,
                     allow_fallback,
                 ) {
-                    Some((position, content_end)) => (position, content_end, false),
-                    None => (fallback_position, fallback_end, fallback_mandatory),
+                    Some((position, content_end)) => (position, content_end),
+                    None => (fallback_position, fallback_end),
                 }
             }
         };
         lines.push(start..content_end);
         start = position;
-        break_index = index;
     }
 
     lines

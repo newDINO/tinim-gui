@@ -229,14 +229,16 @@ impl FontStack {
                 continue;
             }
             let id = FontId(index as u32);
-            if prefer_color {
-                let is_color = face
-                    .glyph_for(chars[0])
-                    .map(|glyph| face.has_color_glyph(glyph))
-                    .unwrap_or(false);
-                if is_color {
-                    return Some(id);
-                }
+            if !prefer_color {
+                // The stack is searched in fallback order, so the first covering face wins.
+                return Some(id);
+            }
+            let is_color = face
+                .glyph_for(chars[0])
+                .map(|glyph| face.has_color_glyph(glyph))
+                .unwrap_or(false);
+            if is_color {
+                return Some(id);
             }
             first_cover.get_or_insert(id);
         }
