@@ -77,10 +77,18 @@ fn shape_visual_run(
 
     for (offset, cluster) in run_text.grapheme_indices(true) {
         let absolute = run.start + offset;
-        let Some(font) = fonts.select(cluster, allow_fallback) else {
+        let Some(mut font) = fonts.select(cluster, allow_fallback) else {
             return;
         };
         let mut script = script_of(cluster);
+        if script == harfrust::script::COMMON
+            && let Some(previous_font) = item_font
+            && fonts.covers(previous_font, cluster)
+        {
+            // Common punctuation and spaces should stay in the surrounding font instead of
+            // falling back to whatever face happens to be primary.
+            font = previous_font;
+        }
         if script == harfrust::script::COMMON && item_font == Some(font) {
             // Keep punctuation attached to the preceding run instead of shaping it in isolation.
             script = item_script;

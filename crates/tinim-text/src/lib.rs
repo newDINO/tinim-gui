@@ -146,6 +146,10 @@ impl TextSystem {
     /// Scans the usual system font directories and adds every face found.
     ///
     /// Returns the number of faces added. This is a no-op without the `system-fonts` feature.
+    ///
+    /// The first face added becomes the primary font, but filesystem discovery order is not
+    /// meaningful. If the choice of primary face matters, add a preferred font first and use the
+    /// system faces only for fallback.
     #[cfg(feature = "system-fonts")]
     pub fn load_system_fonts(&mut self) -> usize {
         let mut added = 0;

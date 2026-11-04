@@ -140,13 +140,10 @@ impl Atlas {
         let inverse_height = 1.0 / self.height as f32;
         let slot = GlyphSlot {
             uv: Rect::from_min_max(
+                pos2(x as f32 * inverse_width, y as f32 * inverse_height),
                 pos2(
-                    (x as f32 + 0.5) * inverse_width,
-                    (y as f32 + 0.5) * inverse_height,
-                ),
-                pos2(
-                    (x + width) as f32 * inverse_width - 0.5 * inverse_width,
-                    (y + height) as f32 * inverse_height - 0.5 * inverse_height,
+                    (x + width) as f32 * inverse_width,
+                    (y + height) as f32 * inverse_height,
                 ),
             ),
             left,
@@ -244,5 +241,38 @@ impl Atlas {
                 .map(|upload| (self.texture_id, upload)),
         );
         delta
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tinim_paint::pos2;
+
+    fn glyph(width: u32, height: u32) -> RasterGlyph {
+        RasterGlyph {
+            width,
+            height,
+            left: 0.0,
+            top: height as f32,
+            color: false,
+            pixels: vec![255; width as usize * height as usize * 4],
+        }
+    }
+
+    #[test]
+    fn glyph_uvs_cover_the_full_texel_footprint() {
+        let mut atlas = Atlas::new(TextureId(1), 8, 8, 8);
+        let key = GlyphKey {
+            font: FontId(0),
+            glyph_id: 1,
+            ppem: 16,
+        };
+        let slot = atlas.alloc(key, glyph(4, 4)).unwrap();
+
+        // A quad spans exactly `width` physical pixels, so its UVs must span exactly `width`
+        // texels. Insetting them by half a texel makes bilinear sampling blur the glyph.
+        assert_eq!(slot.uv.min, pos2(0.0, 0.0));
+        assert_eq!(slot.uv.max, pos2(0.5, 0.5));
     }
 }

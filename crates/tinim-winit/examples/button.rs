@@ -16,6 +16,24 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, OwnedDisplayHandle};
 use winit::window::{Window, WindowId};
 
+/// Regular-weight UI fonts to try as the primary face.
+///
+/// `load_system_fonts` adds faces in filesystem order, so without an explicit primary the first
+/// face might be an emoji or a bold/italic variant.
+const PRIMARY_FONT_FILES: &[&str] = &[
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+];
+
 #[derive(Default)]
 struct App {
     inner: Option<AppInner>,
@@ -75,6 +93,15 @@ impl AppInner {
         surface.configure(&device, &surface_config);
 
         let mut context = Context::new(TextureId(1));
+        let preferred = PRIMARY_FONT_FILES
+            .iter()
+            .any(|path| context.text_mut().add_font_file(path).is_ok());
+        if !preferred {
+            eprintln!(
+                "warning: no preferred UI font found; system font order may make the primary face \
+                 unsuitable"
+            );
+        }
         context.text_mut().load_system_fonts();
         context.style_mut().font.color = Color32::from_rgb(230, 230, 230);
 

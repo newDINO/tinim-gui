@@ -211,12 +211,7 @@ impl FontStack {
             return Some(primary_id);
         }
 
-        let chars: Vec<char> = cluster.chars().filter(|ch| !is_ignorable(*ch)).collect();
-        let chars = if chars.is_empty() {
-            cluster.chars().collect()
-        } else {
-            chars
-        };
+        let chars = cluster_chars(cluster);
         if chars.is_empty() {
             return Some(primary_id);
         }
@@ -244,6 +239,25 @@ impl FontStack {
         }
 
         Some(first_cover.unwrap_or(primary_id))
+    }
+
+    /// Whether a specific face covers every meaningful character in `cluster`.
+    pub(crate) fn covers(&self, font: FontId, cluster: &str) -> bool {
+        let Some(face) = self.get(font) else {
+            return false;
+        };
+        let chars = cluster_chars(cluster);
+        !chars.is_empty() && chars.iter().all(|&ch| face.has_char(ch))
+    }
+}
+
+/// The characters a fallback face must cover for one grapheme cluster.
+fn cluster_chars(cluster: &str) -> Vec<char> {
+    let chars: Vec<char> = cluster.chars().filter(|ch| !is_ignorable(*ch)).collect();
+    if chars.is_empty() {
+        cluster.chars().collect()
+    } else {
+        chars
     }
 }
 

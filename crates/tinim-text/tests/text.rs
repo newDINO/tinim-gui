@@ -292,6 +292,24 @@ fn fallback_picks_a_covering_face() {
     assert!(fonts.contains(&primary), "the Latin char used the primary");
 }
 
+#[cfg(feature = "fallback")]
+#[test]
+fn common_punctuation_follows_the_previous_font() {
+    let mut system = TextSystem::new(TextureId(1));
+    let _primary = system.add_font(AHEM.to_vec()).unwrap();
+    let fallback = system.add_font(CBDT.to_vec()).unwrap();
+
+    // AHEM covers the space, but the preceding glyph is only in CBDT. The space belongs to the
+    // surrounding run and must not switch back to the primary face.
+    let layout = system.layout("♢ ♢", &style(24.0), None);
+    let fonts: Vec<_> = layout.lines()[0]
+        .glyphs()
+        .iter()
+        .map(|glyph| glyph.font())
+        .collect();
+    assert_eq!(fonts, [fallback, fallback, fallback]);
+}
+
 #[test]
 fn explicit_direction_changes_visual_order() {
     let mut system = TextSystem::new(TextureId(1));
