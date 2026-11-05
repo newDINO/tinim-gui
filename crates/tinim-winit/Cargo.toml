@@ -14,3 +14,8 @@ winit.workspace = true
 pollster.workspace = true
 tinim-text = { workspace = true, features = ["system-fonts"] }
 tinim-wgpu.workspace = true
+
+[features]
+# When using `cargo check` or `cargo doc` on linux, winit can't compile when no feature is enabled.
+# This is a workaround so that when using `cargo check --all-features`, winit can pass compilation.
+to-pass-cargo-check = ["winit/x11"]
