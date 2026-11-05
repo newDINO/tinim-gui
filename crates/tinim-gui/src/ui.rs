@@ -41,6 +41,10 @@ pub struct Response {
 }
 
 /// Builds one frame's widgets.
+///
+/// Widgets normally follow the current region's flow, or start at an arbitrary position with
+/// [`Ui::place`]. Overlapping widgets are painted in declaration order, but hit testing does not
+/// resolve occlusion: a later widget does not suppress an earlier widget's `hovered`/`pressed`.
 pub struct Ui<'a> {
     ctx: &'a mut Context,
     regions: Vec<Region>,
@@ -155,6 +159,15 @@ impl<'a> Ui<'a> {
         self.with_region(Direction::Horizontal, build)
     }
 
+    /// Starts a vertical region at an arbitrary position.
+    ///
+    /// The region extends to the current region's bottom-right corner. It is out of flow: the
+    /// parent cursor does not advance and the region does not contribute to the parent's used
+    /// rectangle.
+    pub fn place<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        self.with_region_at(Direction::Vertical, pos, false, build)
+    }
+
     /// Reserves a rectangle in the current stack and advances the cursor.
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         allocate_space(&mut self.regions, size)
@@ -166,9 +179,20 @@ impl<'a> Ui<'a> {
     }
 
     fn with_region<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let (start, max, clip, spacing) = {
+        let start = self.regions.last().expect("root region").cursor;
+        self.with_region_at(direction, start, true, build)
+    }
+
+    fn with_region_at<R>(
+        &mut self,
+        direction: Direction,
+        start: Pos2,
+        advance_parent: bool,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> R {
+        let (max, clip, spacing) = {
             let parent = self.regions.last().expect("root region");
-            (parent.cursor, parent.rect.max, parent.clip, parent.spacing)
+            (parent.rect.max, parent.clip, parent.spacing)
         };
         let rect = Rect::from_min_max(start, max);
 
@@ -184,7 +208,7 @@ impl<'a> Ui<'a> {
         let result = build(self);
         let child = self.regions.pop().expect("child region");
 
-        if child.used.is_positive() {
+        if advance_parent && child.used.is_positive() {
             let parent = self.regions.last_mut().expect("root region");
             match parent.direction {
                 Direction::Vertical => parent.cursor.y += child.used.height() + parent.spacing,
@@ -371,5 +395,24 @@ mod tests {
 
         assert!(label_rect.is_positive());
         assert_eq!(label_rect.min, pos2(0.0, 0.0));
+    }
+
+    #[test]
+    fn place_starts_a_region_at_an_arbitrary_position_without_advancing_the_parent() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut placed = Rect::NOTHING;
+        let mut next = Rect::NOTHING;
+
+        let _ = context.run(vec2(400.0, 300.0), 1.0, RawInput::default(), |ui| {
+            first = ui.label("first");
+            placed = ui.place(pos2(120.0, 80.0), |ui| ui.label("floating"));
+            next = ui.label("next");
+        });
+
+        assert_eq!(placed.min, pos2(120.0, 80.0));
+        assert_eq!(next.min.x, first.min.x);
+        assert_eq!(next.min.y, first.max.y + spacing);
     }
 }

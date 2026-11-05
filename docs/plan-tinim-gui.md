@@ -103,6 +103,7 @@ impl Ui<'_> {
 
     pub fn vertical<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
     pub fn horizontal<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
+    pub fn place<R>(&mut self, pos: Pos2, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
 
     pub fn allocate_space(&mut self, size: Vec2) -> Rect;
     pub fn available_size(&self) -> Vec2;
@@ -144,6 +145,7 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - 根区域是垂直栈，范围为整个逻辑 viewport。
 - `allocate_space(size)` 按当前主轴推进 `cursor`，返回子控件矩形，并更新 `used`。
 - `vertical` / `horizontal` 结束后，把闭包内实际使用的 `used` 交给父级，父级按自己的主轴推进。
+- `place(pos, ...)` 在任意逻辑位置开始一个纵向 region，范围到当前 region 的右下角；它脱离父级流，不推进父级 `cursor`，也不计入父级 `used`。
 - `available_size()` 返回当前栈剩余空间；`label` 用其中的宽度作为文本换行上限。
 - 尺寸只有内容尺寸：按钮由文本、padding 和 `min_size` 决定，label 由文本决定。
 - 裁剪逐层继承并收窄；`Painter::set_clip_rect` 是绝对值，所以每次绘制都显式设置期望的 clip。
@@ -166,7 +168,8 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - `pressed`：`hovered && input.primary_pressed`。
 - `down`：`hovered && input.primary_down`。
 - 不保存跨帧状态，不做按下/松开配对，所以没有 `clicked` 或 `active`。
-- 布局默认不重叠；若调用方让控件重叠，后声明者会覆盖绘制，但 v0.1 没有 z-order 命中测试。
+- 布局默认不重叠；`place` 允许把内容放到任意位置，因此可能产生重叠。
+- **目前不支持交互遮挡：** 命中测试只看控件矩形和当前 clip，不做 z-order / topmost 解析。即使某个控件被后绘制的控件覆盖，先声明的控件仍可能报告 `hovered` / `pressed`。
 
 交互直接消费本帧 `RawInput`，因此控件下一帧消失、指针移出窗口或窗口失焦时，不会留下卡住的状态。
 
