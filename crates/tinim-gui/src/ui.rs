@@ -119,6 +119,10 @@ impl<'a> Ui<'a> {
         response
     }
 
+    pub fn selectable_label(&mut self, selected: bool, text: &str) -> Response {
+        self.draw_button(text, selected)
+    }
+
     fn draw_button(&mut self, text: &str, selected: bool) -> Response {
         let button = self.ctx.style().button.clone();
         let mut font = self.ctx.style().font.clone();

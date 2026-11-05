@@ -14,6 +14,7 @@ winit.workspace = true
 pollster.workspace = true
 tinim-text = { workspace = true, features = ["system-fonts"] }
 tinim-wgpu.workspace = true
+winit = { workspace = true, features = ["rwh_06"] }
 
 [features]
 # Enable winit's X11 backend on Linux. `winit` needs at least one platform backend to

@@ -157,7 +157,7 @@ impl AppInner {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let pixels_per_point = self.window.scale_factor() as f32;
+        let pixels_per_point = self.input.scale_factor();
         let viewport = vec2(
             physical_size.width as f32 / pixels_per_point,
             physical_size.height as f32 / pixels_per_point,
