@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 tinim-gui.workspace = true
-winit = { workspace = true, features = ["rwh_06", "x11"] }
+winit.workspace = true
 
 [dev-dependencies]
 pollster.workspace = true
