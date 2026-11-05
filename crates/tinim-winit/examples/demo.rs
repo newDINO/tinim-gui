@@ -1,14 +1,16 @@
-//! A minimal window with a label and two buttons.
+//! An integrated window demo for `tinim-gui`.
+//!
+//! Shows labels, buttons, selectable values and regions placed at arbitrary positions.
 //!
 //! This example is not run by CI because it needs a display. Run it with:
 //!
 //! ```text
-//! cargo run -p tinim-winit --example button
+//! cargo run -p tinim-winit --example demo
 //! ```
 
 use std::sync::Arc;
 
-use tinim_gui::{Color32, Context, TextureId, vec2};
+use tinim_gui::{Color32, Context, TextureId, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, winit};
 use winit::application::ApplicationHandler;
@@ -34,6 +36,12 @@ const PRIMARY_FONT_FILES: &[&str] = &[
     "C:/Windows/Fonts/arial.ttf",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DemoPage {
+    Buttons,
+    Placed,
+}
+
 #[derive(Default)]
 struct App {
     inner: Option<AppInner>,
@@ -49,6 +57,7 @@ struct AppInner {
     context: Context,
     input: WinitInput,
     renderer: tinim_wgpu::Renderer,
+    page: DemoPage,
 }
 
 impl AppInner {
@@ -117,6 +126,7 @@ impl AppInner {
             context,
             input,
             renderer,
+            page: DemoPage::Buttons,
         }
     }
 
@@ -154,19 +164,45 @@ impl AppInner {
         );
 
         let input = self.input.take();
+        let mut page = self.page;
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.vertical(|ui| {
                 ui.label("tinim-gui v0.1");
                 ui.horizontal(|ui| {
-                    if ui.button("Press me").pressed {
-                        println!("pressed: Press me");
-                    }
-                    if ui.button("And me").pressed {
-                        println!("pressed: And me");
-                    }
+                    ui.selectable_value(&mut page, DemoPage::Buttons, "Buttons");
+                    ui.selectable_value(&mut page, DemoPage::Placed, "Placed");
                 });
+
+                match page {
+                    DemoPage::Buttons => {
+                        ui.label(
+                            "Buttons report a press edge; there is no persistent widget state.",
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.button("Press me").pressed {
+                                println!("pressed: Press me");
+                            }
+                            if ui.button("And me").pressed {
+                                println!("pressed: And me");
+                            }
+                        });
+                    }
+                    DemoPage::Placed => {
+                        ui.label("place() starts a region anywhere and does not advance the flow.");
+                        ui.place(pos2(48.0, 150.0), |ui| {
+                            ui.label("placed at (48, 150)");
+                            if ui.button("Floating button").pressed {
+                                println!("pressed: Floating button");
+                            }
+                        });
+                        ui.place(pos2(320.0, 210.0), |ui| {
+                            ui.label("placed at (320, 210)");
+                        });
+                    }
+                }
             });
         });
+        self.page = page;
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);

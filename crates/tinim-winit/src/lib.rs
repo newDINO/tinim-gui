@@ -1,7 +1,7 @@
 //! Input translation from winit's [`WindowEvent`] to [`tinim_gui::RawInput`].
 //!
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
-//! those and forwards events here; see `examples/button.rs`.
+//! those and forwards events here; see `examples/demo.rs`.
 
 use tinim_gui::{Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};

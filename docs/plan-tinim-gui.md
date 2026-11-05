@@ -100,6 +100,12 @@ impl Context {
 impl Ui<'_> {
     pub fn label(&mut self, text: &str) -> Rect;
     pub fn button(&mut self, text: &str) -> Response;
+    pub fn selectable_value<Value: PartialEq>(
+        &mut self,
+        current_value: &mut Value,
+        selected_value: Value,
+        text: &str,
+    ) -> Response;
 
     pub fn vertical<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
     pub fn horizontal<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
@@ -170,6 +176,13 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - 不保存跨帧状态，不做按下/松开配对，所以没有 `clicked` 或 `active`。
 - 布局默认不重叠；`place` 允许把内容放到任意位置，因此可能产生重叠。
 - **目前不支持交互遮挡：** 命中测试只看控件矩形和当前 clip，不做 z-order / topmost 解析。即使某个控件被后绘制的控件覆盖，先声明的控件仍可能报告 `hovered` / `pressed`。
+
+### Selectable value
+
+- `selectable_value(current_value, selected_value, text)` 复用按钮的尺寸、布局和绘制。
+- `current_value == selected_value` 时使用 `ButtonStyle::selected` 作为填充色。
+- 按下时把 `selected_value` 写入 `current_value`。
+- 与 `button` 一样只报告 press 边沿，没有独立的 click 状态。
 
 交互直接消费本帧 `RawInput`，因此控件下一帧消失、指针移出窗口或窗口失焦时，不会留下卡住的状态。
 
@@ -248,7 +261,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 图形示例：
 
 ```text
-cargo run -p tinim-winit --example button
+cargo run -p tinim-winit --example demo
 ```
 
 示例需要显示环境；当前环境只做编译检查。

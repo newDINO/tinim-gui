@@ -97,6 +97,29 @@ impl<'a> Ui<'a> {
     ///
     /// v0.1 only reports a press edge; there is no click state, id or press/release pairing.
     pub fn button(&mut self, text: &str) -> Response {
+        self.draw_button(text, false)
+    }
+
+    /// Draws a selectable button and updates `current_value` when it is pressed.
+    ///
+    /// The widget is selected when `current_value == selected_value`.
+    ///
+    /// Like [`Ui::button`], this reports a press edge rather than a full click.
+    pub fn selectable_value<Value: PartialEq>(
+        &mut self,
+        current_value: &mut Value,
+        selected_value: Value,
+        text: &str,
+    ) -> Response {
+        let selected = *current_value == selected_value;
+        let response = self.draw_button(text, selected);
+        if response.pressed {
+            *current_value = selected_value;
+        }
+        response
+    }
+
+    fn draw_button(&mut self, text: &str, selected: bool) -> Response {
         let button = self.ctx.style().button.clone();
         let mut font = self.ctx.style().font.clone();
         font.color = button.text;
@@ -119,7 +142,13 @@ impl<'a> Ui<'a> {
         let region_clip = current_clip(&self.regions);
         let button_clip = region_clip.intersect(rect);
         if button_clip.is_positive() {
-            let fill = if down || pressed {
+            let fill = if selected {
+                if down || pressed {
+                    button.pressed
+                } else {
+                    button.selected
+                }
+            } else if down || pressed {
                 button.pressed
             } else if hovered {
                 button.hovered
@@ -382,6 +411,36 @@ mod tests {
         });
 
         assert_eq!(pressed, Some(false));
+    }
+
+    #[test]
+    fn selectable_value_updates_the_value_when_pressed() {
+        let mut context = context();
+        let mut value = 1;
+
+        let input = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.selectable_value(&mut value, 2, "two");
+        });
+
+        assert_eq!(value, 2);
+    }
+
+    #[test]
+    fn selectable_value_keeps_the_value_when_not_pressed() {
+        let mut context = context();
+        let mut value = 1;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.selectable_value(&mut value, 2, "two");
+        });
+
+        assert_eq!(value, 1);
     }
 
     #[test]
