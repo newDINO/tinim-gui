@@ -5,7 +5,6 @@
 //! can share one layout across different places and colors.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use tinim_text::{LayoutKey, TextLayout, TextStyle, TextSystem};
 
@@ -21,7 +20,7 @@ pub(crate) struct TextCache {
 
 struct Entry {
     key: LayoutKey,
-    layout: Arc<TextLayout>,
+    layout: TextLayout,
     last_used: u64,
 }
 
@@ -48,33 +47,41 @@ impl TextCache {
         text: &str,
         style: &TextStyle,
         max_width: Option<f32>,
-    ) -> Arc<TextLayout> {
+    ) -> &TextLayout {
         self.clock = self.clock.wrapping_add(1);
 
         let key = LayoutKey::new(style, max_width);
 
-        if let Some(entries) = self.entries.get_mut(text)
-            && let Some(entry) = entries.iter_mut().find(|entry| entry.key == key)
-        {
-            entry.last_used = self.clock;
-            return entry.layout.clone();
-        }
+        let existing = self
+            .entries
+            .get(text)
+            .and_then(|entries| entries.iter().position(|entry| entry.key == key));
 
-        let layout = Arc::new(text_system.layout(text, style, max_width));
-        let entry = Entry {
-            key,
-            layout: layout.clone(),
-            last_used: self.clock,
-        };
-
-        if let Some(entries) = self.entries.get_mut(text) {
-            entries.push(entry);
+        if let Some(index) = existing {
+            self.entries
+                .get_mut(text)
+                .expect("entry exists")
+                .get_mut(index)
+                .expect("layout index is valid")
+                .last_used = self.clock;
         } else {
-            self.entries.insert(text.into(), vec![entry]);
+            let entry = Entry {
+                key,
+                layout: text_system.layout(text, style, max_width),
+                last_used: self.clock,
+            };
+            self.entries.entry(text.into()).or_default().push(entry);
+            self.len += 1;
+            self.trim();
         }
-        self.len += 1;
-        self.trim();
-        layout
+
+        // The new entry has the newest clock, so trimming cannot evict it. Looking the layout up
+        // once at the end yields a reference that borrows the cache.
+        self.entries
+            .get(text)
+            .and_then(|entries| entries.iter().find(|entry| entry.key == key))
+            .map(|entry| &entry.layout)
+            .expect("requested layout is present after insert or lookup")
     }
 
     pub(crate) fn clear(&mut self) {
@@ -132,18 +139,21 @@ mod tests {
     fn identical_requests_reuse_the_layout() {
         let (mut cache, text) = cache_with_font(8);
         let style = TextStyle::default();
-        let a = cache.layout(&text, "hello", &style, Some(100.0));
-        let b = cache.layout(&text, "hello", &style, Some(100.0));
-        assert!(Arc::ptr_eq(&a, &b));
+        let a = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
+        let b = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
+        assert_eq!(a, b);
     }
 
     #[test]
     fn different_widths_are_different_entries() {
         let (mut cache, text) = cache_with_font(8);
         let style = TextStyle::default();
-        let a = cache.layout(&text, "hello", &style, Some(100.0));
-        let b = cache.layout(&text, "hello", &style, Some(200.0));
-        assert!(!Arc::ptr_eq(&a, &b));
+        // Insert both first so later lookups cannot move either entry.
+        let _ = cache.layout(&text, "hello", &style, Some(100.0));
+        let _ = cache.layout(&text, "hello", &style, Some(200.0));
+        let a = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
+        let b = cache.layout(&text, "hello", &style, Some(200.0)) as *const TextLayout;
+        assert_ne!(a, b);
         assert_eq!(cache.len, 2);
     }
 
@@ -164,12 +174,12 @@ mod tests {
             color: Color32::BLACK,
             ..Default::default()
         };
-        let a = cache.layout(&text, "hello", &style, Some(100.0));
+        let a = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
 
         style.color = Color32::WHITE;
-        let b = cache.layout(&text, "hello", &style, Some(100.0));
+        let b = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
 
-        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(a, b);
         assert_eq!(cache.len, 1);
     }
 
@@ -189,10 +199,10 @@ mod tests {
             ..Default::default()
         };
 
-        let a = cache.layout(&text, "hello", &sanitized, Some(100.0));
-        let b = cache.layout(&text, "hello", &invalid, Some(100.0));
+        let a = cache.layout(&text, "hello", &sanitized, Some(100.0)) as *const TextLayout;
+        let b = cache.layout(&text, "hello", &invalid, Some(100.0)) as *const TextLayout;
 
-        assert!(Arc::ptr_eq(&a, &b));
+        assert_eq!(a, b);
         assert_eq!(cache.len, 1);
     }
 
@@ -201,16 +211,21 @@ mod tests {
         let (mut cache, text) = cache_with_font(8);
         let style = TextStyle::default();
 
-        let unlimited = cache.layout(&text, "hello", &style, None);
-        let infinity = cache.layout(&text, "hello", &style, Some(f32::INFINITY));
-        let zero = cache.layout(&text, "hello", &style, Some(0.0));
-        let negative = cache.layout(&text, "hello", &style, Some(-10.0));
-        let nan = cache.layout(&text, "hello", &style, Some(f32::NAN));
+        let unlimited = cache.layout(&text, "hello", &style, None) as *const TextLayout;
+        let infinity =
+            cache.layout(&text, "hello", &style, Some(f32::INFINITY)) as *const TextLayout;
+        assert_eq!(unlimited, infinity);
 
-        assert!(Arc::ptr_eq(&unlimited, &infinity));
-        assert!(Arc::ptr_eq(&zero, &negative));
-        assert!(Arc::ptr_eq(&zero, &nan));
-        assert!(!Arc::ptr_eq(&unlimited, &zero));
+        let zero = cache.layout(&text, "hello", &style, Some(0.0)) as *const TextLayout;
+        let negative = cache.layout(&text, "hello", &style, Some(-10.0)) as *const TextLayout;
+        let nan = cache.layout(&text, "hello", &style, Some(f32::NAN)) as *const TextLayout;
+
+        assert_eq!(zero, negative);
+        assert_eq!(zero, nan);
+
+        // Look the unlimited entry up again: inserting the zero-width entry may have moved it.
+        let unlimited = cache.layout(&text, "hello", &style, None) as *const TextLayout;
+        assert_ne!(unlimited, zero);
         assert_eq!(cache.len, 2);
     }
 }

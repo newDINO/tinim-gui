@@ -1,9 +1,7 @@
 //! The per-application GUI context and the output of one frame.
 
-use std::sync::Arc;
-
-use tinim_paint::{Color32, Mesh, PaintList, Painter, Pos2, TextureId, TexturesDelta, Vec2};
-use tinim_text::{TextLayout, TextStyle, TextSystem};
+use tinim_paint::{PaintList, Painter, TextureId, TexturesDelta, Vec2};
+use tinim_text::TextSystem;
 
 use crate::input::RawInput;
 use crate::style::Style;
@@ -99,7 +97,15 @@ impl Context {
         self.begin_frame(viewport, pixels_per_point, input);
 
         {
-            let mut ui = Ui::new(self);
+            let mut ui = Ui::new(
+                self.size,
+                self.pixels_per_point,
+                &self.style,
+                &self.input,
+                &mut self.text,
+                &mut self.text_cache,
+                &mut self.painter,
+            );
             build(&mut ui);
         }
 
@@ -121,29 +127,6 @@ impl Context {
 
         self.painter.clear();
         self.painter.reset_clip_rect();
-    }
-
-    pub(crate) fn text_layout(
-        &mut self,
-        text: &str,
-        style: &TextStyle,
-        max_width: Option<f32>,
-    ) -> Arc<TextLayout> {
-        self.text_cache.layout(&self.text, text, style, max_width)
-    }
-
-    pub(crate) fn prepare_text(
-        &mut self,
-        layout: &TextLayout,
-        origin: Pos2,
-        color: Color32,
-    ) -> Mesh {
-        self.text
-            .prepare(layout, origin, color, self.pixels_per_point)
-    }
-
-    pub(crate) fn painter_mut(&mut self) -> &mut Painter {
-        &mut self.painter
     }
 }
 
