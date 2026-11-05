@@ -20,8 +20,10 @@ are load-bearing.
 On Linux, `winit` does not compile when no platform backend is enabled, which breaks
 `cargo check` and `cargo doc` for `tinim-winit` on its own. `tinim-winit` therefore enables
 winit's `x11` backend through its default `x11` feature, so both commands work without extra
-flags; `--all-features` is no longer needed.
+flags.
 
 Applications that depend on winit themselves (with its default features) are unaffected by this
 feature. If you select winit's backend yourself, disable the default feature with
 `default-features = false`.
+
+Recheck whether this is still necessary when new version of rust or winit it released.
