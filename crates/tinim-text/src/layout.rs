@@ -233,18 +233,12 @@ impl TextLine {
 /// [`crate::TextSystem::prepare`] to turn it into a mesh.
 #[derive(Clone, Debug)]
 pub struct TextLayout {
-    text: String,
     key: LayoutKey,
     lines: Vec<TextLine>,
     size: Vec2,
 }
 
 impl TextLayout {
-    /// The original text.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
     /// The normalized inputs used for layout.
     pub fn layout_key(&self) -> LayoutKey {
         self.key
@@ -293,7 +287,6 @@ pub(crate) fn layout(
     let style = *key.style();
     let max_width = key.max_width();
     let mut result = TextLayout {
-        text: text.to_owned(),
         key,
         lines: Vec::new(),
         size: Vec2::ZERO,
