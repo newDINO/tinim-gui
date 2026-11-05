@@ -17,9 +17,11 @@ are load-bearing.
 
 ## Development
 
-On linux, `winit` can't pass `cargo check` or `cargo doc` when no feature is enabled.
-So, there is a workaround for `tinim-winit` to pass `cargo check` by adding a dummy feature 
-that enables `x11` feature of `winit`.
-Now, by using `cargo check --all-features`, `tinim-winit` can be checked.
+On Linux, `winit` does not compile when no platform backend is enabled, which breaks
+`cargo check` and `cargo doc` for `tinim-winit` on its own. `tinim-winit` therefore enables
+winit's `x11` backend through its default `x11` feature, so both commands work without extra
+flags; `--all-features` is no longer needed.
 
-Recheck whether this is necessary when new versions of `rust` or `winit` is released.
+Applications that depend on winit themselves (with its default features) are unaffected by this
+feature. If you select winit's backend yourself, disable the default feature with
+`default-features = false`.

@@ -16,6 +16,9 @@ tinim-text = { workspace = true, features = ["system-fonts"] }
 tinim-wgpu.workspace = true
 
 [features]
-# When using `cargo check` or `cargo doc` on linux, winit can't compile when no feature is enabled.
-# This is a workaround so that when using `cargo check --all-features`, winit can pass compilation.
-to-pass-cargo-check = ["winit/x11"]
+# Enable winit's X11 backend on Linux. `winit` needs at least one platform backend to
+# compile, so this is on by default to keep `cargo check` and `cargo doc` working for this
+# crate without extra flags. Applications that depend on winit themselves (with its default
+# features) are unaffected. Disable this feature if you select winit's backend yourself.
+default = ["x11"]
+x11 = ["winit/x11"]
