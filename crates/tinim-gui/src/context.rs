@@ -13,13 +13,13 @@ use crate::ui::Ui;
 /// Call [`Context::run`] once per frame. The returned [`Frame`] borrows the paint list, so it must
 /// be rendered before the next frame starts.
 pub struct Context {
-    text: TextSystem,
-    painter: Painter,
-    text_cache: TextCache,
+    pub(crate) text: TextSystem,
+    pub(crate) painter: Painter,
+    pub(crate) text_cache: TextCache,
     style: Style,
-    input: RawInput,
+    pub(crate) input: RawInput,
     size: Vec2,
-    pixels_per_point: f32,
+    pub(crate) pixels_per_point: f32,
 }
 
 /// One frame's rendering data.
@@ -97,15 +97,7 @@ impl Context {
         self.begin_frame(viewport, pixels_per_point, input);
 
         {
-            let mut ui = Ui::new(
-                self.size,
-                self.pixels_per_point,
-                &self.style,
-                &self.input,
-                &mut self.text,
-                &mut self.text_cache,
-                &mut self.painter,
-            );
+            let mut ui = Ui::new(self);
             build(&mut ui);
         }
 

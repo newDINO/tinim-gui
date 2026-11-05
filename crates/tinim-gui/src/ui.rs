@@ -6,9 +6,8 @@
 use tinim_paint::{Color32, Painter, Pos2, Rect, RectShape, Shape, Vec2};
 use tinim_text::{TextLayout, TextSystem};
 
+use crate::context::Context;
 use crate::input::RawInput;
-use crate::style::Style;
-use crate::text_cache::TextCache;
 
 /// A basic vertical/horizontal flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,34 +42,16 @@ pub struct Response {
 
 /// Builds one frame's widgets.
 pub struct Ui<'a> {
-    text: &'a mut TextSystem,
-    cache: &'a mut TextCache,
-    painter: &'a mut Painter,
-    style: &'a Style,
-    input: &'a RawInput,
-    pixels_per_point: f32,
+    ctx: &'a mut Context,
     regions: Vec<Region>,
 }
 
 impl<'a> Ui<'a> {
-    pub(crate) fn new(
-        size: Vec2,
-        pixels_per_point: f32,
-        style: &'a Style,
-        input: &'a RawInput,
-        text: &'a mut TextSystem,
-        cache: &'a mut TextCache,
-        painter: &'a mut Painter,
-    ) -> Self {
-        let rect = Rect::from_min_size(Pos2::ZERO, size);
-        let spacing = style.spacing.max(0.0);
+    pub(crate) fn new(ctx: &'a mut Context) -> Self {
+        let rect = Rect::from_min_size(Pos2::ZERO, ctx.size());
+        let spacing = ctx.style().spacing.max(0.0);
         Self {
-            text,
-            cache,
-            painter,
-            style,
-            input,
-            pixels_per_point,
+            ctx,
             regions: vec![Region {
                 rect,
                 clip: rect,
@@ -84,17 +65,22 @@ impl<'a> Ui<'a> {
 
     /// Draws a non-interactive line of text. Returns the rectangle it occupied.
     pub fn label(&mut self, text: &str) -> Rect {
-        let font = self.style.font.clone();
+        let font = self.ctx.style().font.clone();
         let max_width = Some(available_size(&self.regions).x);
-        let layout = self.cache.layout(self.text, text, &font, max_width);
+        // Borrow only the fields involved. `layout` keeps `text_cache` borrowed, so everything
+        // that runs while it is alive must use disjoint field borrows instead of `&mut self.ctx`.
+        let layout = self
+            .ctx
+            .text_cache
+            .layout(&self.ctx.text, text, &font, max_width);
         let size = layout.size();
         let rect = allocate_space(&mut self.regions, size);
 
         let clip = current_clip(&self.regions);
         paint_text(
-            self.text,
-            self.painter,
-            self.pixels_per_point,
+            &mut self.ctx.text,
+            &mut self.ctx.painter,
+            self.ctx.pixels_per_point,
             layout,
             rect.min,
             font.color,
@@ -107,11 +93,14 @@ impl<'a> Ui<'a> {
     ///
     /// v0.1 only reports a press edge; there is no click state, id or press/release pairing.
     pub fn button(&mut self, text: &str) -> Response {
-        let button = self.style.button.clone();
-        let mut font = self.style.font.clone();
+        let button = self.ctx.style().button.clone();
+        let mut font = self.ctx.style().font.clone();
         font.color = button.text;
 
-        let layout = self.cache.layout(self.text, text, &font, None);
+        let layout = self
+            .ctx
+            .text_cache
+            .layout(&self.ctx.text, text, &font, None);
         let text_size = layout.size();
         let size = Vec2::new(
             (text_size.x + button.padding.x * 2.0).max(button.min_size.x),
@@ -119,9 +108,9 @@ impl<'a> Ui<'a> {
         );
         let rect = allocate_space(&mut self.regions, size);
 
-        let hovered = pointer_over(&self.regions, self.input, rect);
-        let pressed = hovered && self.input.primary_pressed;
-        let down = hovered && self.input.primary_down;
+        let hovered = pointer_over(&self.regions, &self.ctx.input, rect);
+        let pressed = hovered && self.ctx.input.primary_pressed;
+        let down = hovered && self.ctx.input.primary_down;
 
         let region_clip = current_clip(&self.regions);
         let button_clip = region_clip.intersect(rect);
@@ -134,17 +123,18 @@ impl<'a> Ui<'a> {
                 button.normal
             };
 
-            self.painter.set_clip_rect(button_clip);
-            self.painter.add(Shape::Rect(
+            self.ctx.painter.set_clip_rect(button_clip);
+            self.ctx.painter.add(Shape::Rect(
                 RectShape::new(rect, fill).with_corner_radius(button.corner_radius),
             ));
 
             let origin = rect.center() - text_size * 0.5;
             let mesh = self
+                .ctx
                 .text
-                .prepare(layout, origin, font.color, self.pixels_per_point);
-            self.painter.add_mesh(mesh);
-            self.painter.set_clip_rect(region_clip);
+                .prepare(layout, origin, font.color, self.ctx.pixels_per_point);
+            self.ctx.painter.add_mesh(mesh);
+            self.ctx.painter.set_clip_rect(region_clip);
         }
 
         Response {
