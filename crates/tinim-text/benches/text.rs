@@ -149,8 +149,8 @@ fn bench_prepare_warm(c: &mut Criterion) {
         .collect();
 
     // Rasterize every glyph once so the benchmark measures mesh building with cached atlas slots.
-    for layout in &layouts {
-        black_box(text.prepare(layout, pos2(0.0, 0.0), 1.0));
+    for (sample, layout) in samples.iter().zip(&layouts) {
+        black_box(text.prepare(layout, pos2(0.0, 0.0), sample.style.color, 1.0));
     }
     let _ = text.take_textures();
 
@@ -160,7 +160,16 @@ fn bench_prepare_warm(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::from_parameter(sample.name),
             layout,
-            |b, layout| b.iter(|| black_box(text.prepare(black_box(layout), pos2(0.0, 0.0), 1.0))),
+            |b, layout| {
+                b.iter(|| {
+                    black_box(text.prepare(
+                        black_box(layout),
+                        pos2(0.0, 0.0),
+                        sample.style.color,
+                        1.0,
+                    ))
+                })
+            },
         );
     }
     group.finish();
@@ -173,7 +182,7 @@ fn bench_layout_and_prepare_warm(c: &mut Criterion) {
     // Warm the atlas with one layout of each sample before measuring the combined path.
     for sample in &samples {
         let layout = text.layout(sample.text, &sample.style, Some(sample.max_width));
-        black_box(text.prepare(&layout, pos2(0.0, 0.0), 1.0));
+        black_box(text.prepare(&layout, pos2(0.0, 0.0), sample.style.color, 1.0));
     }
     let _ = text.take_textures();
 
@@ -186,7 +195,7 @@ fn bench_layout_and_prepare_warm(c: &mut Criterion) {
             |b, sample| {
                 b.iter(|| {
                     let layout = text.layout(sample.text, &sample.style, Some(sample.max_width));
-                    black_box(text.prepare(&layout, pos2(0.0, 0.0), 1.0))
+                    black_box(text.prepare(&layout, pos2(0.0, 0.0), sample.style.color, 1.0))
                 })
             },
         );

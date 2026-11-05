@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use tinim_paint::{Mesh, PaintList, Painter, Pos2, TextureId, TexturesDelta, Vec2};
+use tinim_paint::{Color32, Mesh, PaintList, Painter, Pos2, TextureId, TexturesDelta, Vec2};
 use tinim_text::{TextLayout, TextStyle, TextSystem};
 
 use crate::input::RawInput;
@@ -129,12 +129,17 @@ impl Context {
         style: &TextStyle,
         max_width: Option<f32>,
     ) -> Arc<TextLayout> {
-        self.text_cache
-            .layout(&mut self.text, text, style, max_width)
+        self.text_cache.layout(&self.text, text, style, max_width)
     }
 
-    pub(crate) fn prepare_text(&mut self, layout: &TextLayout, origin: Pos2) -> Mesh {
-        self.text.prepare(layout, origin, self.pixels_per_point)
+    pub(crate) fn prepare_text(
+        &mut self,
+        layout: &TextLayout,
+        origin: Pos2,
+        color: Color32,
+    ) -> Mesh {
+        self.text
+            .prepare(layout, origin, color, self.pixels_per_point)
     }
 
     pub(crate) fn painter_mut(&mut self) -> &mut Painter {

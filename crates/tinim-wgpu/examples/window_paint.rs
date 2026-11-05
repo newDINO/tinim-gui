@@ -122,8 +122,12 @@ impl AppInner {
                 },
                 None,
             );
-            self.painter
-                .add_mesh(self.text_system.prepare(&layout, vec2(10.0, 10.0), 1.0));
+            self.painter.add_mesh(self.text_system.prepare(
+                &layout,
+                vec2(10.0, 10.0),
+                Color32::WHITE,
+                1.0,
+            ));
         }
 
         {

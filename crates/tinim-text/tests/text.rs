@@ -27,7 +27,7 @@ fn ahem_layout_and_atlas_upload() {
     assert!((layout.width() - 48.0).abs() < 0.01);
     assert!((layout.height() - layout.lines()[0].baseline()).abs() < 40.0);
 
-    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(mesh.vertices.len(), 3 * 4);
     assert_eq!(mesh.indices.len(), 3 * 6);
     assert_eq!(mesh.texture_id, TextureId(1));
@@ -46,7 +46,7 @@ fn ahem_layout_and_atlas_upload() {
     );
 
     // Preparing the same layout again must not re-upload anything.
-    let mesh_again = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh_again = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(mesh_again.vertices.len(), mesh.vertices.len());
     assert!(system.take_textures().is_empty());
 }
@@ -59,7 +59,7 @@ fn atlas_grows_instead_of_resetting() {
     let text = "abcdefghijklmnopqrstuvwxyz";
     let layout = system.layout(text, &style(16.0), None);
     let glyph_count = layout.lines()[0].glyphs().len();
-    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(mesh.vertices.len(), glyph_count * 4);
 
     let textures = system.take_textures();
@@ -73,7 +73,7 @@ fn atlas_grows_instead_of_resetting() {
     );
 
     // Growth re-packs the cache, so the same layout must not upload anything again.
-    let mesh_again = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh_again = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(mesh_again.vertices.len(), mesh.vertices.len());
     assert!(system.take_textures().is_empty());
 }
@@ -84,14 +84,14 @@ fn growth_recreates_an_existing_texture() {
     system.add_font(AHEM.to_vec()).unwrap();
 
     let small = system.layout("a", &style(16.0), None);
-    system.prepare(&small, pos2(0.0, 0.0), 1.0);
+    system.prepare(&small, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
     assert_eq!(textures.set.len(), 1);
 
     let text = "abcdefghijklmnopqrstuvwxyz";
     let big = system.layout(text, &style(16.0), None);
-    system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    system.prepare(&big, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
     assert!(
@@ -108,18 +108,18 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
 
     // First frame: the texture is allocated at the initial size.
     let first = system.layout("a", &style(16.0), None);
-    system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
     assert_eq!(textures.set.len(), 1);
 
     // Next frame: a mesh is built before the overflowing layout is prepared.
-    system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
 
     let text = "abcdefghijklmnopqrstuvwxyz";
     let big = system.layout(text, &style(16.0), None);
     let glyph_count = big.lines()[0].glyphs().len();
-    let partial = system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    let partial = system.prepare(&big, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert!(
         partial.vertices.len() < glyph_count * 4,
         "the current frame skips glyphs that do not fit"
@@ -127,7 +127,7 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     assert!(!partial.is_empty());
 
     // The earlier glyph is still cached, so its mesh can be rebuilt without growth.
-    let again = system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    let again = system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(again.vertices.len(), 4);
 
     let textures = system.take_textures();
@@ -137,7 +137,7 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     );
 
     // The next frame grows before building any mesh, so the full layout fits.
-    let full = system.prepare(&big, pos2(0.0, 0.0), 1.0);
+    let full = system.prepare(&big, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(full.vertices.len(), glyph_count * 4);
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
@@ -151,7 +151,7 @@ fn glyphs_sit_on_the_baseline() {
 
     let layout = system.layout("A", &style(64.0), None);
     let baseline = layout.lines()[0].baseline();
-    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let top = mesh
         .vertices
         .iter()
@@ -169,6 +169,33 @@ fn glyphs_sit_on_the_baseline() {
     assert!(
         top < baseline - 10.0,
         "glyph top {top} is not above the baseline {baseline}"
+    );
+}
+
+#[test]
+fn prepare_uses_the_requested_color() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let layout = system.layout("A", &style(16.0), None);
+    let red = Color32::from_rgb(255, 0, 0);
+    let blue = Color32::from_rgb(0, 0, 255);
+
+    let red_mesh = system.prepare(&layout, pos2(0.0, 0.0), red, 1.0);
+    let blue_mesh = system.prepare(&layout, pos2(0.0, 0.0), blue, 1.0);
+
+    assert!(!red_mesh.is_empty());
+    assert!(
+        red_mesh
+            .vertices
+            .iter()
+            .all(|vertex| vertex.color == red.to_array())
+    );
+    assert!(
+        blue_mesh
+            .vertices
+            .iter()
+            .all(|vertex| vertex.color == blue.to_array())
     );
 }
 
@@ -207,13 +234,13 @@ fn second_upload_is_partial() {
     system.add_font(AHEM.to_vec()).unwrap();
 
     let first = system.layout("a", &style(16.0), None);
-    system.prepare(&first, pos2(0.0, 0.0), 1.0);
+    system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
     assert!(textures.set[0].1.pos.is_some());
 
     let second = system.layout("z", &style(16.0), None);
-    let mesh = system.prepare(&second, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&second, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert!(!mesh.is_empty());
     let textures = system.take_textures();
     assert!(textures.create.is_empty(), "the texture already exists");
@@ -236,7 +263,7 @@ fn rtl_reverses_glyph_order() {
         .collect();
     assert_eq!(glyph_ids, [2, 1]);
 
-    let mesh = system.prepare(&layout, pos2(10.0, 20.0), 2.0);
+    let mesh = system.prepare(&layout, pos2(10.0, 20.0), Color32::BLACK, 2.0);
     assert!(!mesh.is_empty());
     system.take_textures();
 }
@@ -350,7 +377,7 @@ fn cbdt_bitmap_glyph_is_color() {
     assert_eq!(layout.lines()[0].glyphs().len(), 1);
     assert!(layout.lines()[0].glyphs()[0].is_color());
 
-    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert!(!mesh.is_empty());
     // Color glyphs ignore the text color and draw with white vertices.
     assert_eq!(mesh.vertices[0].color, Color32::WHITE.to_array());
@@ -388,7 +415,7 @@ fn colrv0_glyph_is_composited() {
     let layout = system.layout(&ch.to_string(), &style(64.0), None);
     assert!(layout.lines()[0].glyphs()[0].is_color());
 
-    let mesh = system.prepare(&layout, pos2(0.0, 0.0), 1.0);
+    let mesh = system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     assert_eq!(mesh.vertices[0].color, Color32::WHITE.to_array());
 
     let textures = system.take_textures();
@@ -403,7 +430,11 @@ fn empty_text_has_no_lines() {
     let layout = system.layout("", &style(16.0), None);
     assert_eq!(layout.line_count(), 0);
     assert_eq!(layout.size(), tinim_paint::Vec2::ZERO);
-    assert!(system.prepare(&layout, pos2(0.0, 0.0), 1.0).is_empty());
+    assert!(
+        system
+            .prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0)
+            .is_empty()
+    );
     assert!(
         system.take_textures().is_empty(),
         "no glyph was rasterized, so no texture is allocated"

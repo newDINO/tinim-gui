@@ -5,7 +5,7 @@
 //! packed into one RGBA8 texture that can be uploaded through [`tinim_paint::TexturesDelta`].
 //!
 //! ```
-//! use tinim_paint::{Pos2, TextureId, pos2};
+//! use tinim_paint::{Color32, Pos2, TextureId, pos2};
 //! use tinim_text::{TextStyle, TextSystem};
 //!
 //! # fn build(font_data: Vec<u8>) {
@@ -13,7 +13,7 @@
 //! text.add_font(font_data).unwrap();
 //!
 //! let layout = text.layout("Hello", &TextStyle::default(), Some(200.0));
-//! let mesh = text.prepare(&layout, pos2(10.0, 20.0), 1.0);
+//! let mesh = text.prepare(&layout, pos2(10.0, 20.0), Color32::BLACK, 1.0);
 //! let textures = text.take_textures();
 //! # let _ = (mesh, textures);
 //! # }
@@ -57,7 +57,9 @@ use tinim_paint::{Color32, Mesh, Pos2, Rect, TextureId, TexturesDelta, pos2, vec
 
 pub use error::FontError;
 pub use font::{FontFace, FontId, FontMetrics, FontStack};
-pub use layout::{PositionedGlyph, TextDirection, TextLayout, TextLine, TextStyle};
+pub use layout::{
+    LayoutKey, LayoutStyle, PositionedGlyph, TextDirection, TextLayout, TextLine, TextStyle,
+};
 
 use atlas::{Atlas, GlyphKey};
 
@@ -225,15 +227,22 @@ impl TextSystem {
 
     /// Rasterizes any new glyphs and builds a mesh in physical pixels.
     ///
-    /// `origin` is the top-left corner of the text block in logical points. Upload
-    /// [`TextSystem::take_textures`] before drawing the returned mesh.
-    pub fn prepare(&mut self, layout: &TextLayout, origin: Pos2, pixels_per_point: f32) -> Mesh {
+    /// `origin` is the top-left corner of the text block in logical points. `color` is a paint
+    /// parameter and is not part of the cached layout. Upload [`TextSystem::take_textures`]
+    /// before drawing the returned mesh.
+    pub fn prepare(
+        &mut self,
+        layout: &TextLayout,
+        origin: Pos2,
+        color: Color32,
+        pixels_per_point: f32,
+    ) -> Mesh {
         let pixels_per_point = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
             pixels_per_point
         } else {
             1.0
         };
-        let ppem = (layout.style().font_size * pixels_per_point)
+        let ppem = (layout.style().font_size() * pixels_per_point)
             .round()
             .clamp(1.0, MAX_PPEM) as u32;
 
@@ -251,9 +260,14 @@ impl TextSystem {
         let can_repack = !self.prepared_since_take;
         let mut allow_overflow = false;
         loop {
-            if let Some(mesh) =
-                self.try_prepare(layout, origin, pixels_per_point, ppem, allow_overflow)
-            {
+            if let Some(mesh) = self.try_prepare(
+                layout,
+                origin,
+                color,
+                pixels_per_point,
+                ppem,
+                allow_overflow,
+            ) {
                 self.prepared_since_take = true;
                 return mesh;
             }
@@ -331,6 +345,7 @@ impl TextSystem {
         &mut self,
         layout: &TextLayout,
         origin: Pos2,
+        color: Color32,
         pixels_per_point: f32,
         ppem: u32,
         skip_overflow: bool,
@@ -387,14 +402,9 @@ impl TextSystem {
                     let y = (baseline - glyph.y * pixels_per_point - slot.top).round();
                     let rect = Rect::from_min_size(pos2(x, y), vec2(slot.width, slot.height));
                     let color = if slot.color {
-                        Color32::from_rgba_unmultiplied(
-                            255,
-                            255,
-                            255,
-                            layout.style().color.to_array()[3],
-                        )
+                        Color32::from_rgba_unmultiplied(255, 255, 255, color.to_array()[3])
                     } else {
-                        layout.style().color
+                        color
                     };
                     mesh.add_rect_with_uv(rect, slot.uv, color);
                 }

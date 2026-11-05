@@ -10,7 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     font::{FontId, FontStack},
-    layout::{PositionedGlyph, TextStyle},
+    layout::{LayoutStyle, PositionedGlyph},
 };
 
 /// Shapes one line of text in visual order and returns the glyphs and the line width.
@@ -23,7 +23,7 @@ pub(crate) fn shape_line(
     bidi: &BidiInfo<'_>,
     paragraph: &ParagraphInfo,
     line: Range<usize>,
-    style: &TextStyle,
+    style: &LayoutStyle,
     allow_fallback: bool,
 ) -> (Vec<PositionedGlyph>, f32) {
     if line.is_empty() || line.start >= line.end || line.end > text.len() {
@@ -64,7 +64,7 @@ fn shape_visual_run(
     text: &str,
     run: Range<usize>,
     direction: Direction,
-    style: &TextStyle,
+    style: &LayoutStyle,
     allow_fallback: bool,
     pen_x: &mut f32,
     out: &mut Vec<PositionedGlyph>,
@@ -151,7 +151,7 @@ fn shape_item(
     font_id: FontId,
     direction: Direction,
     script: harfrust::Script,
-    style: &TextStyle,
+    style: &LayoutStyle,
     pen_x: &mut f32,
     out: &mut Vec<PositionedGlyph>,
 ) {
@@ -175,11 +175,11 @@ fn shape_item(
 
     let shaped = shaper.shape(buffer, &[]);
     let scale = if shaper.units_per_em() > 0 {
-        style.font_size / shaper.units_per_em() as f32
+        style.font_size() / shaper.units_per_em() as f32
     } else {
         0.0
     };
-    let spacing = style.letter_spacing;
+    let spacing = style.letter_spacing();
 
     for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
         let glyph_id = GlyphId::new(info.glyph_id);

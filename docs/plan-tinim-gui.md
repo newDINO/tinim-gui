@@ -187,9 +187,10 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 
 缓存与控件完全分离，按内容寻址：
 
-- key：`text` + `TextStyle` 的有效字段 + `Option<max_width>`。
-- `TextStyle` 参与 key 的字段：`font_size`、`color`、`line_height`、`letter_spacing`、`direction`。
-- `f32` 用 `to_bits()` 比较，`Option<f32>` 同样处理。
+- key：`text` + `LayoutKey`，其中 `LayoutKey` 由规范化后的布局样式和换行宽度组成。
+- `LayoutStyle` 只包含影响布局的字段：`font_size`、`line_height`、`letter_spacing`、`direction`。
+- `color` 不参与 layout key；同一份布局可以用不同颜色调用 `prepare` 绘制。
+- `f32` 用 `to_bits()` 比较，但先做归一化：非法值按 layout 的规则处理，`-0.0` 归一为 `0.0`，`None` 与无穷大宽度等价。
 - value：`Arc<TextLayout>`，默认容量 256，按最近使用时间淘汰。
 - 相同文本在不同位置可以共享同一个 layout。
 - `Context::clear_text_cache()` 可在添加字体等改变 shaping 结果的操作后手动调用。

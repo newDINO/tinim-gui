@@ -51,23 +51,112 @@ impl Default for TextStyle {
     }
 }
 
-impl TextStyle {
-    fn sanitized(&self) -> Self {
-        let mut style = self.clone();
-        style.font_size = if self.font_size.is_finite() && self.font_size > 0.0 {
-            self.font_size
+/// The layout-affecting part of [`TextStyle`], normalized for comparison and hashing.
+///
+/// Paint-only fields such as `color` are deliberately excluded. Two styles that differ only in
+/// color therefore share the same `LayoutStyle` and can reuse the same [`TextLayout`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LayoutStyle {
+    font_size: u32,
+    line_height: Option<u32>,
+    letter_spacing: u32,
+    direction: TextDirection,
+}
+
+impl LayoutStyle {
+    /// Builds a canonical layout style from `style`.
+    ///
+    /// Invalid values are normalized exactly like layout does, so the result can be used as a
+    /// cache key without duplicating equivalent layouts.
+    pub fn new(style: &TextStyle) -> Self {
+        let font_size = if style.font_size.is_finite() && style.font_size > 0.0 {
+            style.font_size
         } else {
             12.0
         };
-        style.line_height = self
+        let line_height = style
             .line_height
             .filter(|height| height.is_finite() && *height >= 0.0);
-        style.letter_spacing = if self.letter_spacing.is_finite() {
-            self.letter_spacing
+        let letter_spacing = if style.letter_spacing.is_finite() {
+            style.letter_spacing
         } else {
             0.0
         };
-        style
+        Self {
+            font_size: canonical_bits(font_size),
+            line_height: line_height.map(canonical_bits),
+            letter_spacing: canonical_bits(letter_spacing),
+            direction: style.direction,
+        }
+    }
+
+    /// Font size in logical points.
+    pub fn font_size(&self) -> f32 {
+        f32::from_bits(self.font_size)
+    }
+
+    /// Distance between baselines in logical points, if explicitly set.
+    pub fn line_height(&self) -> Option<f32> {
+        self.line_height.map(f32::from_bits)
+    }
+
+    /// Extra horizontal spacing after every glyph, in logical points.
+    pub fn letter_spacing(&self) -> f32 {
+        f32::from_bits(self.letter_spacing)
+    }
+
+    /// Base direction of every paragraph.
+    pub fn direction(&self) -> TextDirection {
+        self.direction
+    }
+}
+
+/// Canonical inputs that fully determine a line layout: style plus wrap width.
+///
+/// Use this as a cache key component so the cache and the layout code agree on normalization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LayoutKey {
+    style: LayoutStyle,
+    /// Normalized wrap width in bits. `None` means unlimited.
+    max_width: Option<u32>,
+}
+
+impl LayoutKey {
+    /// Builds the canonical layout inputs from a text style and wrap width.
+    pub fn new(style: &TextStyle, max_width: Option<f32>) -> Self {
+        Self {
+            style: LayoutStyle::new(style),
+            max_width: max_width.and_then(canonical_width),
+        }
+    }
+
+    /// The normalized layout-affecting style.
+    pub fn style(&self) -> &LayoutStyle {
+        &self.style
+    }
+
+    /// The normalized wrap width. `None` means unlimited width.
+    pub fn max_width(&self) -> Option<f32> {
+        self.max_width.map(f32::from_bits)
+    }
+}
+
+/// Normalizes `-0.0` to `0.0` so numerically equal values have equal bits.
+fn canonical_bits(value: f32) -> u32 {
+    if value == 0.0 {
+        0.0f32.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
+/// Mirrors the normalization in [`wrap_lines`]: negative and NaN widths act like zero, while
+/// infinity acts like no limit.
+fn canonical_width(width: f32) -> Option<u32> {
+    if width == f32::INFINITY {
+        None
+    } else {
+        Some(canonical_bits(width.max(0.0)))
     }
 }
 
@@ -145,7 +234,7 @@ impl TextLine {
 #[derive(Clone, Debug)]
 pub struct TextLayout {
     text: String,
-    style: TextStyle,
+    key: LayoutKey,
     lines: Vec<TextLine>,
     size: Vec2,
 }
@@ -156,9 +245,19 @@ impl TextLayout {
         &self.text
     }
 
-    /// The style used for layout.
-    pub fn style(&self) -> &TextStyle {
-        &self.style
+    /// The normalized inputs used for layout.
+    pub fn layout_key(&self) -> LayoutKey {
+        self.key
+    }
+
+    /// The layout-affecting style. Paint-only fields such as color are not part of a layout.
+    pub fn style(&self) -> &LayoutStyle {
+        self.key.style()
+    }
+
+    /// The wrap width used for layout. `None` means unlimited width.
+    pub fn max_width(&self) -> Option<f32> {
+        self.key.max_width()
     }
 
     pub fn lines(&self) -> &[TextLine] {
@@ -190,10 +289,12 @@ pub(crate) fn layout(
     max_width: Option<f32>,
     allow_fallback: bool,
 ) -> TextLayout {
-    let style = style.sanitized();
+    let key = LayoutKey::new(style, max_width);
+    let style = *key.style();
+    let max_width = key.max_width();
     let mut result = TextLayout {
         text: text.to_owned(),
-        style: style.clone(),
+        key,
         lines: Vec::new(),
         size: Vec2::ZERO,
     };
@@ -201,7 +302,7 @@ pub(crate) fn layout(
         return result;
     }
 
-    let base_level = match style.direction {
+    let base_level = match style.direction() {
         TextDirection::Auto => None,
         TextDirection::LeftToRight => Some(Level::ltr()),
         TextDirection::RightToLeft => Some(Level::rtl()),
@@ -211,10 +312,10 @@ pub(crate) fn layout(
 
     let metrics = fonts
         .primary()
-        .map(|(_, face)| face.metrics(style.font_size))
-        .unwrap_or_else(|| FontMetrics::fallback(style.font_size));
+        .map(|(_, face)| face.metrics(style.font_size()))
+        .unwrap_or_else(|| FontMetrics::fallback(style.font_size()));
     let line_height = style
-        .line_height
+        .line_height()
         .unwrap_or_else(|| metrics.line_height())
         .max(0.0);
     let leading = line_height - (metrics.ascent + metrics.descent);
@@ -240,14 +341,12 @@ pub(crate) fn layout(
 fn wrap_lines(
     fonts: &FontStack,
     text: &str,
-    style: &TextStyle,
+    style: &LayoutStyle,
     max_width: Option<f32>,
     bidi: &BidiInfo<'_>,
     allow_fallback: bool,
 ) -> Vec<Range<usize>> {
-    let max_width = max_width
-        .map(|width| width.max(0.0))
-        .unwrap_or(f32::INFINITY);
+    let max_width = max_width.unwrap_or(f32::INFINITY);
     let breaks: Vec<(usize, BreakOpportunity)> = linebreaks(text).collect();
     let mut lines = Vec::new();
     let mut start = 0usize;
@@ -346,7 +445,7 @@ fn emergency_break(
     text: &str,
     bidi: &BidiInfo<'_>,
     range: Range<usize>,
-    style: &TextStyle,
+    style: &LayoutStyle,
     max_width: f32,
     allow_fallback: bool,
 ) -> Option<(usize, usize)> {
@@ -383,7 +482,7 @@ fn measure(
     text: &str,
     bidi: &BidiInfo<'_>,
     range: Range<usize>,
-    style: &TextStyle,
+    style: &LayoutStyle,
     allow_fallback: bool,
 ) -> f32 {
     if range.is_empty() {

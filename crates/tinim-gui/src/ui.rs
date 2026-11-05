@@ -3,7 +3,7 @@
 //! v0.1 deliberately has no ids and no persistent widget state. Widgets are rebuilt every frame;
 //! text layout is the only cached thing.
 
-use tinim_paint::{Pos2, Rect, RectShape, Shape, Vec2};
+use tinim_paint::{Color32, Pos2, Rect, RectShape, Shape, Vec2};
 use tinim_text::TextLayout;
 
 use crate::context::Context;
@@ -71,7 +71,7 @@ impl<'a> Ui<'a> {
         let rect = self.allocate_space(size);
 
         let clip = self.current_clip();
-        self.paint_text(&layout, rect.min, clip);
+        self.paint_text(&layout, rect.min, font.color, clip);
         rect
     }
 
@@ -112,7 +112,7 @@ impl<'a> Ui<'a> {
             ));
 
             let origin = rect.center() - text_size * 0.5;
-            let mesh = self.ctx.prepare_text(&layout, origin);
+            let mesh = self.ctx.prepare_text(&layout, origin, font.color);
             self.ctx.painter_mut().add_mesh(mesh);
             self.ctx.painter_mut().set_clip_rect(region_clip);
         }
@@ -227,12 +227,12 @@ impl<'a> Ui<'a> {
             .is_some_and(|pointer| rect.contains(pointer) && clip.contains(pointer))
     }
 
-    fn paint_text(&mut self, layout: &TextLayout, origin: Pos2, clip: Rect) {
+    fn paint_text(&mut self, layout: &TextLayout, origin: Pos2, color: Color32, clip: Rect) {
         if !clip.is_positive() {
             return;
         }
         self.ctx.painter_mut().set_clip_rect(clip);
-        let mesh = self.ctx.prepare_text(layout, origin);
+        let mesh = self.ctx.prepare_text(layout, origin, color);
         self.ctx.painter_mut().add_mesh(mesh);
     }
 }
