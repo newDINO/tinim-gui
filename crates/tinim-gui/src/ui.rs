@@ -497,6 +497,21 @@ fn paint_text(
     painter.add_mesh(mesh);
 }
 
+/// Create a scrollable with thread local state.
+#[macro_export]
+macro_rules! scrollable {
+    ($ui:expr, $size:expr, $closure:expr) => {{
+        use core::cell::Cell;
+        thread_local! {
+            static STATE: Cell<$crate::ScrollState> = Cell::new($crate::ScrollState { offset: $crate::Vec2::ZERO, content_size: None });
+        }
+        let mut state = STATE.get();
+        let result = $ui.scrollable($size, &mut state, $closure);
+        STATE.set(state);
+        result
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

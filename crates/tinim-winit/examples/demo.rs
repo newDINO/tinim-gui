@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use tinim_gui::{Color32, Context, ScrollState, TextureId, Vec2, pos2, vec2};
+use tinim_gui::{Color32, Context, TextureId, Vec2, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, winit};
 use winit::application::ApplicationHandler;
@@ -61,7 +61,6 @@ struct AppInner {
     renderer: tinim_wgpu::Renderer,
     page: DemoPage,
     pane_offset: Vec2,
-    scroll_state: ScrollState,
 }
 
 impl AppInner {
@@ -132,7 +131,6 @@ impl AppInner {
             renderer,
             page: DemoPage::Buttons,
             pane_offset: Vec2::ZERO,
-            scroll_state: ScrollState::default(),
         }
     }
 
@@ -170,20 +168,17 @@ impl AppInner {
         );
 
         let input = self.input.take();
-        let mut page = self.page;
-        let mut pane_offset = self.pane_offset;
-        let mut scroll_state = self.scroll_state;
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.vertical(|ui| {
                 ui.label("tinim-gui v0.1");
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut page, DemoPage::Buttons, "Buttons");
-                    ui.selectable_value(&mut page, DemoPage::Placed, "Placed");
-                    ui.selectable_value(&mut page, DemoPage::Pane, "Pane");
-                    ui.selectable_value(&mut page, DemoPage::Scroll, "Scroll");
+                    ui.selectable_value(&mut self.page, DemoPage::Buttons, "Buttons");
+                    ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
+                    ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
+                    ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
                 });
 
-                match page {
+                match self.page {
                     DemoPage::Buttons => {
                         ui.label(
                             "Buttons report a press edge; there is no persistent widget state.",
@@ -213,27 +208,27 @@ impl AppInner {
                         ui.label("pane() clips content to a fixed viewport; offset moves it.");
                         ui.horizontal(|ui| {
                             if ui.button("x -20").pressed {
-                                pane_offset.x -= 20.0;
+                                self.pane_offset.x -= 20.0;
                             }
                             if ui.button("x +20").pressed {
-                                pane_offset.x += 20.0;
+                                self.pane_offset.x += 20.0;
                             }
                             if ui.button("y -20").pressed {
-                                pane_offset.y -= 20.0;
+                                self.pane_offset.y -= 20.0;
                             }
                             if ui.button("y +20").pressed {
-                                pane_offset.y += 20.0;
+                                self.pane_offset.y += 20.0;
                             }
                             if ui.button("reset").pressed {
-                                pane_offset = Vec2::ZERO;
+                                self.pane_offset = Vec2::ZERO;
                             }
                         });
                         ui.label(&format!(
                             "offset: ({:.0}, {:.0})",
-                            pane_offset.x, pane_offset.y
+                            self.pane_offset.x, self.pane_offset.y
                         ));
 
-                        let (_, pane) = ui.pane(vec2(300.0, 150.0), pane_offset, |ui| {
+                        let (_, pane) = ui.pane(vec2(300.0, 150.0), self.pane_offset, |ui| {
                             ui.label("This content is clipped to a 300 x 150 viewport.");
                             for index in 0..12 {
                                 if ui.button(&format!("Item {index}")).pressed {
@@ -251,40 +246,24 @@ impl AppInner {
                             "scrollable() clips content, consumes the wheel while hovered, and \
                              clamps the caller-owned scroll position.",
                         );
-                        ui.horizontal(|ui| {
-                            if ui.button("x -20").pressed {
-                                scroll_state.offset.x = (scroll_state.offset.x - 20.0).max(0.0);
+
+                        let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
+                            ui.label("Wheel over this area, or use the buttons above.");
+                            for index in 0..6 {
+                                if ui.button(&format!("Scroll item {index}")).pressed {
+                                    println!("pressed: Scroll item {index}");
+                                }
                             }
-                            if ui.button("x +20").pressed {
-                                scroll_state.offset.x += 20.0;
-                            }
-                            if ui.button("y -20").pressed {
-                                scroll_state.offset.y = (scroll_state.offset.y - 20.0).max(0.0);
-                            }
-                            if ui.button("y +20").pressed {
-                                scroll_state.offset.y += 20.0;
-                            }
-                            if ui.button("reset").pressed {
-                                scroll_state.offset = Vec2::ZERO;
+                            tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
+                                for _ in 0..10 {
+                                    ui.label("inner scrollable");
+                                }
+                            });
+                            for _ in 0..6 {
+                                ui.label("test");
                             }
                         });
 
-                        let (_, scroll) =
-                            ui.scrollable(vec2(300.0, 150.0), &mut scroll_state, |ui| {
-                                ui.label("Wheel over this area, or use the buttons above.");
-                                for index in 0..12 {
-                                    if ui.button(&format!("Scroll item {index}")).pressed {
-                                        println!("pressed: Scroll item {index}");
-                                    }
-                                }
-                            });
-                        ui.label(&format!(
-                            "scroll: ({:.0}, {:.0}) / max ({:.0}, {:.0})",
-                            scroll_state.offset.x,
-                            scroll_state.offset.y,
-                            scroll.max_offset.x,
-                            scroll.max_offset.y
-                        ));
                         ui.label(&format!(
                             "content: {:.0} x {:.0}, hovered: {}",
                             scroll.content_size.x, scroll.content_size.y, scroll.hovered
@@ -293,9 +272,6 @@ impl AppInner {
                 }
             });
         });
-        self.page = page;
-        self.pane_offset = pane_offset;
-        self.scroll_state = scroll_state;
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);
