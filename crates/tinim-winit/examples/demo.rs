@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use tinim_gui::{Color32, Context, TextureId, pos2, vec2};
+use tinim_gui::{Color32, Context, TextureId, Vec2, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, winit};
 use winit::application::ApplicationHandler;
@@ -40,6 +40,7 @@ const PRIMARY_FONT_FILES: &[&str] = &[
 enum DemoPage {
     Buttons,
     Placed,
+    Pane,
 }
 
 #[derive(Default)]
@@ -58,6 +59,7 @@ struct AppInner {
     input: WinitInput,
     renderer: tinim_wgpu::Renderer,
     page: DemoPage,
+    pane_offset: Vec2,
 }
 
 impl AppInner {
@@ -127,6 +129,7 @@ impl AppInner {
             input,
             renderer,
             page: DemoPage::Buttons,
+            pane_offset: Vec2::ZERO,
         }
     }
 
@@ -165,12 +168,14 @@ impl AppInner {
 
         let input = self.input.take();
         let mut page = self.page;
+        let mut pane_offset = self.pane_offset;
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.vertical(|ui| {
                 ui.label("tinim-gui v0.1");
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut page, DemoPage::Buttons, "Buttons");
                     ui.selectable_value(&mut page, DemoPage::Placed, "Placed");
+                    ui.selectable_value(&mut page, DemoPage::Pane, "Pane");
                 });
 
                 match page {
@@ -199,10 +204,48 @@ impl AppInner {
                             ui.label("placed at (320, 210)");
                         });
                     }
+                    DemoPage::Pane => {
+                        ui.label("pane() clips content to a fixed viewport; offset moves it.");
+                        ui.horizontal(|ui| {
+                            if ui.button("x -20").pressed {
+                                pane_offset.x -= 20.0;
+                            }
+                            if ui.button("x +20").pressed {
+                                pane_offset.x += 20.0;
+                            }
+                            if ui.button("y -20").pressed {
+                                pane_offset.y -= 20.0;
+                            }
+                            if ui.button("y +20").pressed {
+                                pane_offset.y += 20.0;
+                            }
+                            if ui.button("reset").pressed {
+                                pane_offset = Vec2::ZERO;
+                            }
+                        });
+                        ui.label(&format!(
+                            "offset: ({:.0}, {:.0})",
+                            pane_offset.x, pane_offset.y
+                        ));
+
+                        let (_, pane) = ui.pane(vec2(300.0, 150.0), pane_offset, |ui| {
+                            ui.label("This content is clipped to a 300 x 150 viewport.");
+                            for index in 0..12 {
+                                if ui.button(&format!("Item {index}")).pressed {
+                                    println!("pressed: Item {index}");
+                                }
+                            }
+                        });
+                        ui.label(&format!(
+                            "content: {:.0} x {:.0}",
+                            pane.content_size.x, pane.content_size.y
+                        ));
+                    }
                 }
             });
         });
         self.page = page;
+        self.pane_offset = pane_offset;
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);
