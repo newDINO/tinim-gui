@@ -40,7 +40,12 @@ Then open <http://localhost:8080>. The repository's `index.html` loads the gener
 `pkg/tinim_demo_web.js`.
 
 The web demo uses WebGPU when the browser provides it and falls back to WebGL otherwise.
-`tinim-wgpu` exposes the `webgl` feature that turns on that fallback.
+The fallback is wgpu's `webgl` feature, so applications opt in by enabling it on their own
+`wgpu` dependency:
+
+```toml
+wgpu = { version = "30", features = ["webgl"] }
+```
 
 ## Development
 

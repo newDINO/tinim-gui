@@ -12,8 +12,10 @@ crate-type = ["cdylib", "rlib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tinim-demo.workspace = true
 tinim-gui.workspace = true
-tinim-wgpu = { workspace = true, features = ["webgl"] }
+tinim-wgpu.workspace = true
 tinim-winit = { workspace = true, default-features = false }
+# Enable WebGL output for browsers that do not provide WebGPU.
+wgpu = { workspace = true, features = ["webgl"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 web-sys = { workspace = true, features = ["HtmlCanvasElement", "console"] }

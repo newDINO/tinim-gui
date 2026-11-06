@@ -11,10 +11,6 @@ tinim-paint.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
 
-[features]
-# Enable wgpu's WebGL backend for browsers without WebGPU.
-webgl = ["wgpu/webgl"]
-
 [dev-dependencies]
 pollster.workspace = true
 png.workspace = true
