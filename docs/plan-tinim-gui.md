@@ -75,6 +75,11 @@ pub struct Response {
     pub down: bool,                 // 本帧指针在控件上且主键按住
 }
 
+pub struct PaneResponse {
+    pub rect: Rect,                 // 视口矩形
+    pub content_size: Vec2,         // 与 offset 无关的 in-flow 内容尺寸
+}
+
 impl Context {
     pub fn new(texture_id: TextureId) -> Self;
 
@@ -110,6 +115,12 @@ impl Ui<'_> {
     pub fn vertical<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
     pub fn horizontal<R>(&mut self, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
     pub fn place<R>(&mut self, pos: Pos2, f: impl FnOnce(&mut Ui<'_>) -> R) -> R;
+    pub fn pane<R>(
+        &mut self,
+        size: Vec2,
+        offset: Vec2,
+        f: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> (R, PaneResponse);
 
     pub fn allocate_space(&mut self, size: Vec2) -> Rect;
     pub fn available_size(&self) -> Vec2;
@@ -142,6 +153,7 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 
 - `rect`：父级分配给它的区域。
 - `clip`：父 clip 与 `rect` 的交集。
+- `origin`：该 region 中相对坐标的原点。
 - `cursor`：下一个子控件的位置。
 - `used`：子控件矩形的并集。
 - `direction` 和 `spacing`。
@@ -151,7 +163,8 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - 根区域是垂直栈，范围为整个逻辑 viewport。
 - `allocate_space(size)` 按当前主轴推进 `cursor`，返回子控件矩形，并更新 `used`。
 - `vertical` / `horizontal` 结束后，把闭包内实际使用的 `used` 交给父级，父级按自己的主轴推进。
-- `place(pos, ...)` 在任意逻辑位置开始一个纵向 region，范围到当前 region 的右下角；它脱离父级流，不推进父级 `cursor`，也不计入父级 `used`。
+- `place(pos, ...)` 在当前 region 的 `origin + pos` 开始一个纵向 region，范围到当前 region 的右下角；它脱离父级流，不推进父级 `cursor`，也不计入父级 `used`。
+- `pane(size, offset, ...)` 先在父级分配 `size`，然后以 `rect.min + offset` 作为内容 origin 构建子级。子级 clip 收窄到 pane 的 `rect`；父级按 `size` 推进，而不是按内容尺寸推进。返回值包含视口矩形和与 offset 无关的 in-flow 内容尺寸。
 - `available_size()` 返回当前栈剩余空间；`label` 用其中的宽度作为文本换行上限。
 - 尺寸只有内容尺寸：按钮由文本、padding 和 `min_size` 决定，label 由文本决定。
 - 裁剪逐层继承并收窄；`Painter::set_clip_rect` 是绝对值，所以每次绘制都显式设置期望的 clip。
@@ -174,7 +187,7 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - `pressed`：`hovered && input.primary_pressed`。
 - `down`：`hovered && input.primary_down`。
 - 不保存跨帧状态，不做按下/松开配对，所以没有 `clicked` 或 `active`。
-- 布局默认不重叠；`place` 允许把内容放到任意位置，因此可能产生重叠。
+- 布局默认不重叠；`place` 允许把内容放到相对当前位置任意的地方，因此可能产生重叠。
 - **目前不支持交互遮挡：** 命中测试只看控件矩形和当前 clip，不做 z-order / topmost 解析。即使某个控件被后绘制的控件覆盖，先声明的控件仍可能报告 `hovered` / `pressed`。
 
 ### Selectable value

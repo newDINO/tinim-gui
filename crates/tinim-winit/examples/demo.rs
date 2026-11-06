@@ -188,7 +188,7 @@ impl AppInner {
                         });
                     }
                     DemoPage::Placed => {
-                        ui.label("place() starts a region anywhere and does not advance the flow.");
+                        ui.label("place() is relative to the current region's content origin.");
                         ui.place(pos2(48.0, 150.0), |ui| {
                             ui.label("placed at (48, 150)");
                             if ui.button("Floating button").pressed {
