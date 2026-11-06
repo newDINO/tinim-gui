@@ -11,9 +11,36 @@ A tiny immediate-mode GUI.
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
 | `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels and press-only buttons |
 | `tinim-winit` | `WindowEvent` → `RawInput` input adapter |
+| `tinim-demo` | shared demo UI and the embedded Comic Mono font |
+| `tinim-demo-native` | native winit + wgpu demo binary |
+| `tinim-demo-web` | WebAssembly demo (WebGPU, with WebGL fallback) |
 
 `tinim-paint` knows nothing about wgpu. `tinim-wgpu` knows nothing about font shaping. Both facts
 are load-bearing.
+
+## Demos
+
+Run the native demo:
+
+```sh
+cargo run -p tinim-demo-native
+```
+
+Run the web demo with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+cd crates/tinim-demo-web
+wasm-pack build --target web
+python3 -m http.server 8080
+```
+
+Then open <http://localhost:8080>. The repository's `index.html` loads the generated
+`pkg/tinim_demo_web.js`.
+
+The web demo uses WebGPU when the browser provides it and falls back to WebGL otherwise.
+`tinim-wgpu` exposes the `webgl` feature that turns on that fallback.
 
 ## Development
 

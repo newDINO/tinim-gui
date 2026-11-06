@@ -1,0 +1,10 @@
+[package]
+name = "tinim-demo"
+description = "Shared demo UI for the native and web tinim-gui demos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tinim-gui.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "tinim-demo-native"
+description = "Native winit + wgpu demo for tinim-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tinim-demo-native"
+path = "src/main.rs"
+
+[dependencies]
+pollster.workspace = true
+tinim-demo.workspace = true
+tinim-gui.workspace = true
+tinim-wgpu.workspace = true
+tinim-winit.workspace = true
