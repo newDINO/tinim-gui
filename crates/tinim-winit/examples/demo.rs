@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use tinim_gui::{Color32, Context, TextureId, Vec2, pos2, vec2};
+use tinim_gui::{Color32, Context, ScrollState, TextureId, Vec2, pos2, vec2};
 use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, winit};
 use winit::application::ApplicationHandler;
@@ -61,7 +61,7 @@ struct AppInner {
     renderer: tinim_wgpu::Renderer,
     page: DemoPage,
     pane_offset: Vec2,
-    scroll_offset: Vec2,
+    scroll_state: ScrollState,
 }
 
 impl AppInner {
@@ -132,7 +132,7 @@ impl AppInner {
             renderer,
             page: DemoPage::Buttons,
             pane_offset: Vec2::ZERO,
-            scroll_offset: Vec2::ZERO,
+            scroll_state: ScrollState::default(),
         }
     }
 
@@ -172,7 +172,7 @@ impl AppInner {
         let input = self.input.take();
         let mut page = self.page;
         let mut pane_offset = self.pane_offset;
-        let mut scroll_offset = self.scroll_offset;
+        let mut scroll_state = self.scroll_state;
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.vertical(|ui| {
                 ui.label("tinim-gui v0.1");
@@ -253,24 +253,24 @@ impl AppInner {
                         );
                         ui.horizontal(|ui| {
                             if ui.button("x -20").pressed {
-                                scroll_offset.x = (scroll_offset.x - 20.0).max(0.0);
+                                scroll_state.offset.x = (scroll_state.offset.x - 20.0).max(0.0);
                             }
                             if ui.button("x +20").pressed {
-                                scroll_offset.x += 20.0;
+                                scroll_state.offset.x += 20.0;
                             }
                             if ui.button("y -20").pressed {
-                                scroll_offset.y = (scroll_offset.y - 20.0).max(0.0);
+                                scroll_state.offset.y = (scroll_state.offset.y - 20.0).max(0.0);
                             }
                             if ui.button("y +20").pressed {
-                                scroll_offset.y += 20.0;
+                                scroll_state.offset.y += 20.0;
                             }
                             if ui.button("reset").pressed {
-                                scroll_offset = Vec2::ZERO;
+                                scroll_state.offset = Vec2::ZERO;
                             }
                         });
 
                         let (_, scroll) =
-                            ui.scrollable(vec2(300.0, 150.0), &mut scroll_offset, |ui| {
+                            ui.scrollable(vec2(300.0, 150.0), &mut scroll_state, |ui| {
                                 ui.label("Wheel over this area, or use the buttons above.");
                                 for index in 0..12 {
                                     if ui.button(&format!("Scroll item {index}")).pressed {
@@ -280,8 +280,8 @@ impl AppInner {
                             });
                         ui.label(&format!(
                             "scroll: ({:.0}, {:.0}) / max ({:.0}, {:.0})",
-                            scroll_offset.x,
-                            scroll_offset.y,
+                            scroll_state.offset.x,
+                            scroll_state.offset.y,
                             scroll.max_offset.x,
                             scroll.max_offset.y
                         ));
@@ -295,7 +295,7 @@ impl AppInner {
         });
         self.page = page;
         self.pane_offset = pane_offset;
-        self.scroll_offset = scroll_offset;
+        self.scroll_state = scroll_state;
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);

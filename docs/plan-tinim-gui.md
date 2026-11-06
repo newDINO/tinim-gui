@@ -80,9 +80,14 @@ pub struct PaneResponse {
     pub content_size: Vec2,         // 与 offset 无关的 in-flow 内容尺寸
 }
 
+pub struct ScrollState {
+    pub offset: Vec2,               // 当前滚动位置
+    pub content_size: Option<Vec2>, // 上一帧测得的 in-flow 内容尺寸
+}
+
 pub struct ScrollResponse {
     pub rect: Rect,                 // 视口矩形
-    pub content_size: Vec2,         // in-flow 内容尺寸
+    pub content_size: Vec2,         // 本帧 in-flow 内容尺寸
     pub max_offset: Vec2,           // (content_size - rect.size()).max(0)
     pub hovered: bool,              // 构建时指针是否在视口内
 }
@@ -131,7 +136,7 @@ impl Ui<'_> {
     pub fn scrollable<R>(
         &mut self,
         size: Vec2,
-        scroll: &mut Vec2,
+        state: &mut ScrollState,
         f: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, ScrollResponse);
 
@@ -178,7 +183,8 @@ renderer.render(device, queue, &mut pass, screen, frame.paint);
 - `vertical` / `horizontal` 结束后，把闭包内实际使用的 `used` 交给父级，父级按自己的主轴推进。
 - `place(pos, ...)` 在当前 region 的 `origin + pos` 开始一个纵向 region，范围到当前 region 的右下角；它脱离父级流，不推进父级 `cursor`，也不计入父级 `used`。
 - `pane(size, offset, ...)` 先在父级分配 `size`，然后以 `rect.min + offset` 作为内容 origin 构建子级。子级 clip 收窄到 pane 的 `rect`；父级按 `size` 推进，而不是按内容尺寸推进。返回值包含视口矩形和与 offset 无关的 in-flow 内容尺寸。
-- `scrollable(size, scroll, ...)` 建立在 pane 之上：`scroll` 是滚动位置（0 显示内容原点，正值向右/下滚动），传给 pane 的 offset 是 `-scroll`。指针在视口内时消费本帧滚轮输入；构建后用 `content_size` 算出 `max_offset` 并 clamp。clamp 写回的值下一帧才生效。
+- `scrollable(size, state, ...)` 建立在 pane 之上：`state.offset` 是滚动位置（0 显示内容原点，正值向右/下滚动），传给 pane 的 offset 是 `-state.offset`。指针在视口内时消费本帧滚轮输入。
+- 若 `state.content_size` 已有上一帧的测量值，offset 和滚轮增量会在布局前就按上一帧的 `max_offset` clamp，因此滚到边界当帧生效。构建后更新 `content_size` 并再 clamp 一次，兜底内容尺寸变化；首帧和内容缩小仍可能晚一帧。
 - 嵌套 scrollable 不区分优先级：最外层先进入并消费滚轮。
 - `available_size()` 返回当前栈剩余空间；`label` 用其中的宽度作为文本换行上限。
 - 尺寸只有内容尺寸：按钮由文本、padding 和 `min_size` 决定，label 由文本决定。
@@ -280,7 +286,7 @@ impl WinitInput {
 - label 返回分配的矩形。
 - 指针在按钮内/外时的 press 行为。
 - pane 的固定占位、offset 平移、内容测量、裁剪命中，以及用 `place` 包裹后的 out-of-flow 行为。
-- scrollable 的滚动位置平移、滚轮消费、视口外忽略、内容尺寸限制和 clamp。
+- scrollable 的滚动位置平移、滚轮消费、视口外忽略、上一帧内容尺寸的预 clamp、首帧/内容缩小兜底 clamp。
 - 文本缓存命中、不同宽度区分、容量淘汰。
 
 ```text
@@ -300,6 +306,7 @@ cargo run -p tinim-winit --example demo
 
 - 没有 click、焦点、键盘控件和文本编辑。
 - 没有滚动条、惯性滚动和嵌套滚动优先级；滚动位置由调用方持有。
+- scrollable 在首帧和内容缩小的那一帧，仍可能按旧 offset 布局一次。
 - 没有弹层和 z-order 命中测试。
 - 没有交叉轴对齐、fill 和主轴权重。
 - 没有 Id/状态系统，因此控件不能在帧之间保存选择、展开等状态；需要状态的控件应等到设计出适合动态脚本场景的寻址方式后再加。

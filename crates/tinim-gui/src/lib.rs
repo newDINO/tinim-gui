@@ -21,4 +21,4 @@ pub use tinim_text::{TextLayout, TextStyle, TextSystem};
 pub use context::{Context, Frame};
 pub use input::{Modifiers, RawInput};
 pub use style::{ButtonStyle, Style};
-pub use ui::{PaneResponse, Response, ScrollResponse, Ui};
+pub use ui::{PaneResponse, Response, ScrollResponse, ScrollState, Ui};
