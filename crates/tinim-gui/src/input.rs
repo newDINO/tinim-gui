@@ -28,7 +28,7 @@ pub struct RawInput {
     pub primary_pressed: bool,
     /// The primary button was released during this frame.
     pub primary_released: bool,
-    /// Scroll delta in logical points.
+    /// Scroll delta in logical points. Positive x scrolls right, positive y scrolls up.
     pub scroll: Vec2,
     pub modifiers: Modifiers,
     /// Text produced by keyboard input during this frame.

@@ -1,6 +1,6 @@
 //! An integrated window demo for `tinim-gui`.
 //!
-//! Shows labels, buttons, selectable values and regions placed at arbitrary positions.
+//! Shows labels, buttons, selectable values, panes and scrollable regions.
 //!
 //! This example is not run by CI because it needs a display. Run it with:
 //!
@@ -41,6 +41,7 @@ enum DemoPage {
     Buttons,
     Placed,
     Pane,
+    Scroll,
 }
 
 #[derive(Default)]
@@ -60,6 +61,7 @@ struct AppInner {
     renderer: tinim_wgpu::Renderer,
     page: DemoPage,
     pane_offset: Vec2,
+    scroll_offset: Vec2,
 }
 
 impl AppInner {
@@ -130,6 +132,7 @@ impl AppInner {
             renderer,
             page: DemoPage::Buttons,
             pane_offset: Vec2::ZERO,
+            scroll_offset: Vec2::ZERO,
         }
     }
 
@@ -169,6 +172,7 @@ impl AppInner {
         let input = self.input.take();
         let mut page = self.page;
         let mut pane_offset = self.pane_offset;
+        let mut scroll_offset = self.scroll_offset;
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.vertical(|ui| {
                 ui.label("tinim-gui v0.1");
@@ -176,6 +180,7 @@ impl AppInner {
                     ui.selectable_value(&mut page, DemoPage::Buttons, "Buttons");
                     ui.selectable_value(&mut page, DemoPage::Placed, "Placed");
                     ui.selectable_value(&mut page, DemoPage::Pane, "Pane");
+                    ui.selectable_value(&mut page, DemoPage::Scroll, "Scroll");
                 });
 
                 match page {
@@ -241,11 +246,56 @@ impl AppInner {
                             pane.content_size.x, pane.content_size.y
                         ));
                     }
+                    DemoPage::Scroll => {
+                        ui.label(
+                            "scrollable() clips content, consumes the wheel while hovered, and \
+                             clamps the caller-owned scroll position.",
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.button("x -20").pressed {
+                                scroll_offset.x = (scroll_offset.x - 20.0).max(0.0);
+                            }
+                            if ui.button("x +20").pressed {
+                                scroll_offset.x += 20.0;
+                            }
+                            if ui.button("y -20").pressed {
+                                scroll_offset.y = (scroll_offset.y - 20.0).max(0.0);
+                            }
+                            if ui.button("y +20").pressed {
+                                scroll_offset.y += 20.0;
+                            }
+                            if ui.button("reset").pressed {
+                                scroll_offset = Vec2::ZERO;
+                            }
+                        });
+
+                        let (_, scroll) =
+                            ui.scrollable(vec2(300.0, 150.0), &mut scroll_offset, |ui| {
+                                ui.label("Wheel over this area, or use the buttons above.");
+                                for index in 0..12 {
+                                    if ui.button(&format!("Scroll item {index}")).pressed {
+                                        println!("pressed: Scroll item {index}");
+                                    }
+                                }
+                            });
+                        ui.label(&format!(
+                            "scroll: ({:.0}, {:.0}) / max ({:.0}, {:.0})",
+                            scroll_offset.x,
+                            scroll_offset.y,
+                            scroll.max_offset.x,
+                            scroll.max_offset.y
+                        ));
+                        ui.label(&format!(
+                            "content: {:.0} x {:.0}, hovered: {}",
+                            scroll.content_size.x, scroll.content_size.y, scroll.hovered
+                        ));
+                    }
                 }
             });
         });
         self.page = page;
         self.pane_offset = pane_offset;
+        self.scroll_offset = scroll_offset;
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);

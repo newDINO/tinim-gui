@@ -53,6 +53,19 @@ pub struct PaneResponse {
     pub content_size: Vec2,
 }
 
+/// The result of building a [`Ui::scrollable`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollResponse {
+    /// The viewport rectangle allocated in the parent flow.
+    pub rect: Rect,
+    /// Extent of the in-flow content.
+    pub content_size: Vec2,
+    /// Largest valid scroll position: `(content_size - rect.size()).max(0)`.
+    pub max_offset: Vec2,
+    /// Whether the pointer was over the viewport when the scrollable was built.
+    pub hovered: bool,
+}
+
 /// Builds one frame's widgets.
 ///
 /// Widgets normally follow the current region's flow, or start at an arbitrary position with
@@ -61,12 +74,19 @@ pub struct PaneResponse {
 pub struct Ui<'a> {
     ctx: &'a mut Context,
     regions: Vec<Region>,
+    /// Scroll delta not yet consumed by a scrollable.
+    scroll_remaining: Vec2,
 }
 
 impl<'a> Ui<'a> {
     pub(crate) fn new(ctx: &'a mut Context) -> Self {
         let rect = Rect::from_min_size(Pos2::ZERO, ctx.size());
         let spacing = ctx.style().spacing.max(0.0);
+        let scroll_remaining = if ctx.input.scroll.is_finite() {
+            ctx.input.scroll
+        } else {
+            Vec2::ZERO
+        };
         Self {
             ctx,
             regions: vec![Region {
@@ -78,6 +98,7 @@ impl<'a> Ui<'a> {
                 direction: Direction::Vertical,
                 spacing,
             }],
+            scroll_remaining,
         }
     }
 
@@ -264,6 +285,55 @@ impl<'a> Ui<'a> {
         (result, PaneResponse { rect, content_size })
     }
 
+    /// Builds scrollable content in an in-flow viewport of a fixed `size`.
+    ///
+    /// `scroll` is the scroll position: zero shows the content origin, and positive values reveal
+    /// content to the right/below, moving the content left/up. It is clamped to
+    /// `0..=max_offset` after the content is measured.
+    ///
+    /// When the pointer is over the viewport, this consumes the frame's scroll input. Nested
+    /// scrollables are not prioritized: the outermost scrollable under the pointer consumes it.
+    ///
+    /// Clamping happens after the closure runs, so a frame that starts with an out-of-range
+    /// position is laid out with that position. The clamped value is written back for the next
+    /// frame.
+    pub fn scrollable<R>(
+        &mut self,
+        size: Vec2,
+        scroll: &mut Vec2,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> (R, ScrollResponse) {
+        let size = sanitize_size(size);
+        let rect = next_rect(&self.regions, size);
+        let hovered = pointer_over(&self.regions, &self.ctx.input, rect);
+
+        if !scroll.is_finite() {
+            *scroll = Vec2::ZERO;
+        }
+        *scroll = (*scroll).max(Vec2::ZERO);
+
+        if hovered && self.scroll_remaining != Vec2::ZERO {
+            // RawInput uses screen axes (positive y scrolls up), while `scroll` counts how far the
+            // content has moved left/up.
+            *scroll += Vec2::new(self.scroll_remaining.x, -self.scroll_remaining.y);
+            self.scroll_remaining = Vec2::ZERO;
+        }
+
+        let (result, pane) = self.pane(size, -*scroll, build);
+        let max_offset = (pane.content_size - size).max(Vec2::ZERO);
+        *scroll = (*scroll).clamp(Vec2::ZERO, max_offset);
+
+        (
+            result,
+            ScrollResponse {
+                rect,
+                content_size: pane.content_size,
+                max_offset,
+                hovered,
+            },
+        )
+    }
+
     /// Reserves a rectangle in the current stack and advances the cursor.
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         allocate_space(&mut self.regions, size)
@@ -322,23 +392,31 @@ impl<'a> Ui<'a> {
     }
 }
 
-fn allocate_space(regions: &mut [Region], size: Vec2) -> Rect {
-    let size = if size.is_finite() {
+fn sanitize_size(size: Vec2) -> Vec2 {
+    if size.is_finite() {
         Vec2::new(size.x.max(0.0), size.y.max(0.0))
     } else {
         Vec2::ZERO
-    };
+    }
+}
 
-    let region = regions.last_mut().expect("root region");
-    let rect = match region.direction {
+fn next_rect(regions: &[Region], size: Vec2) -> Rect {
+    let region = regions.last().expect("root region");
+    match region.direction {
         Direction::Vertical => {
             Rect::from_min_size(Pos2::new(region.origin.x, region.cursor.y), size)
         }
         Direction::Horizontal => {
             Rect::from_min_size(Pos2::new(region.cursor.x, region.origin.y), size)
         }
-    };
+    }
+}
 
+fn allocate_space(regions: &mut [Region], size: Vec2) -> Rect {
+    let size = sanitize_size(size);
+    let rect = next_rect(regions, size);
+
+    let region = regions.last_mut().expect("root region");
     match region.direction {
         Direction::Vertical => region.cursor.y += size.y + region.spacing,
         Direction::Horizontal => region.cursor.x += size.x + region.spacing,
@@ -669,5 +747,125 @@ mod tests {
         });
 
         assert_eq!(next.min.y, first.max.y + spacing);
+    }
+
+    #[test]
+    fn scrollable_translates_content_and_reports_limits() {
+        let mut context = context();
+        let mut scroll = vec2(10.0, 20.0);
+        let mut inside = Rect::NOTHING;
+        let mut response = None;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            let ((), result) = ui.scrollable(vec2(100.0, 100.0), &mut scroll, |ui| {
+                inside = ui.allocate_space(vec2(200.0, 300.0));
+            });
+            response = Some(result);
+        });
+
+        let response = response.unwrap();
+        assert_eq!(
+            response.rect,
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 100.0))
+        );
+        assert_eq!(response.content_size, vec2(200.0, 300.0));
+        assert_eq!(response.max_offset, vec2(100.0, 200.0));
+        assert_eq!(inside.min, pos2(-10.0, -20.0));
+        assert_eq!(scroll, vec2(10.0, 20.0));
+    }
+
+    #[test]
+    fn scrollable_consumes_wheel_while_hovered() {
+        let mut context = context();
+        let mut scroll = vec2(0.0, 50.0);
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            scroll: vec2(10.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut scroll, |ui| {
+                ui.allocate_space(vec2(200.0, 300.0));
+            });
+        });
+
+        // Wheel down (negative y) increases scroll.y; wheel right increases scroll.x.
+        assert_eq!(scroll, vec2(10.0, 70.0));
+    }
+
+    #[test]
+    fn scrollable_ignores_wheel_outside_its_viewport() {
+        let mut context = context();
+        let mut scroll = vec2(0.0, 50.0);
+        let input = RawInput {
+            pointer: Some(pos2(500.0, 500.0)),
+            scroll: vec2(0.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut scroll, |ui| {
+                ui.allocate_space(vec2(200.0, 300.0));
+            });
+        });
+
+        assert_eq!(scroll, vec2(0.0, 50.0));
+    }
+
+    #[test]
+    fn scrollable_clamps_scroll_after_measuring_content() {
+        let mut context = context();
+        let mut scroll = vec2(1000.0, 1000.0);
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut scroll, |ui| {
+                ui.allocate_space(vec2(200.0, 300.0));
+            });
+        });
+
+        // The clamp applies to the next frame; the content was laid out at the old position.
+        assert_eq!(scroll, vec2(100.0, 200.0));
+    }
+
+    #[test]
+    fn scrollable_resets_scroll_when_content_fits() {
+        let mut context = context();
+        let mut scroll = vec2(10.0, 10.0);
+        let mut max_offset = None;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            let ((), response) = ui.scrollable(vec2(100.0, 100.0), &mut scroll, |ui| {
+                ui.allocate_space(vec2(50.0, 50.0));
+            });
+            max_offset = Some(response.max_offset);
+        });
+
+        assert_eq!(max_offset, Some(Vec2::ZERO));
+        assert_eq!(scroll, Vec2::ZERO);
+    }
+
+    #[test]
+    fn nested_scrollables_let_the_outer_one_consume_the_wheel() {
+        let mut context = context();
+        let mut outer = Vec2::ZERO;
+        let mut inner = Vec2::ZERO;
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            scroll: vec2(0.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 200.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        assert_eq!(outer, vec2(0.0, 20.0));
+        assert_eq!(inner, Vec2::ZERO);
     }
 }
