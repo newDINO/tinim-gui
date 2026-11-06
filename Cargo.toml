@@ -31,6 +31,7 @@ tinim-winit = { path = "crates/tinim-winit" }
 tinim-demo = { path = "crates/tinim-demo" }
 
 # Web demo dependencies. These are target-gated in the web crate.
+console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"

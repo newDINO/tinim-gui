@@ -23,6 +23,7 @@ use winit::window::{Window, WindowId};
 
 #[wasm_bindgen(start)]
 pub fn start() {
+    console_error_panic_hook::set_once();
     let event_loop = EventLoop::new().expect("failed to create the winit event loop");
     event_loop.spawn_app(App::default());
 }
