@@ -48,7 +48,15 @@ struct AppInner {
 
 impl AppInner {
     async fn new(window: Arc<Window>) -> Result<Self, String> {
-        let size = window.inner_size();
+        let size = {
+            let mut size = window.inner_size();
+            if size.width == 0 {
+                size.width = 128;
+            } else if size.height == 0 {
+                size.height = 128;
+            }
+            size
+        };
 
         let instance = wgpu::Instance::default();
         let canvas = window
