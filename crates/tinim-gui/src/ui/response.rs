@@ -31,8 +31,8 @@ pub struct ScrollState {
     pub offset: Vec2,
     /// Content size measured on the previous frame, if any.
     ///
-    /// When this is known, the scroll position and wheel delta are clamped before layout, so
-    /// reaching a boundary takes effect in the same frame. It is `None` on the first frame.
+    /// When this is known, the scroll position is clamped before layout, so an out-of-range
+    /// position is corrected in the same frame. It is `None` on the first frame.
     pub content_size: Option<Vec2>,
 }
 

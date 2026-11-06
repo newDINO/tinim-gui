@@ -12,14 +12,16 @@ impl Ui<'_> {
     /// `state.offset` is the scroll position: zero shows the content origin, and positive values
     /// reveal content to the right/below, moving the content left/up.
     ///
-    /// When `state.content_size` is known from a previous frame, the offset and wheel delta are
-    /// clamped before layout, so reaching a boundary takes effect in the same frame. After layout
-    /// the new content size is stored in `state`, and the offset is clamped again as a fallback
-    /// for content that changed size. On the first frame, and when content changes size, the
-    /// fallback clamp is only visible on the next frame.
+    /// When `state.content_size` is known from a previous frame, the offset is clamped before
+    /// layout, so an out-of-range position is corrected in the same frame. The content size is
+    /// measured during layout and stored back in `state`; the offset is clamped again afterwards
+    /// to handle content that changed size.
     ///
-    /// When the pointer is over the viewport, this consumes the frame's scroll input. Nested
-    /// scrollables are not prioritized: the outermost scrollable under the pointer consumes it.
+    /// Wheel input is applied after the content is built, so nested scrollables can take
+    /// priority. The innermost scrollable under the pointer scrolls first and keeps as much of
+    /// the delta as it can use. Any remainder, because it hit a boundary or its content does not
+    /// overflow, is left for an enclosing scrollable. Since the wheel is applied after layout,
+    /// its visual effect appears on the next frame.
     pub fn scrollable<R>(
         &mut self,
         size: Vec2,
@@ -41,23 +43,28 @@ impl Ui<'_> {
             state.offset = state.offset.min(max_offset);
         }
 
-        // Inner scrollable consumes input first.
+        // Inner scrollables get the wheel first; whatever they cannot use stays in
+        // `scroll_remaining` for an enclosing scrollable.
         let (result, pane) = self.pane(size, -state.offset, build);
+        let max_offset = (pane.content_size - size).max(Vec2::ZERO);
+        state.content_size = Some(pane.content_size);
+
+        // Correct an offset that the new content size no longer permits before applying the wheel,
+        // otherwise the discarded distance would be forwarded to an enclosing scrollable.
+        state.offset = state.offset.clamp(Vec2::ZERO, max_offset);
 
         if hovered && self.scroll_remaining != Vec2::ZERO {
             // RawInput uses screen axes (positive y scrolls up), while `offset` counts how far the
             // content has moved left/up.
             let delta = Vec2::new(self.scroll_remaining.x, -self.scroll_remaining.y);
-            state.offset = (state.offset + delta).max(Vec2::ZERO);
-            if let Some(max_offset) = known_max_offset {
-                state.offset = state.offset.min(max_offset);
-            }
-            self.scroll_remaining = Vec2::ZERO;
-        }
+            let desired = state.offset + delta;
+            state.offset = desired.clamp(Vec2::ZERO, max_offset);
 
-        let max_offset = (pane.content_size - size).max(Vec2::ZERO);
-        state.content_size = Some(pane.content_size);
-        state.offset = state.offset.clamp(Vec2::ZERO, max_offset);
+            // Leave the part that could not be applied for an enclosing scrollable, converted
+            // back to screen axes.
+            let remaining = desired - state.offset;
+            self.scroll_remaining = Vec2::new(remaining.x, -remaining.y);
+        }
 
         (
             result,
@@ -152,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn scrollable_preclamps_wheel_with_previous_content_size() {
+    fn scrollable_clamps_wheel_to_the_content_boundary() {
         let mut context = context();
         let mut state = ScrollState {
             offset: vec2(0.0, 190.0),
@@ -171,9 +178,10 @@ mod tests {
             });
         });
 
-        // The wheel asks for 210, but the previous content size clamps it to 200 before layout.
+        // The wheel asks for 210, but the content boundary clamps the offset to 200. Layout used
+        // the old offset, so the visual position catches up on the next frame.
         assert_eq!(state.offset, vec2(0.0, 200.0));
-        assert_eq!(inside.min, pos2(0.0, -200.0));
+        assert_eq!(inside.min, pos2(0.0, -190.0));
     }
 
     #[test]
@@ -237,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_scrollables_let_the_outer_one_consume_the_wheel() {
+    fn nested_scrollables_let_the_inner_one_consume_the_wheel_first() {
         let mut context = context();
         let mut outer = ScrollState::default();
         let mut inner = ScrollState::default();
@@ -256,7 +264,89 @@ mod tests {
             });
         });
 
-        assert_eq!(outer.offset, vec2(0.0, 20.0));
+        assert_eq!(outer.offset, Vec2::ZERO);
+        assert_eq!(inner.offset, vec2(0.0, 20.0));
+    }
+
+    #[test]
+    fn enclosing_scrollable_consumes_the_wheel_when_inner_content_fits() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState::default();
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            scroll: vec2(0.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 10.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
         assert_eq!(inner.offset, Vec2::ZERO);
+        assert_eq!(outer.offset, vec2(0.0, 20.0));
+    }
+
+    #[test]
+    fn inner_scrollable_passes_unused_wheel_delta_to_the_enclosing_one() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState {
+            offset: vec2(0.0, 140.0),
+            content_size: Some(vec2(10.0, 200.0)),
+        };
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            scroll: vec2(0.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 200.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        // The inner scrollable reaches its 150 boundary and passes the remaining 10 to the outer
+        // scrollable.
+        assert_eq!(inner.offset, vec2(0.0, 150.0));
+        assert_eq!(outer.offset, vec2(0.0, 10.0));
+    }
+
+    #[test]
+    fn shrinking_inner_content_does_not_forward_stale_offset_as_wheel_delta() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState {
+            offset: vec2(0.0, 200.0),
+            content_size: Some(vec2(10.0, 300.0)),
+        };
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            scroll: vec2(0.0, -20.0),
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    // The inner content shrank since the previous frame, so its old offset is no
+                    // longer valid. Only the wheel delta should reach the outer scrollable.
+                    ui.allocate_space(vec2(10.0, 10.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        assert_eq!(inner.offset, Vec2::ZERO);
+        assert_eq!(outer.offset, vec2(0.0, 20.0));
     }
 }

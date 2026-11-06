@@ -243,8 +243,8 @@ impl AppInner {
                     }
                     DemoPage::Scroll => {
                         ui.label(
-                            "scrollable() clips content, consumes the wheel while hovered, and \
-                             clamps the caller-owned scroll position.",
+                            "scrollable() clips content, scrolls nested areas from the inside out, \
+                             and clamps the caller-owned scroll position.",
                         );
 
                         let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
