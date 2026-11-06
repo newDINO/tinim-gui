@@ -331,6 +331,9 @@ impl<'a> Ui<'a> {
             state.offset = state.offset.min(max_offset);
         }
 
+        // Inner scrollable consumes input first.
+        let (result, pane) = self.pane(size, -state.offset, build);
+
         if hovered && self.scroll_remaining != Vec2::ZERO {
             // RawInput uses screen axes (positive y scrolls up), while `offset` counts how far the
             // content has moved left/up.
@@ -342,7 +345,6 @@ impl<'a> Ui<'a> {
             self.scroll_remaining = Vec2::ZERO;
         }
 
-        let (result, pane) = self.pane(size, -state.offset, build);
         let max_offset = (pane.content_size - size).max(Vec2::ZERO);
         state.content_size = Some(pane.content_size);
         state.offset = state.offset.clamp(Vec2::ZERO, max_offset);
