@@ -78,8 +78,8 @@ pub struct Response {
 impl Context {
     pub fn new(texture_id: TextureId) -> Self;
 
-    pub fn text(&self) -> &TextSystem;
-    pub fn text_mut(&mut self) -> &mut TextSystem;
+    pub fn text_system(&self) -> &TextSystem;
+    pub fn text_system_mut(&mut self) -> &mut TextSystem;
     pub fn style(&self) -> &Style;
     pub fn style_mut(&mut self) -> &mut Style;
 

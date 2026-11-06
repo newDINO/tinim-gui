@@ -104,14 +104,14 @@ impl AppInner {
         let mut context = Context::new(TextureId(1));
         let preferred = PRIMARY_FONT_FILES
             .iter()
-            .any(|path| context.text_mut().add_font_file(path).is_ok());
+            .any(|path| context.text_system_mut().add_font_file(path).is_ok());
         if !preferred {
             eprintln!(
                 "warning: no preferred UI font found; system font order may make the primary face \
                  unsuitable"
             );
         }
-        context.text_mut().load_system_fonts();
+        context.text_system_mut().load_system_fonts();
         context.style_mut().font.color = Color32::from_rgb(230, 230, 230);
 
         let input = WinitInput::new(window.scale_factor() as f32);

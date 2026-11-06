@@ -76,13 +76,13 @@ impl<'a> Ui<'a> {
         let layout = self
             .ctx
             .text_cache
-            .layout(&self.ctx.text, text, &font, max_width);
+            .layout(&self.ctx.text_system, text, &font, max_width);
         let size = layout.size();
         let rect = allocate_space(&mut self.regions, size);
 
         let clip = current_clip(&self.regions);
         paint_text(
-            &mut self.ctx.text,
+            &mut self.ctx.text_system,
             &mut self.ctx.painter,
             self.ctx.pixels_per_point,
             layout,
@@ -131,7 +131,7 @@ impl<'a> Ui<'a> {
         let layout = self
             .ctx
             .text_cache
-            .layout(&self.ctx.text, text, &font, None);
+            .layout(&self.ctx.text_system, text, &font, None);
         let text_size = layout.size();
         let size = Vec2::new(
             (text_size.x + button.padding.x * 2.0).max(button.min_size.x),
@@ -168,7 +168,7 @@ impl<'a> Ui<'a> {
             let origin = rect.center() - text_size * 0.5;
             let mesh = self
                 .ctx
-                .text
+                .text_system
                 .prepare(layout, origin, font.color, self.ctx.pixels_per_point);
             self.ctx.painter.add_mesh(mesh);
             self.ctx.painter.set_clip_rect(region_clip);
@@ -337,7 +337,7 @@ mod tests {
     fn context() -> Context {
         let mut context = Context::new(TextureId(1));
         context
-            .text_mut()
+            .text_system_mut()
             .add_font(font_test_data::AHEM.to_vec())
             .unwrap();
         context

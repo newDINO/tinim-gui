@@ -13,7 +13,7 @@ use crate::ui::Ui;
 /// Call [`Context::run`] once per frame. The returned [`Frame`] borrows the paint list, so it must
 /// be rendered before the next frame starts.
 pub struct Context {
-    pub(crate) text: TextSystem,
+    pub(crate) text_system: TextSystem,
     pub(crate) painter: Painter,
     pub(crate) text_cache: TextCache,
     style: Style,
@@ -36,7 +36,7 @@ impl Context {
     /// `TextureId::WHITE` is reserved by the renderer, so use another id.
     pub fn new(texture_id: TextureId) -> Self {
         Self {
-            text: TextSystem::new(texture_id),
+            text_system: TextSystem::new(texture_id),
             painter: Painter::from_size(Vec2::ZERO, 1.0),
             text_cache: TextCache::default(),
             style: Style::default(),
@@ -50,12 +50,12 @@ impl Context {
     ///
     /// Changing the font stack invalidates shaped layouts. Call
     /// [`Context::clear_text_cache`] if you add fonts after frames have already been built.
-    pub fn text(&self) -> &TextSystem {
-        &self.text
+    pub fn text_system(&self) -> &TextSystem {
+        &self.text_system
     }
 
-    pub fn text_mut(&mut self) -> &mut TextSystem {
-        &mut self.text
+    pub fn text_system_mut(&mut self) -> &mut TextSystem {
+        &mut self.text_system
     }
 
     pub fn style(&self) -> &Style {
@@ -102,7 +102,7 @@ impl Context {
         }
 
         let paint = self.painter.finish();
-        let textures = self.text.take_textures();
+        let textures = self.text_system.take_textures();
         Frame { paint, textures }
     }
 
