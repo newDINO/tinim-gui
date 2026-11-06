@@ -16,9 +16,14 @@ enum DemoPage {
 /// Demo state and the UI built from it.
 pub struct Demo {
     context: Context,
+
     page: DemoPage,
-    pane_offset: Vec2,
-    last_action: Option<String>,
+
+    button_page: ButtonsPage,
+    pane_page: PanePage,
+    scroll_page: ScrollPage,
+
+    run_dt: web_time::Duration,
 }
 
 impl Default for Demo {
@@ -40,141 +45,155 @@ impl Demo {
         Self {
             context,
             page: DemoPage::Buttons,
-            pane_offset: Vec2::ZERO,
-            last_action: None,
+
+            button_page: ButtonsPage::new(),
+            pane_page: PanePage::new(),
+            scroll_page: ScrollPage::new(),
+
+            run_dt: web_time::Duration::ZERO,
         }
     }
 
     /// Builds one frame and returns its paint data.
     pub fn run(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) -> Frame<'_> {
-        let Self {
-            context,
-            page,
-            pane_offset,
-            last_action,
-        } = self;
+        let t = web_time::Instant::now();
 
-        context.run(viewport, pixels_per_point, input, |ui| {
-            build_ui(ui, page, pane_offset, last_action);
-        })
+        let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
+            ui.label("tinim-gui demo");
+            ui.label(&format!("FPS: {:.2} ms", self.run_dt.as_secs_f64() * 1e3));
+
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.page, DemoPage::Buttons, "Buttons");
+                ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
+                ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
+                ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
+            });
+            match self.page {
+                DemoPage::Buttons => self.button_page.draw(ui),
+                DemoPage::Placed => draw_placed_page(ui),
+                DemoPage::Pane => self.pane_page.draw(ui),
+                DemoPage::Scroll => self.scroll_page.draw(ui),
+            }
+        });
+
+        self.run_dt = t.elapsed();
+
+        frame
     }
 }
 
-fn build_ui(
-    ui: &mut Ui<'_>,
-    page: &mut DemoPage,
-    pane_offset: &mut Vec2,
-    last_action: &mut Option<String>,
-) {
-    ui.vertical(|ui| {
-        ui.label("tinim-gui v0.1");
+struct ButtonsPage {
+    counter: usize,
+}
+impl ButtonsPage {
+    pub fn new() -> Self {
+        Self { counter: 0 }
+    }
+    pub fn draw(&mut self, ui: &mut Ui) {
+        if ui.button("+1").pressed {
+            self.counter = self.counter.saturating_add(1);
+        }
+        if ui.button("-1").pressed {
+            self.counter = self.counter.saturating_sub(1);
+        }
+        ui.label(&format!("Value: {}", self.counter));
+    }
+}
+
+fn draw_placed_page(ui: &mut Ui) {
+    ui.label("place() is relative to the current region's content origin.");
+    ui.place(pos2(48.0, 150.0), |ui| {
+        ui.label("placed at (48, 150)");
+        ui.button("Floating button");
+    });
+    ui.place(pos2(320.0, 210.0), |ui| {
+        ui.label("placed at (320, 210)");
+    });
+}
+
+struct PanePage {
+    action: Option<String>,
+    pane_offset: Vec2,
+}
+impl PanePage {
+    pub fn new() -> Self {
+        Self {
+            action: None,
+            pane_offset: Vec2::ZERO,
+        }
+    }
+    pub fn draw(&mut self, ui: &mut Ui) {
+        ui.label("pane() clips content to a fixed viewport; offset moves it.");
         ui.horizontal(|ui| {
-            ui.selectable_value(page, DemoPage::Buttons, "Buttons");
-            ui.selectable_value(page, DemoPage::Placed, "Placed");
-            ui.selectable_value(page, DemoPage::Pane, "Pane");
-            ui.selectable_value(page, DemoPage::Scroll, "Scroll");
+            if ui.button("x -20").pressed {
+                self.pane_offset.x -= 20.0;
+            }
+            if ui.button("x +20").pressed {
+                self.pane_offset.x += 20.0;
+            }
+            if ui.button("y -20").pressed {
+                self.pane_offset.y -= 20.0;
+            }
+            if ui.button("y +20").pressed {
+                self.pane_offset.y += 20.0;
+            }
+            if ui.button("reset").pressed {
+                self.pane_offset = Vec2::ZERO;
+            }
+        });
+        ui.label(&format!(
+            "offset: ({:.0}, {:.0})",
+            self.pane_offset.x, self.pane_offset.y
+        ));
+
+        let (_, pane) = ui.pane(vec2(300.0, 150.0), self.pane_offset, |ui| {
+            ui.label("This content is clipped to a 300 x 150 viewport.");
+            for index in 0..12 {
+                if ui.button(&format!("Item {index}")).pressed {
+                    self.action = Some(format!("pressed \"Item {index}\""));
+                }
+            }
+        });
+        ui.label(&format!(
+            "content: {:.0} x {:.0}",
+            pane.content_size.x, pane.content_size.y
+        ));
+    }
+}
+
+struct ScrollPage {
+    action: Option<String>,
+}
+impl ScrollPage {
+    pub fn new() -> Self {
+        Self { action: None }
+    }
+    pub fn draw(&mut self, ui: &mut Ui) {
+        ui.label(
+            "scrollable() clips content, scrolls nested areas from the inside out, \
+                     and clamps the caller-owned scroll position.",
+        );
+
+        let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
+            ui.label("Wheel over this area, or use the buttons above.");
+            for index in 0..6 {
+                if ui.button(&format!("Scroll item {index}")).pressed {
+                    self.action = Some(format!("pressed \"Scroll item {index}\""));
+                }
+            }
+            tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
+                for _ in 0..10 {
+                    ui.label("inner scrollable");
+                }
+            });
+            for _ in 0..6 {
+                ui.label("test");
+            }
         });
 
-        let mut action = None;
-
-        match *page {
-            DemoPage::Buttons => {
-                ui.label("Buttons report a press edge; there is no persistent widget state.");
-                ui.horizontal(|ui| {
-                    if ui.button("Press me").pressed {
-                        action = Some("pressed \"Press me\"".to_owned());
-                    }
-                    if ui.button("And me").pressed {
-                        action = Some("pressed \"And me\"".to_owned());
-                    }
-                });
-            }
-            DemoPage::Placed => {
-                ui.label("place() is relative to the current region's content origin.");
-                ui.place(pos2(48.0, 150.0), |ui| {
-                    ui.label("placed at (48, 150)");
-                    if ui.button("Floating button").pressed {
-                        action = Some("pressed \"Floating button\"".to_owned());
-                    }
-                });
-                ui.place(pos2(320.0, 210.0), |ui| {
-                    ui.label("placed at (320, 210)");
-                });
-            }
-            DemoPage::Pane => {
-                ui.label("pane() clips content to a fixed viewport; offset moves it.");
-                ui.horizontal(|ui| {
-                    if ui.button("x -20").pressed {
-                        pane_offset.x -= 20.0;
-                    }
-                    if ui.button("x +20").pressed {
-                        pane_offset.x += 20.0;
-                    }
-                    if ui.button("y -20").pressed {
-                        pane_offset.y -= 20.0;
-                    }
-                    if ui.button("y +20").pressed {
-                        pane_offset.y += 20.0;
-                    }
-                    if ui.button("reset").pressed {
-                        *pane_offset = Vec2::ZERO;
-                    }
-                });
-                ui.label(&format!(
-                    "offset: ({:.0}, {:.0})",
-                    pane_offset.x, pane_offset.y
-                ));
-
-                let (_, pane) = ui.pane(vec2(300.0, 150.0), *pane_offset, |ui| {
-                    ui.label("This content is clipped to a 300 x 150 viewport.");
-                    for index in 0..12 {
-                        if ui.button(&format!("Item {index}")).pressed {
-                            action = Some(format!("pressed \"Item {index}\""));
-                        }
-                    }
-                });
-                ui.label(&format!(
-                    "content: {:.0} x {:.0}",
-                    pane.content_size.x, pane.content_size.y
-                ));
-            }
-            DemoPage::Scroll => {
-                ui.label(
-                    "scrollable() clips content, scrolls nested areas from the inside out, \
-                     and clamps the caller-owned scroll position.",
-                );
-
-                let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
-                    ui.label("Wheel over this area, or use the buttons above.");
-                    for index in 0..6 {
-                        if ui.button(&format!("Scroll item {index}")).pressed {
-                            action = Some(format!("pressed \"Scroll item {index}\""));
-                        }
-                    }
-                    tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
-                        for _ in 0..10 {
-                            ui.label("inner scrollable");
-                        }
-                    });
-                    for _ in 0..6 {
-                        ui.label("test");
-                    }
-                });
-
-                ui.label(&format!(
-                    "content: {:.0} x {:.0}, hovered: {}",
-                    scroll.content_size.x, scroll.content_size.y, scroll.hovered
-                ));
-            }
-        }
-
-        if let Some(action) = action {
-            *last_action = Some(action);
-        }
-
-        match last_action.as_deref() {
-            Some(action) => ui.label(&format!("last action: {action}")),
-            None => ui.label("last action: none"),
-        };
-    });
+        ui.label(&format!(
+            "content: {:.0} x {:.0}, hovered: {}",
+            scroll.content_size.x, scroll.content_size.y, scroll.hovered
+        ));
+    }
 }

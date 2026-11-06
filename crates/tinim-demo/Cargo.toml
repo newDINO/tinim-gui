@@ -8,3 +8,4 @@ license.workspace = true
 
 [dependencies]
 tinim-gui.workspace = true
+web-time = "1"
