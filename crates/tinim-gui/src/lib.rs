@@ -37,10 +37,8 @@ mod style;
 mod text_cache;
 mod ui;
 
-pub use tinim_paint as paint;
 pub use tinim_paint::{Color32, PaintList, Pos2, Rect, TextureId, TexturesDelta, Vec2, pos2, vec2};
-pub use tinim_text as text;
-pub use tinim_text::{TextLayout, TextStyle, TextSystem};
+pub use tinim_text;
 
 pub use context::{Context, Frame};
 pub use input::{Modifiers, RawInput};
