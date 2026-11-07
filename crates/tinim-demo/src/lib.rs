@@ -5,12 +5,17 @@ use tinim_gui::{Color32, Context, Frame, RawInput, TextureId, Ui, Vec2, pos2, ve
 /// Comic Mono is the demo's primary and fallback font on every platform.
 const FONT: &[u8] = include_bytes!("../assets/ComicMono.ttf");
 
+const DEFAULT_TEXT: Color32 = Color32::from_rgb(230, 230, 230);
+const WARM_TEXT: Color32 = Color32::from_rgb(255, 196, 120);
+const COOL_TEXT: Color32 = Color32::from_rgb(180, 210, 255);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DemoPage {
     Buttons,
     Placed,
     Pane,
     Scroll,
+    Style,
 }
 
 /// Demo state and the UI built from it.
@@ -22,6 +27,7 @@ pub struct Demo {
     button_page: ButtonsPage,
     pane_page: PanePage,
     scroll_page: ScrollPage,
+    style_page: StylePage,
 
     run_dt: web_time::Duration,
 }
@@ -40,7 +46,7 @@ impl Demo {
             .text_system_mut()
             .add_font(FONT)
             .expect("the embedded Comic Mono font must be valid");
-        context.style_mut().font.color = Color32::from_rgb(230, 230, 230);
+        context.style_mut().font.color = DEFAULT_TEXT;
 
         Self {
             context,
@@ -49,6 +55,7 @@ impl Demo {
             button_page: ButtonsPage::new(),
             pane_page: PanePage::new(),
             scroll_page: ScrollPage::new(),
+            style_page: StylePage::new(),
 
             run_dt: web_time::Duration::ZERO,
         }
@@ -67,12 +74,14 @@ impl Demo {
                 ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
                 ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
                 ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
+                ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
             });
             match self.page {
                 DemoPage::Buttons => self.button_page.draw(ui),
                 DemoPage::Placed => draw_placed_page(ui),
                 DemoPage::Pane => self.pane_page.draw(ui),
                 DemoPage::Scroll => self.scroll_page.draw(ui),
+                DemoPage::Style => self.style_page.draw(ui),
             }
         });
 
@@ -195,5 +204,73 @@ impl ScrollPage {
             "content: {:.0} x {:.0}, hovered: {}",
             scroll.content_size.x, scroll.content_size.y, scroll.hovered
         ));
+    }
+}
+
+struct StylePage {
+    compact: bool,
+}
+
+impl StylePage {
+    fn new() -> Self {
+        Self { compact: false }
+    }
+
+    fn draw(&mut self, ui: &mut Ui) {
+        ui.label("with_style() overrides the style for one scope and restores it afterwards.");
+
+        let spacing = if self.compact { 2.0 } else { 8.0 };
+        let scope_label = if self.compact {
+            "Compact scope (spacing 2)"
+        } else {
+            "Roomy scope (spacing 8)"
+        };
+
+        ui.with_style(
+            |style| {
+                style.spacing = spacing;
+                style.button.normal = Color32::from_rgb(56, 112, 168);
+                style.button.hovered = Color32::from_rgb(72, 136, 196);
+                style.button.pressed = Color32::from_rgb(44, 88, 132);
+            },
+            |ui| {
+                ui.label(scope_label);
+                ui.button("Scoped button A");
+                ui.button("Scoped button B");
+            },
+        );
+
+        if ui.button("Toggle scoped spacing").pressed {
+            self.compact = !self.compact;
+        }
+
+        ui.label("Nested scopes restore in order:");
+        ui.with_style(
+            |style| style.button.normal = Color32::from_rgb(160, 48, 48),
+            |ui| {
+                ui.button("Outer scope: red");
+                ui.with_style(
+                    |style| style.button.normal = Color32::from_rgb(48, 96, 160),
+                    |ui| {
+                        ui.button("Inner scope: blue");
+                    },
+                );
+                ui.button("Outer scope: red again");
+            },
+        );
+
+        ui.label("style_mut() changes the style persistently, including future frames:");
+        ui.horizontal(|ui| {
+            if ui.button("Warm text").pressed {
+                ui.style_mut().font.color = WARM_TEXT;
+            }
+            if ui.button("Cool text").pressed {
+                ui.style_mut().font.color = COOL_TEXT;
+            }
+            if ui.button("Default text").pressed {
+                ui.style_mut().font.color = DEFAULT_TEXT;
+            }
+        });
+        ui.label("This label uses the persistent style set above.");
     }
 }
