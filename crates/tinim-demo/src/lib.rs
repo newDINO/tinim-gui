@@ -189,6 +189,10 @@ impl PanePage {
             "content: {:.0} x {:.0}",
             pane.content_size.x, pane.content_size.y
         ));
+        ui.label(&format!(
+            "action: {}",
+            self.action.as_deref().unwrap_or("(none)")
+        ));
     }
 }
 
@@ -225,6 +229,10 @@ impl ScrollPage {
         ui.label(&format!(
             "content: {:.0} x {:.0}, hovered: {}",
             scroll.content_size.x, scroll.content_size.y, scroll.hovered
+        ));
+        ui.label(&format!(
+            "action: {}",
+            self.action.as_deref().unwrap_or("(none)")
         ));
     }
 }
