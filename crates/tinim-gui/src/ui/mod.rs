@@ -109,6 +109,14 @@ impl<'a> Ui<'a> {
         self.ctx.style().spacing.max(0.0)
     }
 
+    /// Size of the current region.
+    ///
+    /// This is the full extent of the region, independent of how much of it has already been
+    /// used. For the remaining space, use [`Ui::available_size`].
+    pub fn size(&self) -> Vec2 {
+        self.layout.rect.size()
+    }
+
     /// Space left in the current region.
     pub fn available_size(&self) -> Vec2 {
         available_size(&self.layout, self.spacing())
@@ -342,5 +350,22 @@ mod tests {
 
         assert_eq!(second.min.y, first.max.y + 3.0);
         assert_eq!(context.style().spacing, 3.0);
+    }
+
+    #[test]
+    fn size_reports_the_current_region_extent() {
+        let mut context = context();
+        let mut root = Vec2::ZERO;
+        let mut inside = Vec2::ZERO;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            root = ui.size();
+            ui.sized_flow(vec2(80.0, 40.0), FlowConfig::vertical(), |ui| {
+                inside = ui.size();
+            });
+        });
+
+        assert_eq!(root, vec2(200.0, 100.0));
+        assert_eq!(inside, vec2(80.0, 40.0));
     }
 }
