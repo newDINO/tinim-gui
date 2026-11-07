@@ -5,7 +5,7 @@
 //! Build with `wasm-pack build --target web`; `index.html` in this crate loads the generated
 //! `pkg/tinim_demo_web.js`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -31,7 +31,8 @@ pub fn start() {
 #[derive(Default)]
 struct App {
     inner: Rc<RefCell<Option<AppInner>>>,
-    initializing: bool,
+    /// Shared with the initialization task so it can clear the flag when it finishes.
+    initializing: Rc<Cell<bool>>,
 }
 
 struct AppInner {
@@ -206,7 +207,7 @@ impl AppInner {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.initializing || self.inner.borrow().is_some() {
+        if self.initializing.get() || self.inner.borrow().is_some() {
             return;
         }
 
@@ -222,16 +223,21 @@ impl ApplicationHandler for App {
             }
         };
 
-        self.initializing = true;
+        self.initializing.set(true);
         let slot = Rc::clone(&self.inner);
+        let initializing = Rc::clone(&self.initializing);
         wasm_bindgen_futures::spawn_local(async move {
             match AppInner::new(window).await {
                 Ok(inner) => {
                     let window = Arc::clone(&inner.window);
                     *slot.borrow_mut() = Some(inner);
+                    initializing.set(false);
                     window.request_redraw();
                 }
-                Err(message) => log_error(&message),
+                Err(message) => {
+                    initializing.set(false);
+                    log_error(&message);
+                }
             }
         });
     }
