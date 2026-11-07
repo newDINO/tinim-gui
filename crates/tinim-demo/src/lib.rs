@@ -133,8 +133,8 @@ fn draw_placed_page(ui: &mut Ui) {
     ui.place_at(pos2(48.0, 150.0), |ui| {
         ui.label("placed at absolute (48, 150)");
         ui.button("Floating button");
-        ui.place_relative(vec2(10.0, 40.0), |ui| {
-            ui.label("nested at + (10, 40)");
+        ui.place_relative(vec2(30.0, 70.0), |ui| {
+            ui.label("nested at + (30, 70)");
         });
     });
     ui.place_relative(vec2(320.0, 210.0), |ui| {
