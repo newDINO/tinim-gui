@@ -229,6 +229,21 @@ fn explicit_newlines_create_empty_lines() {
 }
 
 #[test]
+fn default_line_height_includes_the_descent() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    // AHEM's ascent and descent are 800 and 200 units in a 1000 unit em, so lines are one em
+    // apart at 16 points. Regression test: the descent must not be subtracted from the ascent.
+    let layout = system.layout("a\na", &style(16.0), None);
+    assert_eq!(layout.line_count(), 2);
+    let first = layout.lines()[0].baseline();
+    let second = layout.lines()[1].baseline();
+    assert!((second - first - 16.0).abs() < 0.01, "{first} -> {second}");
+    assert!((layout.height() - 32.0).abs() < 0.01, "{}", layout.height());
+}
+
+#[test]
 fn second_upload_is_partial() {
     let mut system = TextSystem::new(TextureId(1));
     system.add_font(AHEM.to_vec()).unwrap();

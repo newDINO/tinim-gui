@@ -133,7 +133,9 @@ impl FontFace {
         let metrics = font.metrics(Size::new(size), LocationRef::default());
         FontMetrics {
             ascent: metrics.ascent,
-            descent: metrics.descent,
+            // Skrifa reports the descent as a negative offset from the baseline (the same sign
+            // as the font tables), while `FontMetrics` stores it as a positive distance.
+            descent: -metrics.descent,
             leading: metrics.leading,
         }
     }
