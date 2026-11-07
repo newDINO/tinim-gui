@@ -19,6 +19,7 @@ struct App {
 
 struct AppInner {
     window: Arc<Window>,
+    instance: wgpu::Instance,
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -76,6 +77,7 @@ impl AppInner {
 
         Self {
             window,
+            instance,
             device,
             queue,
             surface,
@@ -95,6 +97,16 @@ impl AppInner {
         self.surface.configure(&self.device, &self.surface_config);
     }
 
+    fn recreate_surface(&mut self) {
+        match self.instance.create_surface(self.window.clone()) {
+            Ok(surface) => {
+                self.surface = surface;
+                self.surface.configure(&self.device, &self.surface_config);
+            }
+            Err(error) => eprintln!("failed to recreate the surface: {error}"),
+        }
+    }
+
     fn draw(&mut self) {
         let physical_size = self.window.inner_size();
         if physical_size.width == 0 || physical_size.height == 0 {
@@ -107,7 +119,18 @@ impl AppInner {
         let output = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => surface_texture,
-            _ => return,
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                self.surface.configure(&self.device, &self.surface_config);
+                return;
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                self.recreate_surface();
+                return;
+            }
+            // Skip this frame; the surface is expected to recover on its own.
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded
+            | wgpu::CurrentSurfaceTexture::Validation => return,
         };
         let view = output
             .texture

@@ -37,6 +37,7 @@ struct App {
 
 struct AppInner {
     window: Arc<Window>,
+    instance: wgpu::Instance,
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
@@ -116,6 +117,7 @@ impl AppInner {
 
         Ok(Self {
             window,
+            instance,
             device,
             queue,
             surface,
@@ -135,6 +137,23 @@ impl AppInner {
         self.surface.configure(&self.device, &self.surface_config);
     }
 
+    fn recreate_surface(&mut self) {
+        let Some(canvas) = self.window.canvas() else {
+            log_error("the winit window has no canvas");
+            return;
+        };
+        match self
+            .instance
+            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+        {
+            Ok(surface) => {
+                self.surface = surface;
+                self.surface.configure(&self.device, &self.surface_config);
+            }
+            Err(error) => log_error(&format!("failed to recreate the browser surface: {error}")),
+        }
+    }
+
     fn draw(&mut self) {
         let physical_size = self.window.inner_size();
         if physical_size.width == 0 || physical_size.height == 0 {
@@ -147,7 +166,18 @@ impl AppInner {
         let output = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => surface_texture,
-            _ => return,
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                self.surface.configure(&self.device, &self.surface_config);
+                return;
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                self.recreate_surface();
+                return;
+            }
+            // Skip this frame; the surface is expected to recover on its own.
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded
+            | wgpu::CurrentSurfaceTexture::Validation => return,
         };
         let view = output
             .texture
