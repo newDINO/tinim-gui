@@ -12,6 +12,7 @@ mod widgets;
 #[cfg(test)]
 mod test_util;
 
+pub use layout::{Align, FlowConfig};
 pub use response::{PaneResponse, Response, ScrollResponse, ScrollState};
 
 use tinim_paint::{Pos2, Rect, Vec2};
@@ -49,14 +50,7 @@ impl<'a> Ui<'a> {
         };
         Self {
             ctx,
-            layout: Layout {
-                rect,
-                origin: rect.min,
-                cursor: rect.min,
-                used: Rect::NOTHING,
-                has_children: false,
-                direction: Direction::Vertical,
-            },
+            layout: Layout::new(rect, rect.min, FlowConfig::vertical()),
             clip: rect,
             scroll_remaining,
         }
@@ -120,17 +114,36 @@ impl<'a> Ui<'a> {
         available_size(&self.layout, self.spacing())
     }
 
-    /// Builds a flow region. This changes layout only; the clip is inherited unchanged.
-    fn with_layout<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+    /// Builds a content-sized flow region. This changes layout only; the clip is inherited
+    /// unchanged.
+    ///
+    /// Only forward directions are supported. A reverse flow needs a known extent; use
+    /// [`Ui::sized_flow`] for those.
+    fn with_layout<R>(&mut self, config: FlowConfig, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        debug_assert!(
+            config.direction.is_forward(),
+            "content-sized flow requires a forward direction; use sized_flow for reverse directions"
+        );
+        debug_assert!(
+            self.layout.direction.is_forward(),
+            "content-sized flow inside a reverse flow is unsupported; wrap it in sized_flow"
+        );
+
         let start = next_pos(&self.layout, self.spacing());
         let rect = Rect::from_min_max(start, self.layout.rect.max);
-        let (result, used) = self.layout_at(rect, start, direction, build);
+        let (result, used) = self.layout_at(rect, start, config, build);
 
         if used.is_positive() {
             match self.layout.direction {
                 Direction::Vertical => self.layout.cursor.y = self.layout.cursor.y.max(used.max.y),
+                Direction::VerticalReverse => {
+                    self.layout.cursor.y = self.layout.cursor.y.min(used.min.y);
+                }
                 Direction::Horizontal => {
                     self.layout.cursor.x = self.layout.cursor.x.max(used.max.x);
+                }
+                Direction::HorizontalReverse => {
+                    self.layout.cursor.x = self.layout.cursor.x.min(used.min.x);
                 }
             }
             self.layout.has_children = true;
@@ -154,20 +167,10 @@ impl<'a> Ui<'a> {
         &mut self,
         rect: Rect,
         origin: Pos2,
-        direction: Direction,
+        config: FlowConfig,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
-        let parent = std::mem::replace(
-            &mut self.layout,
-            Layout {
-                rect,
-                origin,
-                cursor: origin,
-                used: Rect::NOTHING,
-                has_children: false,
-                direction,
-            },
-        );
+        let parent = std::mem::replace(&mut self.layout, Layout::new(rect, origin, config));
 
         let result = build(self);
         let child = std::mem::replace(&mut self.layout, parent);
@@ -182,7 +185,7 @@ impl<'a> Ui<'a> {
         &mut self,
         rect: Rect,
         origin: Pos2,
-        direction: Direction,
+        config: FlowConfig,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
         let clip = self.clip.intersect(rect);
@@ -190,7 +193,7 @@ impl<'a> Ui<'a> {
         self.ctx.painter.set_clip_rect(clip);
         let previous_clip = std::mem::replace(&mut self.clip, clip);
 
-        let (result, used) = self.layout_at(rect, origin, direction, build);
+        let (result, used) = self.layout_at(rect, origin, config, build);
 
         self.clip = previous_clip;
         self.ctx.painter.set_clip_rect(previous_painter_clip);

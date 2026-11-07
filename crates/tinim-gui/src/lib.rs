@@ -49,4 +49,4 @@ pub use tinim_text;
 pub use context::{Context, Frame};
 pub use input::{Modifiers, RawInput};
 pub use style::{ButtonStyle, Style};
-pub use ui::{PaneResponse, Response, ScrollResponse, ScrollState, Ui};
+pub use ui::{Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, Ui};

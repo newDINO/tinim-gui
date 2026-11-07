@@ -1,6 +1,8 @@
 //! Shared UI used by the native and web demos.
 
-use tinim_gui::{Color32, Context, Frame, RawInput, TextureId, Ui, Vec2, pos2, vec2};
+use tinim_gui::{
+    Align, Color32, Context, FlowConfig, Frame, RawInput, TextureId, Ui, Vec2, pos2, vec2,
+};
 
 /// Comic Mono is the demo's primary and fallback font on every platform.
 const FONT: &[u8] = include_bytes!("../assets/ComicMono.ttf");
@@ -13,6 +15,7 @@ const COOL_TEXT: Color32 = Color32::from_rgb(180, 210, 255);
 enum DemoPage {
     Buttons,
     Placed,
+    Layout,
     Pane,
     Scroll,
     Style,
@@ -25,6 +28,7 @@ pub struct Demo {
     page: DemoPage,
 
     button_page: ButtonsPage,
+    layout_page: LayoutPage,
     pane_page: PanePage,
     scroll_page: ScrollPage,
     style_page: StylePage,
@@ -56,6 +60,7 @@ impl Demo {
             page: DemoPage::Buttons,
 
             button_page: ButtonsPage::new(),
+            layout_page: LayoutPage::new(),
             pane_page: PanePage::new(),
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
@@ -89,6 +94,7 @@ impl Demo {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.page, DemoPage::Buttons, "Buttons");
                 ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
+                ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
                 ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
                 ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
                 ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
@@ -96,6 +102,7 @@ impl Demo {
             match self.page {
                 DemoPage::Buttons => self.button_page.draw(ui),
                 DemoPage::Placed => draw_placed_page(ui),
+                DemoPage::Layout => self.layout_page.draw(ui),
                 DemoPage::Pane => self.pane_page.draw(ui),
                 DemoPage::Scroll => self.scroll_page.draw(ui),
                 DemoPage::Style => self.style_page.draw(ui),
@@ -140,6 +147,64 @@ fn draw_placed_page(ui: &mut Ui) {
     ui.place_relative(vec2(320.0, 210.0), |ui| {
         ui.label("placed at origin + (320, 210)");
     });
+}
+
+struct LayoutPage {
+    align: Align,
+}
+
+impl LayoutPage {
+    fn new() -> Self {
+        Self {
+            align: Align::Start,
+        }
+    }
+
+    fn draw(&mut self, ui: &mut Ui) {
+        ui.label(
+            "flow() is content-sized and sets direction + cross-axis alignment; \
+             sized_flow() gives a reverse flow a fixed box.",
+        );
+
+        ui.horizontal(|ui| {
+            ui.label("cross-axis alignment:");
+            for (align, label) in [
+                (Align::Start, "Start"),
+                (Align::Center, "Center"),
+                (Align::End, "End"),
+                (Align::Stretch, "Stretch"),
+            ] {
+                if ui.selectable_label(self.align == align, label).pressed {
+                    self.align = align;
+                }
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.sized_flow(
+                vec2(220.0, 130.0),
+                FlowConfig::vertical().align(self.align),
+                |ui| {
+                    ui.label("flow(vertical)");
+                    ui.button("one");
+                    ui.button("two");
+                },
+            );
+            ui.sized_flow(vec2(220.0, 130.0), FlowConfig::bottom_to_top(), |ui| {
+                ui.label("bottom_to_top");
+                ui.button("first");
+                ui.button("second");
+            });
+        });
+
+        ui.sized_flow(vec2(460.0, 70.0), FlowConfig::right_to_left(), |ui| {
+            ui.button("right");
+            ui.button("middle");
+            ui.button("left");
+        });
+
+        ui.label("The parent flow continues after the fixed-size boxes.");
+    }
 }
 
 struct PanePage {

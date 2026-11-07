@@ -3,7 +3,7 @@
 use tinim_paint::{Pos2, Rect, Vec2};
 
 use super::Ui;
-use super::layout::{Direction, allocate_space};
+use super::layout::{FlowConfig, allocate_space};
 use super::response::PaneResponse;
 
 impl Ui<'_> {
@@ -12,7 +12,7 @@ impl Ui<'_> {
     /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
     /// if any; the stack itself is not a clipping region.
     pub fn vertical<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.with_layout(Direction::Vertical, build)
+        self.flow(FlowConfig::vertical(), build)
     }
 
     /// Stacks children horizontally.
@@ -20,7 +20,37 @@ impl Ui<'_> {
     /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
     /// if any; the stack itself is not a clipping region.
     pub fn horizontal<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.with_layout(Direction::Horizontal, build)
+        self.flow(FlowConfig::horizontal(), build)
+    }
+
+    /// Builds a content-sized flow with an explicit direction and cross-axis alignment.
+    ///
+    /// Only forward directions ([`FlowConfig::vertical`] and [`FlowConfig::horizontal`]) are
+    /// supported. Reverse flows need a known extent; use [`Ui::sized_flow`] for those.
+    ///
+    /// A content-sized flow must also be nested in a forward flow. Inside a reverse
+    /// [`Ui::sized_flow`], wrap it in another `sized_flow`.
+    ///
+    /// Like [`Ui::vertical`] and [`Ui::horizontal`], this changes layout only and does not clip.
+    pub fn flow<R>(&mut self, config: FlowConfig, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        self.with_layout(config, build)
+    }
+
+    /// Builds content in a fixed-size layout box.
+    ///
+    /// The box is allocated in the parent flow. Unlike [`Ui::pane`], it does not clip. All flow
+    /// directions are supported, including bottom-to-top and right-to-left.
+    ///
+    /// A content-sized flow such as [`Ui::vertical`] cannot be nested directly inside a reverse
+    /// `sized_flow`; wrap it in another `sized_flow` or use leaf widgets.
+    pub fn sized_flow<R>(
+        &mut self,
+        size: Vec2,
+        config: FlowConfig,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> R {
+        let rect = self.allocate_space(size);
+        self.layout_at(rect, rect.min, config, build).0
     }
 
     /// Starts a vertical region at an absolute position.
@@ -34,7 +64,7 @@ impl Ui<'_> {
     /// rectangle.
     pub fn place_at<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
         let rect = Rect::from_min_max(pos, self.layout.rect.max);
-        self.clipped_layout_at(rect, pos, Direction::Vertical, build)
+        self.clipped_layout_at(rect, pos, FlowConfig::vertical(), build)
             .0
     }
 
@@ -73,7 +103,7 @@ impl Ui<'_> {
         let rect = allocate_space(&mut self.layout, size, spacing);
         let origin = rect.min + offset;
 
-        let (result, used) = self.clipped_layout_at(rect, origin, Direction::Vertical, build);
+        let (result, used) = self.clipped_layout_at(rect, origin, FlowConfig::vertical(), build);
 
         let content_size = if used.is_positive() {
             (used.max - origin).max(Vec2::ZERO)
@@ -89,7 +119,7 @@ impl Ui<'_> {
 mod tests {
     use super::*;
     use crate::ui::test_util::context;
-    use crate::{RawInput, pos2, vec2};
+    use crate::{Align, RawInput, pos2, vec2};
 
     #[test]
     fn vertical_stack_advances_by_widget_height_and_spacing() {
@@ -127,6 +157,161 @@ mod tests {
         assert_eq!(rects[0].min, pos2(0.0, 0.0));
         assert_eq!(rects[1].min.x, rects[0].max.x + spacing);
         assert_eq!(rects[1].min.y, rects[0].min.y);
+    }
+
+    #[test]
+    fn sized_flow_bottom_to_top_places_children_from_the_bottom() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut second = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 80.0), FlowConfig::bottom_to_top(), |ui| {
+                first = ui.allocate_space(vec2(10.0, 10.0));
+                second = ui.allocate_space(vec2(10.0, 10.0));
+            });
+            after = ui.allocate_space(vec2(10.0, 10.0));
+        });
+
+        assert_eq!(first.min.x, 0.0);
+        assert_eq!(first.max.y, 80.0);
+        assert_eq!(second.max.y, first.min.y - spacing);
+        assert_eq!(second.min.y, first.min.y - spacing - 10.0);
+        // The parent flow advances by the box size, not by the content's measured extent.
+        assert_eq!(after.min.y, 80.0 + spacing);
+    }
+
+    #[test]
+    fn sized_flow_right_to_left_places_children_from_the_right() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut second = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 80.0), FlowConfig::right_to_left(), |ui| {
+                first = ui.allocate_space(vec2(10.0, 10.0));
+                second = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(first.min.y, 0.0);
+        assert_eq!(first.max.x, 100.0);
+        assert_eq!(second.max.x, first.min.x - spacing);
+        assert_eq!(second.min.x, first.min.x - spacing - 10.0);
+    }
+
+    #[test]
+    fn sized_flow_inside_forward_flow_keeps_parent_flow() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut before = Rect::NOTHING;
+        let mut inside = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            before = ui.allocate_space(vec2(10.0, 10.0));
+            ui.sized_flow(vec2(50.0, 40.0), FlowConfig::bottom_to_top(), |ui| {
+                inside = ui.allocate_space(vec2(10.0, 10.0));
+            });
+            after = ui.allocate_space(vec2(10.0, 10.0));
+        });
+
+        let box_max_y = before.max.y + spacing + 40.0;
+        assert_eq!(inside.max.y, box_max_y);
+        assert_eq!(after.min.y, box_max_y + spacing);
+    }
+
+    #[test]
+    fn nested_sized_flows_support_reverse_directions() {
+        let mut context = context();
+        let mut inside = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 100.0), FlowConfig::bottom_to_top(), |ui| {
+                ui.sized_flow(vec2(20.0, 20.0), FlowConfig::right_to_left(), |ui| {
+                    inside = ui.allocate_space(vec2(5.0, 5.0));
+                });
+            });
+        });
+
+        // The outer reverse vertical flow puts the 20x20 box at the bottom-left; the inner reverse
+        // horizontal flow puts the item at that box's right edge.
+        assert_eq!(inside.max.x, 20.0);
+        assert_eq!(inside.min.y, 80.0);
+        assert_eq!(inside.max.y, 85.0);
+    }
+
+    #[test]
+    fn flow_align_centers_children_on_the_cross_axis() {
+        let mut context = context();
+        let mut rect = Rect::NOTHING;
+
+        let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.flow(FlowConfig::vertical().align(Align::Center), |ui| {
+                rect = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(rect.min.x, 45.0);
+        assert_eq!(rect.max.x, 55.0);
+    }
+
+    #[test]
+    fn horizontal_flow_align_centers_children_on_the_cross_axis() {
+        let mut context = context();
+        let mut rect = Rect::NOTHING;
+
+        let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.flow(FlowConfig::horizontal().align(Align::Center), |ui| {
+                rect = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(rect.min.y, 45.0);
+        assert_eq!(rect.max.y, 55.0);
+    }
+
+    #[test]
+    fn flow_align_end_and_stretch() {
+        let mut context = context();
+        let mut end = Rect::NOTHING;
+        let mut stretched = Rect::NOTHING;
+
+        let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.flow(FlowConfig::vertical().align(Align::End), |ui| {
+                end = ui.allocate_space(vec2(10.0, 10.0));
+            });
+            ui.flow(FlowConfig::vertical().align(Align::Stretch), |ui| {
+                stretched = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(end.max.x, 100.0);
+        assert_eq!(stretched.min.x, 0.0);
+        assert_eq!(stretched.width(), 100.0);
+    }
+
+    #[test]
+    fn sized_flow_does_not_narrow_the_clip() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 50.0), FlowConfig::vertical(), |ui| {
+                ui.label("inside");
+            });
+        });
+
+        let root_clip = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 200.0));
+        assert!(!frame.paint.draws.is_empty());
+        assert!(
+            frame
+                .paint
+                .draws
+                .iter()
+                .all(|draw| draw.clip_rect == root_clip)
+        );
     }
 
     #[test]
