@@ -19,11 +19,24 @@ impl TextureId {
     pub const WHITE: Self = Self(0);
 }
 
+/// The coordinate space of a [`Mesh`]'s vertex positions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MeshSpace {
+    /// Positions are logical points. [`Painter::add_mesh`](crate::Painter::add_mesh) scales them
+    /// by `pixels_per_point`.
+    #[default]
+    Logical,
+    /// Positions are already physical pixels. [`Painter::add_mesh`](crate::Painter::add_mesh)
+    /// appends them unchanged.
+    Physical,
+}
+
 /// A single vertex. Kept at 16 bytes on purpose.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
-    /// Position in physical pixels.
+    /// Position in the owning mesh's [`MeshSpace`]. [`PaintList`] vertices are always physical
+    /// pixels.
     pub pos: [f32; 2],
     /// Texture coordinates, normalized to `0..=65535`.
     pub uv: [u16; 2],
@@ -50,21 +63,36 @@ impl Vertex {
     }
 }
 
-/// A list of triangles that all use the same texture.
+/// A list of triangles that all use the same texture and coordinate space.
+///
+/// Positions are in [`Mesh::space`]. [`Painter::add_mesh`](crate::Painter::add_mesh) scales
+/// logical-point meshes by `pixels_per_point` and appends physical-pixel meshes unchanged.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Mesh {
     pub indices: Vec<u32>,
     pub vertices: Vec<Vertex>,
     pub texture_id: TextureId,
+    pub space: MeshSpace,
 }
 
 impl Mesh {
+    /// An empty mesh in logical points, the common authoring space.
     #[inline]
     pub fn with_texture(texture_id: TextureId) -> Self {
         Self {
             indices: Vec::new(),
             vertices: Vec::new(),
             texture_id,
+            space: MeshSpace::Logical,
+        }
+    }
+
+    /// An empty mesh whose positions are already in physical pixels.
+    #[inline]
+    pub fn physical(texture_id: TextureId) -> Self {
+        Self {
+            space: MeshSpace::Physical,
+            ..Self::with_texture(texture_id)
         }
     }
 
@@ -109,13 +137,19 @@ impl Mesh {
     ///
     /// # Errors
     ///
-    /// Returns [`TextureMismatch`] if `other` uses a different texture. In that case `self` is
-    /// left unchanged.
-    pub fn append(&mut self, other: Self) -> Result<(), TextureMismatch> {
+    /// Returns [`MeshMismatch`] if `other` uses a different texture or coordinate space. In that
+    /// case `self` is left unchanged.
+    pub fn append(&mut self, other: Self) -> Result<(), MeshMismatch> {
         if other.texture_id != self.texture_id {
-            return Err(TextureMismatch {
+            return Err(MeshMismatch::Texture {
                 expected: self.texture_id,
                 actual: other.texture_id,
+            });
+        }
+        if other.space != self.space {
+            return Err(MeshMismatch::Space {
+                expected: self.space,
+                actual: other.space,
             });
         }
         let base = self.vertices.len() as u32;
@@ -125,26 +159,40 @@ impl Mesh {
     }
 }
 
-/// Error returned when two meshes with different textures are appended.
+/// Error returned when two meshes with incompatible textures or coordinate spaces are appended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextureMismatch {
-    /// The texture of the mesh being appended to.
-    pub expected: TextureId,
-    /// The texture of the mesh that was appended.
-    pub actual: TextureId,
+pub enum MeshMismatch {
+    /// The meshes sample different textures.
+    Texture {
+        /// The texture of the mesh being appended to.
+        expected: TextureId,
+        /// The texture of the mesh that was appended.
+        actual: TextureId,
+    },
+    /// The meshes use different coordinate spaces.
+    Space {
+        /// The space of the mesh being appended to.
+        expected: MeshSpace,
+        /// The space of the mesh that was appended.
+        actual: MeshSpace,
+    },
 }
 
-impl std::fmt::Display for TextureMismatch {
+impl std::fmt::Display for MeshMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "cannot append mesh with texture {:?} to mesh with texture {:?}",
-            self.actual, self.expected
-        )
+        match self {
+            Self::Texture { expected, actual } => write!(
+                f,
+                "cannot append mesh with texture {actual:?} to mesh with texture {expected:?}"
+            ),
+            Self::Space { expected, actual } => {
+                write!(f, "cannot append a {actual:?} mesh to a {expected:?} mesh")
+            }
+        }
     }
 }
 
-impl std::error::Error for TextureMismatch {}
+impl std::error::Error for MeshMismatch {}
 
 /// One draw call: a contiguous range of indices sharing a clip rectangle and texture.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +268,19 @@ mod tests {
         assert!(mesh.indices.iter().all(|&i| i < 4));
     }
 
+    #[test]
+    fn meshes_default_to_logical_space() {
+        assert_eq!(Mesh::with_texture(TextureId(1)).space, MeshSpace::Logical);
+        assert_eq!(Mesh::default().space, MeshSpace::Logical);
+    }
+
+    #[test]
+    fn physical_constructor_sets_the_space() {
+        let mesh = Mesh::physical(TextureId(1));
+        assert_eq!(mesh.space, MeshSpace::Physical);
+        assert_eq!(mesh.texture_id, TextureId(1));
+    }
+
     fn quad_mesh(texture_id: TextureId) -> Mesh {
         let mut mesh = Mesh::with_texture(texture_id);
         mesh.add_rect_with_uv(
@@ -248,9 +309,28 @@ mod tests {
         let error = a.append(quad_mesh(TextureId(1))).unwrap_err();
         assert_eq!(
             error,
-            TextureMismatch {
+            MeshMismatch::Texture {
                 expected: TextureId::WHITE,
                 actual: TextureId(1),
+            }
+        );
+        assert_eq!(a, before);
+    }
+
+    #[test]
+    fn append_rejects_a_different_space() {
+        let mut a = quad_mesh(TextureId::WHITE);
+        let before = a.clone();
+
+        let mut physical = quad_mesh(TextureId::WHITE);
+        physical.space = MeshSpace::Physical;
+
+        let error = a.append(physical).unwrap_err();
+        assert_eq!(
+            error,
+            MeshMismatch::Space {
+                expected: MeshSpace::Logical,
+                actual: MeshSpace::Physical,
             }
         );
         assert_eq!(a, before);

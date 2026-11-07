@@ -2,8 +2,8 @@
 
 use crate::tessellate::{add_circle, add_line, add_rect};
 use crate::{
-    CircleShape, Color32, DrawCommand, Mesh, PaintList, Pos2, Rect, RectShape, Shape, TextureId,
-    Vec2,
+    CircleShape, Color32, DrawCommand, Mesh, MeshSpace, PaintList, Pos2, Rect, RectShape, Shape,
+    TextureId, Vec2,
 };
 
 /// Builds a frame's geometry while tracking the current clip rectangle.
@@ -181,10 +181,22 @@ impl Painter {
         add_line(&mut self.list, points, width, color, self.pixels_per_point);
     }
 
-    /// Append custom geometry that is already in physical pixels.
-    pub fn add_mesh(&mut self, mesh: Mesh) {
+    /// Append custom geometry using the current clip.
+    ///
+    /// Logical-point meshes (the default from [`Mesh::with_texture`]) are scaled by
+    /// `pixels_per_point`. Physical-pixel meshes (from [`Mesh::physical`]) are appended unchanged.
+    pub fn add_mesh(&mut self, mut mesh: Mesh) {
         if !self.clip_rect.is_positive() || mesh.is_empty() || mesh.vertices.is_empty() {
             return;
+        }
+        if mesh.space == MeshSpace::Logical {
+            let scale = self.pixels_per_point;
+            if scale != 1.0 {
+                for vertex in &mut mesh.vertices {
+                    vertex.pos[0] *= scale;
+                    vertex.pos[1] *= scale;
+                }
+            }
         }
         self.use_texture(mesh.texture_id);
         self.list.append_geometry(&mesh.vertices, &mesh.indices);
@@ -431,6 +443,53 @@ mod tests {
         assert_eq!(list.vertices.len(), 8);
         assert_eq!(list.indices.len(), 12);
         assert!(list.indices.iter().all(|&index| index < 8));
+    }
+
+    #[test]
+    fn logical_meshes_are_scaled_when_adding() {
+        let mut painter = Painter::new(100.0, 100.0, 2.0);
+        let mut mesh = Mesh::with_texture(TextureId(1));
+        mesh.add_rect_with_uv(
+            Rect::from_min_size(pos2(1.0, 1.0), vec2(10.0, 10.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        painter.add_mesh(mesh);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.vertices[0].pos, [2.0, 2.0]);
+        assert_eq!(list.vertices[2].pos, [22.0, 22.0]);
+    }
+
+    #[test]
+    fn physical_meshes_are_not_scaled_when_adding() {
+        let mut painter = Painter::new(100.0, 100.0, 2.0);
+        let mut mesh = Mesh::physical(TextureId(1));
+        mesh.add_rect_with_uv(
+            Rect::from_min_size(pos2(1.0, 1.0), vec2(10.0, 10.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        painter.add_mesh(mesh);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.vertices[0].pos, [1.0, 1.0]);
+        assert_eq!(list.vertices[2].pos, [11.0, 11.0]);
+    }
+
+    #[test]
+    fn shapes_respect_the_mesh_space() {
+        let mut painter = Painter::new(100.0, 100.0, 2.0);
+        let mut mesh = Mesh::physical(TextureId(1));
+        mesh.add_rect_with_uv(
+            Rect::from_min_size(pos2(1.0, 1.0), vec2(10.0, 10.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        painter.add(Shape::Mesh(mesh));
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.vertices[0].pos, [1.0, 1.0]);
     }
 
     #[test]

@@ -117,7 +117,7 @@ pub enum Shape {
     Rect(RectShape),
     Circle(CircleShape),
     Line(LineShape),
-    /// Custom geometry, already in physical pixels. Use this instead of a paint callback.
+    /// Custom geometry. Its coordinate space is given by [`Mesh::space`].
     Mesh(Mesh),
 }
 

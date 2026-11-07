@@ -23,8 +23,9 @@
 //! 4. Hand the list to a renderer (`tinim-wgpu`) together with [`TexturesDelta`].
 //!
 //! Note: geometry is authored in logical points and converted to physical pixels when it is added.
-//! Meshes you build yourself ([`Shape::Mesh`] or [`Painter::add_mesh`]) must already be in physical
-//! pixels.
+//! A [`Mesh`] declares its coordinate space with [`MeshSpace`]; meshes built with
+//! [`Mesh::with_texture`] default to logical points and are scaled on insertion, while
+//! [`Mesh::physical`] meshes are already in physical pixels and are appended unchanged.
 
 mod color;
 mod math;
@@ -36,7 +37,7 @@ mod textures;
 
 pub use color::Color32;
 pub use math::{Pos2, Rangef, Rect, Vec2, pos2, vec2};
-pub use mesh::{DrawCommand, Mesh, PaintList, TextureId, TextureMismatch, Vertex};
+pub use mesh::{DrawCommand, Mesh, MeshMismatch, MeshSpace, PaintList, TextureId, Vertex};
 pub use painter::Painter;
 pub use shape::{CircleShape, LineShape, RectShape, Shape, Stroke};
 pub use textures::{ImageDelta, TexturesDelta};

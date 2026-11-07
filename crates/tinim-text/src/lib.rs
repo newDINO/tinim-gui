@@ -20,8 +20,9 @@
 //! ```
 //!
 //! Coordinates in [`TextLayout`] are logical points. [`TextSystem::prepare`] takes the current
-//! `pixels_per_point` and emits a [`tinim_paint::Mesh`] in physical pixels, ready for
-//! [`tinim_paint::Painter::add_mesh`].
+//! `pixels_per_point` and emits a [`tinim_paint::Mesh`] in physical pixels. The mesh is tagged as
+//! [`tinim_paint::MeshSpace::Physical`], so [`tinim_paint::Painter::add_mesh`] appends it
+//! unchanged instead of scaling it again.
 //!
 //! ## Fonts
 //!
@@ -228,8 +229,9 @@ impl TextSystem {
     /// Rasterizes any new glyphs and builds a mesh in physical pixels.
     ///
     /// `origin` is the top-left corner of the text block in logical points. `color` is a paint
-    /// parameter and is not part of the cached layout. Upload [`TextSystem::take_textures`]
-    /// before drawing the returned mesh.
+    /// parameter and is not part of the cached layout. The mesh is tagged
+    /// [`tinim_paint::MeshSpace::Physical`], so [`tinim_paint::Painter::add_mesh`] appends it
+    /// without scaling it again. Upload [`TextSystem::take_textures`] before drawing the mesh.
     pub fn prepare(
         &mut self,
         layout: &TextLayout,
@@ -392,7 +394,7 @@ impl TextSystem {
             }
         }
 
-        let mut mesh = Mesh::with_texture(self.atlas.texture_id());
+        let mut mesh = Mesh::physical(self.atlas.texture_id());
         let mut index = 0;
         for line in layout.lines() {
             let baseline = (origin.y + line.baseline()) * pixels_per_point;

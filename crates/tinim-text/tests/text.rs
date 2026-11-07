@@ -6,7 +6,7 @@
 use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1, VAZIRMATN_VAR};
 use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
-use tinim_paint::{Color32, TextureId, pos2};
+use tinim_paint::{Color32, MeshSpace, TextureId, pos2};
 use tinim_text::{TextDirection, TextStyle, TextSystem};
 
 fn style(size: f32) -> TextStyle {
@@ -31,6 +31,11 @@ fn ahem_layout_and_atlas_upload() {
     assert_eq!(mesh.vertices.len(), 3 * 4);
     assert_eq!(mesh.indices.len(), 3 * 6);
     assert_eq!(mesh.texture_id, TextureId(1));
+    assert_eq!(
+        mesh.space,
+        MeshSpace::Physical,
+        "prepared text is already in physical pixels"
+    );
 
     let textures = system.take_textures();
     assert_eq!(
