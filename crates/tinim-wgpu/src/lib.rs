@@ -12,7 +12,13 @@
 //!
 //! The renderer is a dumb consumer of [`tinim_paint::PaintList`]: no layout, no widgets, no text
 //! shaping. It only knows vertices, indices, draw ranges, scissor rectangles and texture ids.
+//!
+//! ## Hashing
+//!
+//! The texture table uses `rustc-hash` by default. Disable the default `rustc-hash` feature to use
+//! the standard library's randomly seeded hasher instead.
 
+mod hash;
 mod renderer;
 mod texture;
 

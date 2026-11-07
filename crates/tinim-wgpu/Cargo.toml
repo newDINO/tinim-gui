@@ -10,6 +10,11 @@ license.workspace = true
 tinim-paint.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
+rustc-hash = { workspace = true, optional = true }
+
+[features]
+default = ["rustc-hash"]
+rustc-hash = ["dep:rustc-hash"]
 
 [dev-dependencies]
 pollster.workspace = true

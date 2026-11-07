@@ -39,10 +39,17 @@
 //! Bitmap strikes (CBDT/CBLC, EBDT/EBLC and sbix) and COLRv0 are supported. PNG-compressed strikes
 //! need the `emoji-bitmap` feature, which is on by default. COLRv1 gradient graphs are not
 //! implemented yet; those glyphs fall back to their monochrome outline when one exists.
+//!
+//! ## Hashing
+//!
+//! Internal caches use `rustc-hash` by default. Disable the `rustc-hash` feature (for example with
+//! `default-features = false`, re-enabling `fallback` and `emoji-bitmap` if needed) to fall back to
+//! the standard library's randomly seeded hasher instead.
 
 mod atlas;
 mod error;
 mod font;
+mod hash;
 mod layout;
 mod raster;
 mod shape;

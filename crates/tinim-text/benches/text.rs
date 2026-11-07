@@ -21,6 +21,7 @@ const BACKGROUND_ACCENT: Color32 = Color32::from_rgb(90, 170, 255);
 const FOREGROUND: Color32 = Color32::from_rgb(235, 238, 245);
 const MUTED: Color32 = Color32::from_rgb(140, 148, 165);
 
+#[cfg(feature = "system-fonts")]
 const PRIMARY_FONT_FILES: &[&str] = &[
     "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",

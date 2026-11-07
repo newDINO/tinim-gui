@@ -4,9 +4,9 @@
 //! width), not by a widget id. Paint-only inputs such as color are excluded, so identical text
 //! can share one layout across different places and colors.
 
-use std::collections::HashMap;
-
 use tinim_text::{LayoutKey, TextLayout, TextStyle, TextSystem};
+
+use crate::hash::HashMap;
 
 const DEFAULT_CAPACITY: usize = 256;
 
@@ -33,7 +33,7 @@ impl Default for TextCache {
 impl TextCache {
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             len: 0,
             capacity: capacity.max(1),
             clock: 0,

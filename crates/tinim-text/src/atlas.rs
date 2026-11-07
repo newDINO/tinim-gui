@@ -1,10 +1,9 @@
 //! A shelf-packed RGBA8 atlas that uploads glyphs as individual texture patches.
 
-use std::collections::HashMap;
-
 use tinim_paint::{ImageDelta, Rect, TextureId, TexturesDelta, pos2};
 
 use crate::font::FontId;
+use crate::hash::HashMap;
 
 const PADDING: u32 = 1;
 
@@ -88,7 +87,7 @@ impl Atlas {
             max_size,
             shelves: Vec::new(),
             next_y: 0,
-            slots: HashMap::new(),
+            slots: HashMap::default(),
             order: Vec::new(),
             uploads: Vec::new(),
             uploaded_size: None,

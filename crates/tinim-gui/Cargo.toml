@@ -9,6 +9,11 @@ license.workspace = true
 [dependencies]
 tinim-paint.workspace = true
 tinim-text.workspace = true
+rustc-hash = { workspace = true, optional = true }
+
+[features]
+default = ["rustc-hash"]
+rustc-hash = ["dep:rustc-hash"]
 
 [dev-dependencies]
 font-test-data = "0.10"

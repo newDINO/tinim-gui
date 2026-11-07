@@ -30,8 +30,14 @@
 //!   it will get its state from the TLS rather than creating a new state.
 //!   This may change in the future by also storing a frame count in the TLS:
 //!   if `current_frame.wrapping_sub(stored_frame) > 1` the state is reset.
+//!
+//! ## Hashing
+//!
+//! Internal caches use `rustc-hash` by default. Disable the default `rustc-hash` feature to use
+//! the standard library's randomly seeded hasher instead.
 
 mod context;
+mod hash;
 mod input;
 mod style;
 mod text_cache;
