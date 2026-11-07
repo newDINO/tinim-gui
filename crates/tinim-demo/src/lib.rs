@@ -29,7 +29,10 @@ pub struct Demo {
     scroll_page: ScrollPage,
     style_page: StylePage,
 
-    run_dt: web_time::Duration,
+    /// Time spent building the previous frame's UI.
+    ui_dt: Option<web_time::Duration>,
+    /// Start of the previous frame, used to measure the frame interval.
+    last_run: Option<web_time::Instant>,
 }
 
 impl Default for Demo {
@@ -57,17 +60,31 @@ impl Demo {
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
 
-            run_dt: web_time::Duration::ZERO,
+            ui_dt: None,
+            last_run: None,
         }
     }
 
     /// Builds one frame and returns its paint data.
     pub fn run(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) -> Frame<'_> {
-        let t = web_time::Instant::now();
+        let start = web_time::Instant::now();
+        let frame_dt = self.last_run.map(|last| start.duration_since(last));
+        self.last_run = Some(start);
 
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.label("tinim-gui demo");
-            ui.label(&format!("FPS: {:.2} ms", self.run_dt.as_secs_f64() * 1e3));
+            let ui_time = match self.ui_dt {
+                Some(ui_dt) => format!("{:.2} ms", ui_dt.as_secs_f64() * 1e3),
+                None => "--".to_owned(),
+            };
+            let frame_time = match frame_dt {
+                Some(frame_dt) if frame_dt.as_secs_f64() > 0.0 => {
+                    let frame_secs = frame_dt.as_secs_f64();
+                    format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, 1.0 / frame_secs)
+                }
+                _ => "-- ms | FPS: --".to_owned(),
+            };
+            ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.page, DemoPage::Buttons, "Buttons");
@@ -85,7 +102,7 @@ impl Demo {
             }
         });
 
-        self.run_dt = t.elapsed();
+        self.ui_dt = Some(start.elapsed());
 
         frame
     }
