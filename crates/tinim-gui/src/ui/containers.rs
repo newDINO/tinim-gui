@@ -3,7 +3,7 @@
 use tinim_paint::{Pos2, Rect, Vec2};
 
 use super::Ui;
-use super::layout::{Direction, Region, allocate_space, current_clip};
+use super::layout::{Direction, allocate_space};
 use super::response::PaneResponse;
 
 impl Ui<'_> {
@@ -27,8 +27,17 @@ impl Ui<'_> {
     /// parent cursor does not advance and the region does not contribute to the parent's used
     /// rectangle.
     pub fn place<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let start = self.regions.last().expect("root region").origin + pos;
-        self.with_region_at(Direction::Vertical, start, false, build)
+        let (start, max) = {
+            let parent = self.regions.last().expect("root region");
+            (parent.origin + pos, parent.rect.max)
+        };
+        self.region_at(
+            Rect::from_min_max(start, max),
+            start,
+            Direction::Vertical,
+            build,
+        )
+        .0
     }
 
     /// Builds content in an in-flow viewport of a fixed `size`.
@@ -49,25 +58,12 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, PaneResponse) {
         let rect = allocate_space(&mut self.regions, size);
-        let clip = current_clip(&self.regions).intersect(rect);
-        let spacing = self.regions.last().expect("root region").spacing;
         let origin = rect.min + offset;
 
-        self.regions.push(Region {
-            rect,
-            clip,
-            origin,
-            cursor: origin,
-            used: Rect::NOTHING,
-            direction: Direction::Vertical,
-            spacing,
-        });
+        let (result, used) = self.region_at(rect, origin, Direction::Vertical, build);
 
-        let result = build(self);
-        let child = self.regions.pop().expect("child region");
-
-        let content_size = if child.used.is_positive() {
-            (child.used.max - child.origin).max(Vec2::ZERO)
+        let content_size = if used.is_positive() {
+            (used.max - origin).max(Vec2::ZERO)
         } else {
             Vec2::ZERO
         };

@@ -67,28 +67,51 @@ impl<'a> Ui<'a> {
     }
 
     fn with_region<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let start = self.regions.last().expect("root region").cursor;
-        self.with_region_at(direction, start, true, build)
+        let (start, rect) = {
+            let parent = self.regions.last().expect("root region");
+            let start = parent.cursor;
+            (start, Rect::from_min_max(start, parent.rect.max))
+        };
+        let (result, used) = self.region_at(rect, start, direction, build);
+
+        if used.is_positive() {
+            let parent = self.regions.last_mut().expect("root region");
+            match parent.direction {
+                Direction::Vertical => parent.cursor.y += used.height() + parent.spacing,
+                Direction::Horizontal => parent.cursor.x += used.width() + parent.spacing,
+            }
+            parent.used = if parent.used.is_positive() {
+                parent.used.union(used)
+            } else {
+                used
+            };
+        }
+
+        result
     }
 
-    fn with_region_at<R>(
+    /// Builds a child region covering `rect`, with relative coordinates measured from `origin`.
+    ///
+    /// Returns the closure's result and the rectangle used by in-flow children. The parent's
+    /// cursor and used rectangle are not touched; callers decide whether the region participates
+    /// in the parent's flow.
+    fn region_at<R>(
         &mut self,
+        rect: Rect,
+        origin: Pos2,
         direction: Direction,
-        start: Pos2,
-        advance_parent: bool,
         build: impl FnOnce(&mut Ui<'_>) -> R,
-    ) -> R {
-        let (max, clip, spacing) = {
+    ) -> (R, Rect) {
+        let (clip, spacing) = {
             let parent = self.regions.last().expect("root region");
-            (parent.rect.max, parent.clip, parent.spacing)
+            (parent.clip, parent.spacing)
         };
-        let rect = Rect::from_min_max(start, max);
 
         self.regions.push(Region {
             rect,
             clip: clip.intersect(rect),
-            origin: start,
-            cursor: start,
+            origin,
+            cursor: origin,
             used: Rect::NOTHING,
             direction,
             spacing,
@@ -97,20 +120,7 @@ impl<'a> Ui<'a> {
         let result = build(self);
         let child = self.regions.pop().expect("child region");
 
-        if advance_parent && child.used.is_positive() {
-            let parent = self.regions.last_mut().expect("root region");
-            match parent.direction {
-                Direction::Vertical => parent.cursor.y += child.used.height() + parent.spacing,
-                Direction::Horizontal => parent.cursor.x += child.used.width() + parent.spacing,
-            }
-            parent.used = if parent.used.is_positive() {
-                parent.used.union(child.used)
-            } else {
-                child.used
-            };
-        }
-
-        result
+        (result, child.used)
     }
 }
 
