@@ -4,7 +4,7 @@ use tinim_paint::{Color32, Painter, Pos2, Rect, RectShape, Shape, Vec2};
 use tinim_text::{TextLayout, TextSystem};
 
 use super::Ui;
-use super::layout::{allocate_space, available_size, current_clip, pointer_over};
+use super::layout::{allocate_space, available_size, pointer_over};
 use super::response::Response;
 
 impl Ui<'_> {
@@ -21,7 +21,6 @@ impl Ui<'_> {
         let size = layout.size();
         let rect = allocate_space(&mut self.regions, size);
 
-        let clip = current_clip(&self.regions);
         paint_text(
             &mut self.ctx.text_system,
             &mut self.ctx.painter,
@@ -29,7 +28,6 @@ impl Ui<'_> {
             layout,
             rect.min,
             font.color,
-            clip,
         );
         rect
     }
@@ -84,9 +82,8 @@ impl Ui<'_> {
         let pressed = hovered && self.ctx.input.primary_pressed;
         let down = hovered && self.ctx.input.primary_down;
 
-        let region_clip = current_clip(&self.regions);
-        let button_clip = region_clip.intersect(rect);
-        if button_clip.is_positive() {
+        let clip = self.ctx.painter.clip_rect();
+        if clip.intersect(rect).is_positive() {
             let fill = if selected {
                 if down || pressed {
                     button.pressed
@@ -101,7 +98,6 @@ impl Ui<'_> {
                 button.normal
             };
 
-            self.ctx.painter.set_clip_rect(button_clip);
             self.ctx.painter.add(Shape::Rect(
                 RectShape::new(rect, fill).with_corner_radius(button.corner_radius),
             ));
@@ -112,7 +108,6 @@ impl Ui<'_> {
                     .text_system
                     .prepare(layout, origin, font.color, self.ctx.pixels_per_point);
             self.ctx.painter.add_mesh(mesh);
-            self.ctx.painter.set_clip_rect(region_clip);
         }
 
         Response {
@@ -131,12 +126,10 @@ fn paint_text(
     layout: &TextLayout,
     origin: Pos2,
     color: Color32,
-    clip: Rect,
 ) {
-    if !clip.is_positive() {
+    if !painter.clip_rect().is_positive() {
         return;
     }
-    painter.set_clip_rect(clip);
     let mesh = text.prepare(layout, origin, color, pixels_per_point);
     painter.add_mesh(mesh);
 }

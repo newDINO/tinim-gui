@@ -92,9 +92,10 @@ impl<'a> Ui<'a> {
 
     /// Builds a child region covering `rect`, with relative coordinates measured from `origin`.
     ///
-    /// Returns the closure's result and the rectangle used by in-flow children. The parent's
-    /// cursor and used rectangle are not touched; callers decide whether the region participates
-    /// in the parent's flow.
+    /// Painting inside `build` is clipped to the region, and the previous painter clip is
+    /// restored afterwards. Returns the closure's result and the rectangle used by in-flow
+    /// children. The parent's cursor and used rectangle are not touched; callers decide whether
+    /// the region participates in the parent's flow.
     fn region_at<R>(
         &mut self,
         rect: Rect,
@@ -106,10 +107,13 @@ impl<'a> Ui<'a> {
             let parent = self.regions.last().expect("root region");
             (parent.clip, parent.spacing)
         };
+        let clip = clip.intersect(rect);
+        let previous_clip = self.ctx.painter.clip_rect();
+        self.ctx.painter.set_clip_rect(clip);
 
         self.regions.push(Region {
             rect,
-            clip: clip.intersect(rect),
+            clip,
             origin,
             cursor: origin,
             used: Rect::NOTHING,
@@ -119,6 +123,8 @@ impl<'a> Ui<'a> {
 
         let result = build(self);
         let child = self.regions.pop().expect("child region");
+
+        self.ctx.painter.set_clip_rect(previous_clip);
 
         (result, child.used)
     }

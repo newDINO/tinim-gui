@@ -244,6 +244,24 @@ mod tests {
     }
 
     #[test]
+    fn region_clips_painting_and_restores_the_parent_clip() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.place(pos2(50.0, 60.0), |ui| {
+                ui.label("inside");
+            });
+            ui.label("after");
+        });
+
+        let placed_clip = Rect::from_min_max(pos2(50.0, 60.0), pos2(200.0, 200.0));
+        let root_clip = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 200.0));
+
+        assert!(frame.paint.draws.len() >= 2);
+        assert_eq!(frame.paint.draws[0].clip_rect, placed_clip);
+        assert_eq!(frame.paint.draws.last().unwrap().clip_rect, root_clip);
+    }
+
+    #[test]
     fn placing_a_pane_keeps_it_out_of_the_parent_flow() {
         let mut context = context();
         let spacing = context.style().spacing;
