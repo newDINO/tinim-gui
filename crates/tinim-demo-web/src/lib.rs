@@ -53,7 +53,8 @@ impl AppInner {
             // Currently this is a hack, because root cause of width and height equals 0 is not found.
             if size.width == 0 {
                 size.width = 128;
-            } else if size.height == 0 {
+            }
+            if size.height == 0 {
                 size.height = 128;
             }
             size
