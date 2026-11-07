@@ -1,6 +1,6 @@
-//! Leaf widgets: text labels, buttons and checkboxes.
+//! Leaf widgets: text labels, buttons, checkboxes and radios.
 
-use tinim_paint::{Color32, Painter, Pos2, Rect, RectShape, Shape, Stroke, Vec2};
+use tinim_paint::{CircleShape, Color32, Painter, Pos2, Rect, RectShape, Shape, Stroke, Vec2};
 use tinim_text::{TextLayout, TextSystem};
 
 use super::Ui;
@@ -59,6 +59,12 @@ impl Ui<'_> {
         response
     }
 
+    /// Draws a selectable button.
+    ///
+    /// The widget is selected when `selected` is true. Callers update their own state from
+    /// [`Response::pressed`].
+    ///
+    /// Like [`Ui::button`], this reports a press edge rather than a full click.
     pub fn selectable_label(&mut self, selected: bool, text: &str) -> Response {
         self.draw_button(text, selected)
     }
@@ -110,6 +116,73 @@ impl Ui<'_> {
             pressed,
             down,
         }
+    }
+
+    /// Draws a radio button without a label.
+    ///
+    /// `selected` controls whether the inner dot is drawn. Callers update their own state from
+    /// [`Response::pressed`], or use [`Ui::radio_value`] to update a value automatically.
+    ///
+    /// Like [`Ui::button`], this reports a press edge rather than a full click.
+    pub fn radio(&mut self, selected: bool) -> Response {
+        let radio = self.ctx.style().radio.clone();
+        let spacing = self.spacing();
+        let size = Vec2::splat(radio.radius * 2.0);
+        let rect = allocate_space(&mut self.layout, size, spacing);
+
+        let hovered = pointer_over(self.clip, &self.ctx.input, rect);
+        let pressed = hovered && self.ctx.input.primary_pressed;
+        let down = hovered && self.ctx.input.primary_down;
+
+        let clip = self.ctx.painter.clip_rect();
+        if clip.intersect(rect).is_positive() {
+            let fill = if down || pressed {
+                radio.pressed
+            } else if selected {
+                radio.selected
+            } else if hovered {
+                radio.hovered
+            } else {
+                radio.normal
+            };
+
+            let center = rect.center();
+            let radius = rect.width().min(rect.height()) * 0.5;
+            self.ctx.painter.add(Shape::Circle(
+                CircleShape::new(center, radius, fill)
+                    .with_stroke(Stroke::new(radio.border_width, radio.border)),
+            ));
+
+            if selected {
+                let dot_radius = radio.dot_radius.min(radius);
+                self.ctx.painter.circle(center, dot_radius, radio.dot);
+            }
+        }
+
+        Response {
+            rect,
+            hovered,
+            pressed,
+            down,
+        }
+    }
+
+    /// Draws a radio button without a label and updates `current_value` when it is pressed.
+    ///
+    /// The radio is selected when `current_value == selected_value`.
+    ///
+    /// Like [`Ui::button`], this reports a press edge rather than a full click.
+    pub fn radio_value<Value: PartialEq>(
+        &mut self,
+        current_value: &mut Value,
+        selected_value: Value,
+    ) -> Response {
+        let selected = *current_value == selected_value;
+        let response = self.radio(selected);
+        if response.pressed {
+            *current_value = selected_value;
+        }
+        response
     }
 
     fn draw_button(&mut self, text: &str, selected: bool) -> Response {
@@ -304,6 +377,75 @@ mod tests {
 
         assert!(!has_check(&mut context, &mut false));
         assert!(has_check(&mut context, &mut true));
+    }
+
+    #[test]
+    fn radio_reports_press_when_pointer_is_over_it() {
+        let mut context = context();
+        let mut pressed = None;
+
+        let input = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            pressed = Some(ui.radio(false).pressed);
+        });
+
+        assert_eq!(pressed, Some(true));
+    }
+
+    #[test]
+    fn radio_value_updates_the_value_when_pressed() {
+        let mut context = context();
+        let mut value = 1;
+
+        let input = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.radio_value(&mut value, 2);
+        });
+
+        assert_eq!(value, 2);
+    }
+
+    #[test]
+    fn radio_value_keeps_the_value_when_not_pressed() {
+        let mut context = context();
+        let mut value = 1;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.radio_value(&mut value, 2);
+        });
+
+        assert_eq!(value, 1);
+    }
+
+    #[test]
+    fn radio_paints_a_dot_only_when_selected() {
+        let mut context = context();
+        let dot = Color32::from_rgb(4, 5, 6);
+        context.style_mut().radio.dot = dot;
+
+        let has_dot = |context: &mut crate::Context, selected: bool| {
+            let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+                ui.radio(selected);
+            });
+            frame
+                .paint
+                .vertices
+                .iter()
+                .any(|vertex| vertex.color == dot.to_array())
+        };
+
+        assert!(!has_dot(&mut context, false));
+        assert!(has_dot(&mut context, true));
     }
 
     #[test]

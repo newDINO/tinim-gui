@@ -13,7 +13,7 @@ const COOL_TEXT: Color32 = Color32::from_rgb(180, 210, 255);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DemoPage {
-    Buttons,
+    Widgets,
     Placed,
     Layout,
     Pane,
@@ -27,7 +27,7 @@ pub struct Demo {
 
     page: DemoPage,
 
-    button_page: ButtonsPage,
+    widgets_page: WidgetsPage,
     layout_page: LayoutPage,
     pane_page: PanePage,
     scroll_page: ScrollPage,
@@ -57,9 +57,9 @@ impl Demo {
 
         Self {
             context,
-            page: DemoPage::Buttons,
+            page: DemoPage::Widgets,
 
-            button_page: ButtonsPage::new(),
+            widgets_page: WidgetsPage::new(),
             layout_page: LayoutPage::new(),
             pane_page: PanePage::new(),
             scroll_page: ScrollPage::new(),
@@ -92,7 +92,7 @@ impl Demo {
             ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.page, DemoPage::Buttons, "Buttons");
+                ui.selectable_value(&mut self.page, DemoPage::Widgets, "Widgets");
                 ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
                 ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
                 ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
@@ -100,7 +100,7 @@ impl Demo {
                 ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
             });
             match self.page {
-                DemoPage::Buttons => self.button_page.draw(ui),
+                DemoPage::Widgets => self.widgets_page.draw(ui),
                 DemoPage::Placed => draw_placed_page(ui),
                 DemoPage::Layout => self.layout_page.draw(ui),
                 DemoPage::Pane => self.pane_page.draw(ui),
@@ -115,15 +115,19 @@ impl Demo {
     }
 }
 
-struct ButtonsPage {
+struct WidgetsPage {
     counter: usize,
     checked: bool,
+    radio: usize,
+    radio_value: usize,
 }
-impl ButtonsPage {
+impl WidgetsPage {
     pub fn new() -> Self {
         Self {
             counter: 0,
             checked: false,
+            radio: 0,
+            radio_value: 0,
         }
     }
     pub fn draw(&mut self, ui: &mut Ui) {
@@ -143,6 +147,28 @@ impl ButtonsPage {
                 "checkbox: unchecked"
             });
         });
+
+        ui.label("radio(selected) is the label-free counterpart of selectable_label:");
+        ui.horizontal(|ui| {
+            for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
+                if ui.radio(self.radio == index).pressed {
+                    self.radio = index;
+                }
+                ui.label(label);
+            }
+        });
+
+        ui.label("radio_value(&mut value, selected_value) updates the value by itself:");
+        ui.horizontal(|ui| {
+            for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
+                ui.radio_value(&mut self.radio_value, index);
+                ui.label(label);
+            }
+        });
+        ui.label(&format!(
+            "radio: {}, radio_value: {}",
+            self.radio, self.radio_value
+        ));
     }
 }
 

@@ -12,6 +12,7 @@ pub struct Style {
     pub spacing: f32,
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
+    pub radio: RadioStyle,
 }
 
 impl Default for Style {
@@ -21,6 +22,7 @@ impl Default for Style {
             spacing: 8.0,
             button: ButtonStyle::default(),
             checkbox: CheckboxStyle::default(),
+            radio: RadioStyle::default(),
         }
     }
 }
@@ -87,6 +89,42 @@ impl Default for CheckboxStyle {
             size: vec2(20.0, 20.0),
             border_width: 1.5,
             check_width: 2.0,
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::radio`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct RadioStyle {
+    /// Fill when the radio is not selected.
+    pub normal: Color32,
+    /// Fill when the pointer is over an unselected radio.
+    pub hovered: Color32,
+    /// Fill while the radio is held down.
+    pub pressed: Color32,
+    /// Fill when the radio is selected.
+    pub selected: Color32,
+    pub border: Color32,
+    /// Color of the inner dot.
+    pub dot: Color32,
+    /// Outer radius of the radio button.
+    pub radius: f32,
+    pub border_width: f32,
+    pub dot_radius: f32,
+}
+
+impl Default for RadioStyle {
+    fn default() -> Self {
+        Self {
+            normal: Color32::from_rgb(58, 58, 62),
+            hovered: Color32::from_rgb(76, 76, 82),
+            pressed: Color32::from_rgb(42, 42, 46),
+            selected: Color32::from_rgb(52, 88, 145),
+            border: Color32::from_rgb(120, 120, 128),
+            dot: Color32::WHITE,
+            radius: 10.0,
+            border_width: 1.5,
+            dot_radius: 4.0,
         }
     }
 }

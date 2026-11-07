@@ -48,5 +48,5 @@ pub use tinim_text;
 
 pub use context::{Context, Frame};
 pub use input::{Modifiers, RawInput};
-pub use style::{ButtonStyle, CheckboxStyle, Style};
+pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style};
 pub use ui::{Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, Ui};
