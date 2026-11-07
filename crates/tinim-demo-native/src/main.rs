@@ -45,6 +45,8 @@ impl AppInner {
             .await
             .unwrap();
 
+        println!("{:?}", adapter.get_info());
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
