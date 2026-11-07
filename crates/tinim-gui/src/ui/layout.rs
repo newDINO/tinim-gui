@@ -18,12 +18,14 @@ pub(super) struct Region {
     pub(super) clip: Rect,
     /// Position that relative coordinates in this region are measured from.
     pub(super) origin: Pos2,
-    /// Where the next child starts.
+    /// The end of the last child, before the gap to the next one.
     pub(super) cursor: Pos2,
     /// Union of the rectangles allocated by children.
     pub(super) used: Rect,
+    /// Whether a child has been placed. The next child is separated from the last one by the
+    /// spacing in effect when it is placed, not when its predecessor was placed.
+    pub(super) has_children: bool,
     pub(super) direction: Direction,
-    pub(super) spacing: f32,
 }
 
 pub(super) fn sanitize_size(size: Vec2) -> Vec2 {
@@ -34,27 +36,34 @@ pub(super) fn sanitize_size(size: Vec2) -> Vec2 {
     }
 }
 
-pub(super) fn next_rect(regions: &[Region], size: Vec2) -> Rect {
+/// Start of the next child, including the gap from the previous child if there is one.
+pub(super) fn next_pos(regions: &[Region], spacing: f32) -> Pos2 {
     let region = regions.last().expect("root region");
+    let gap = if region.has_children {
+        spacing.max(0.0)
+    } else {
+        0.0
+    };
     match region.direction {
-        Direction::Vertical => {
-            Rect::from_min_size(Pos2::new(region.origin.x, region.cursor.y), size)
-        }
-        Direction::Horizontal => {
-            Rect::from_min_size(Pos2::new(region.cursor.x, region.origin.y), size)
-        }
+        Direction::Vertical => Pos2::new(region.origin.x, region.cursor.y + gap),
+        Direction::Horizontal => Pos2::new(region.cursor.x + gap, region.origin.y),
     }
 }
 
-pub(super) fn allocate_space(regions: &mut [Region], size: Vec2) -> Rect {
+pub(super) fn next_rect(regions: &[Region], size: Vec2, spacing: f32) -> Rect {
+    Rect::from_min_size(next_pos(regions, spacing), size)
+}
+
+pub(super) fn allocate_space(regions: &mut [Region], size: Vec2, spacing: f32) -> Rect {
     let size = sanitize_size(size);
-    let rect = next_rect(regions, size);
+    let rect = next_rect(regions, size, spacing);
 
     let region = regions.last_mut().expect("root region");
     match region.direction {
-        Direction::Vertical => region.cursor.y += size.y + region.spacing,
-        Direction::Horizontal => region.cursor.x += size.x + region.spacing,
+        Direction::Vertical => region.cursor.y = rect.max.y,
+        Direction::Horizontal => region.cursor.x = rect.max.x,
     }
+    region.has_children = true;
     region.used = if region.used.is_positive() {
         region.used.union(rect)
     } else {
@@ -63,15 +72,20 @@ pub(super) fn allocate_space(regions: &mut [Region], size: Vec2) -> Rect {
     rect
 }
 
-pub(super) fn available_size(regions: &[Region]) -> Vec2 {
+pub(super) fn available_size(regions: &[Region], spacing: f32) -> Vec2 {
     let region = regions.last().expect("root region");
+    let gap = if region.has_children {
+        spacing.max(0.0)
+    } else {
+        0.0
+    };
     match region.direction {
         Direction::Vertical => Vec2::new(
             region.rect.width(),
-            (region.rect.max.y - region.cursor.y).max(0.0),
+            (region.rect.max.y - region.cursor.y - gap).max(0.0),
         ),
         Direction::Horizontal => Vec2::new(
-            (region.rect.max.x - region.cursor.x).max(0.0),
+            (region.rect.max.x - region.cursor.x - gap).max(0.0),
             region.rect.height(),
         ),
     }

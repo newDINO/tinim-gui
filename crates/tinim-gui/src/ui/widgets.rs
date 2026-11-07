@@ -11,7 +11,8 @@ impl Ui<'_> {
     /// Draws a non-interactive line of text. Returns the rectangle it occupied.
     pub fn label(&mut self, text: &str) -> Rect {
         let font = self.ctx.style().font.clone();
-        let max_width = Some(available_size(&self.regions).x);
+        let spacing = self.spacing();
+        let max_width = Some(available_size(&self.regions, spacing).x);
         // Borrow only the fields involved. `layout` keeps `text_cache` borrowed, so everything
         // that runs while it is alive must use disjoint field borrows instead of `&mut self.ctx`.
         let layout = self
@@ -19,7 +20,7 @@ impl Ui<'_> {
             .text_cache
             .layout(&self.ctx.text_system, text, &font, max_width);
         let size = layout.size();
-        let rect = allocate_space(&mut self.regions, size);
+        let rect = allocate_space(&mut self.regions, size, spacing);
 
         paint_text(
             &mut self.ctx.text_system,
@@ -66,6 +67,7 @@ impl Ui<'_> {
         let button = self.ctx.style().button.clone();
         let mut font = self.ctx.style().font.clone();
         font.color = button.text;
+        let spacing = self.spacing();
 
         let layout = self
             .ctx
@@ -76,7 +78,7 @@ impl Ui<'_> {
             (text_size.x + button.padding.x * 2.0).max(button.min_size.x),
             (text_size.y + button.padding.y * 2.0).max(button.min_size.y),
         );
-        let rect = allocate_space(&mut self.regions, size);
+        let rect = allocate_space(&mut self.regions, size, spacing);
 
         let hovered = pointer_over(&self.regions, &self.ctx.input, rect);
         let pressed = hovered && self.ctx.input.primary_pressed;

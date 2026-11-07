@@ -57,7 +57,8 @@ impl Ui<'_> {
         offset: Vec2,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, PaneResponse) {
-        let rect = allocate_space(&mut self.regions, size);
+        let spacing = self.spacing();
+        let rect = allocate_space(&mut self.regions, size, spacing);
         let origin = rect.min + offset;
 
         let (result, used) = self.region_at(rect, origin, Direction::Vertical, build);

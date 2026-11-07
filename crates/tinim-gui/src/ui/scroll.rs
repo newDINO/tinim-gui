@@ -29,7 +29,7 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, ScrollResponse) {
         let size = sanitize_size(size);
-        let rect = next_rect(&self.regions, size);
+        let rect = next_rect(&self.regions, size, self.spacing());
         let hovered = pointer_over(&self.regions, &self.ctx.input, rect);
         let known_max_offset = state
             .content_size
