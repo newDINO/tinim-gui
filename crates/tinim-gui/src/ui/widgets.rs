@@ -12,7 +12,7 @@ impl Ui<'_> {
     pub fn label(&mut self, text: &str) -> Rect {
         let font = self.ctx.style().font.clone();
         let spacing = self.spacing();
-        let max_width = Some(available_size(&self.region, spacing).x);
+        let max_width = Some(available_size(&self.layout, spacing).x);
         // Borrow only the fields involved. `layout` keeps `text_cache` borrowed, so everything
         // that runs while it is alive must use disjoint field borrows instead of `&mut self.ctx`.
         let layout = self
@@ -20,7 +20,7 @@ impl Ui<'_> {
             .text_cache
             .layout(&self.ctx.text_system, text, &font, max_width);
         let size = layout.size();
-        let rect = allocate_space(&mut self.region, size, spacing);
+        let rect = allocate_space(&mut self.layout, size, spacing);
 
         paint_text(
             &mut self.ctx.text_system,
@@ -78,9 +78,9 @@ impl Ui<'_> {
             (text_size.x + button.padding.x * 2.0).max(button.min_size.x),
             (text_size.y + button.padding.y * 2.0).max(button.min_size.y),
         );
-        let rect = allocate_space(&mut self.region, size, spacing);
+        let rect = allocate_space(&mut self.layout, size, spacing);
 
-        let hovered = pointer_over(&self.region, &self.ctx.input, rect);
+        let hovered = pointer_over(self.clip, &self.ctx.input, rect);
         let pressed = hovered && self.ctx.input.primary_pressed;
         let down = hovered && self.ctx.input.primary_down;
 

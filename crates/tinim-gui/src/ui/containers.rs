@@ -8,13 +8,19 @@ use super::response::PaneResponse;
 
 impl Ui<'_> {
     /// Stacks children vertically.
+    ///
+    /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
+    /// if any; the stack itself is not a clipping region.
     pub fn vertical<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.with_region(Direction::Vertical, build)
+        self.with_layout(Direction::Vertical, build)
     }
 
     /// Stacks children horizontally.
+    ///
+    /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
+    /// if any; the stack itself is not a clipping region.
     pub fn horizontal<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.with_region(Direction::Horizontal, build)
+        self.with_layout(Direction::Horizontal, build)
     }
 
     /// Starts a vertical region at an absolute position.
@@ -27,8 +33,9 @@ impl Ui<'_> {
     /// parent cursor does not advance and the region does not contribute to the parent's used
     /// rectangle.
     pub fn place_at<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let rect = Rect::from_min_max(pos, self.region.rect.max);
-        self.region_at(rect, pos, Direction::Vertical, build).0
+        let rect = Rect::from_min_max(pos, self.layout.rect.max);
+        self.clipped_layout_at(rect, pos, Direction::Vertical, build)
+            .0
     }
 
     /// Starts a vertical region at `offset` from the current region's content origin.
@@ -41,7 +48,7 @@ impl Ui<'_> {
     /// parent cursor does not advance and the region does not contribute to the parent's used
     /// rectangle.
     pub fn place_relative<R>(&mut self, offset: Vec2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let pos = self.region.origin + offset;
+        let pos = self.layout.origin + offset;
         self.place_at(pos, build)
     }
 
@@ -63,10 +70,10 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, PaneResponse) {
         let spacing = self.spacing();
-        let rect = allocate_space(&mut self.region, size, spacing);
+        let rect = allocate_space(&mut self.layout, size, spacing);
         let origin = rect.min + offset;
 
-        let (result, used) = self.region_at(rect, origin, Direction::Vertical, build);
+        let (result, used) = self.clipped_layout_at(rect, origin, Direction::Vertical, build);
 
         let content_size = if used.is_positive() {
             (used.max - origin).max(Vec2::ZERO)
@@ -120,6 +127,50 @@ mod tests {
         assert_eq!(rects[0].min, pos2(0.0, 0.0));
         assert_eq!(rects[1].min.x, rects[0].max.x + spacing);
         assert_eq!(rects[1].min.y, rects[0].min.y);
+    }
+
+    #[test]
+    fn flow_containers_do_not_narrow_the_clip() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.pane(vec2(100.0, 50.0), Vec2::ZERO, |ui| {
+                ui.label("first");
+                // The cursor has advanced, so this stack covers less than the pane. It must still
+                // paint with the pane's clip rather than introducing a narrower one.
+                ui.vertical(|ui| {
+                    ui.label("second");
+                });
+            });
+            ui.label("after");
+        });
+
+        let pane_clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0));
+        let root_clip = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 200.0));
+
+        // Without the split, the stack would contribute a third clip rectangle between `pane_clip`
+        // and `root_clip`.
+        assert!(!frame.paint.draws.is_empty());
+        assert!(
+            frame
+                .paint
+                .draws
+                .iter()
+                .all(|draw| draw.clip_rect == pane_clip || draw.clip_rect == root_clip)
+        );
+        assert!(
+            frame
+                .paint
+                .draws
+                .iter()
+                .any(|draw| draw.clip_rect == pane_clip)
+        );
+        assert!(
+            frame
+                .paint
+                .draws
+                .iter()
+                .any(|draw| draw.clip_rect == root_clip)
+        );
     }
 
     #[test]

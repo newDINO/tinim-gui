@@ -19,7 +19,7 @@ use tinim_paint::{Pos2, Rect, Vec2};
 use crate::context::Context;
 use crate::style::Style;
 
-use layout::{Direction, Region, allocate_space, available_size, next_pos};
+use layout::{Direction, Layout, allocate_space, available_size, next_pos};
 
 /// Builds one frame's widgets.
 ///
@@ -31,7 +31,10 @@ pub struct Ui<'a> {
     ctx: &'a mut Context,
     /// Layout state of the region currently being built. Nested containers swap it out and restore
     /// the parent when they finish.
-    region: Region,
+    layout: Layout,
+    /// Clip shared by painting and hit testing. Flow containers leave it untouched; clipped
+    /// viewports narrow it for the duration of their `build` closure.
+    clip: Rect,
     /// Scroll delta not yet consumed by a scrollable.
     scroll_remaining: Vec2,
 }
@@ -46,15 +49,15 @@ impl<'a> Ui<'a> {
         };
         Self {
             ctx,
-            region: Region {
+            layout: Layout {
                 rect,
-                clip: rect,
                 origin: rect.min,
                 cursor: rect.min,
                 used: Rect::NOTHING,
                 has_children: false,
                 direction: Direction::Vertical,
             },
+            clip: rect,
             scroll_remaining,
         }
     }
@@ -98,13 +101,13 @@ impl<'a> Ui<'a> {
     /// region's top-left corner; inside a [`Ui::pane`] it is shifted by the pane's offset. Custom
     /// widgets that paint in absolute screen space can use it to convert local coordinates.
     pub fn origin(&self) -> Pos2 {
-        self.region.origin
+        self.layout.origin
     }
 
     /// Reserves a rectangle in the current region and advances the cursor.
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         let spacing = self.spacing();
-        allocate_space(&mut self.region, size, spacing)
+        allocate_space(&mut self.layout, size, spacing)
     }
 
     /// Space between children in the current style, clamped to a non-negative value.
@@ -114,24 +117,25 @@ impl<'a> Ui<'a> {
 
     /// Space left in the current region.
     pub fn available_size(&self) -> Vec2 {
-        available_size(&self.region, self.spacing())
+        available_size(&self.layout, self.spacing())
     }
 
-    fn with_region<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let start = next_pos(&self.region, self.spacing());
-        let rect = Rect::from_min_max(start, self.region.rect.max);
-        let (result, used) = self.region_at(rect, start, direction, build);
+    /// Builds a flow region. This changes layout only; the clip is inherited unchanged.
+    fn with_layout<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        let start = next_pos(&self.layout, self.spacing());
+        let rect = Rect::from_min_max(start, self.layout.rect.max);
+        let (result, used) = self.layout_at(rect, start, direction, build);
 
         if used.is_positive() {
-            match self.region.direction {
-                Direction::Vertical => self.region.cursor.y = self.region.cursor.y.max(used.max.y),
+            match self.layout.direction {
+                Direction::Vertical => self.layout.cursor.y = self.layout.cursor.y.max(used.max.y),
                 Direction::Horizontal => {
-                    self.region.cursor.x = self.region.cursor.x.max(used.max.x);
+                    self.layout.cursor.x = self.layout.cursor.x.max(used.max.x);
                 }
             }
-            self.region.has_children = true;
-            self.region.used = if self.region.used.is_positive() {
-                self.region.used.union(used)
+            self.layout.has_children = true;
+            self.layout.used = if self.layout.used.is_positive() {
+                self.layout.used.union(used)
             } else {
                 used
             };
@@ -140,29 +144,23 @@ impl<'a> Ui<'a> {
         result
     }
 
-    /// Builds a child region covering `rect`, with relative coordinates measured from `origin`.
+    /// Builds a child layout covering `rect`, with relative coordinates measured from `origin`.
     ///
-    /// The current region is replaced for the duration of `build` and restored afterwards, so the
-    /// parent layout state lives on this call frame. Painting inside `build` is clipped to the
-    /// region, and the previous painter clip is restored afterwards. Returns the closure's result
-    /// and the rectangle used by in-flow children. The parent's cursor and used rectangle are not
-    /// touched; callers decide whether the region participates in the parent's flow.
-    fn region_at<R>(
+    /// The current layout is replaced for the duration of `build` and restored afterwards, so the
+    /// parent layout state lives on this call frame. The clip is not changed. Returns the closure's
+    /// result and the rectangle used by in-flow children. The parent's cursor and used rectangle
+    /// are not touched; callers decide whether the region participates in the parent's flow.
+    fn layout_at<R>(
         &mut self,
         rect: Rect,
         origin: Pos2,
         direction: Direction,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
-        let clip = self.region.clip.intersect(rect);
-        let previous_clip = self.ctx.painter.clip_rect();
-        self.ctx.painter.set_clip_rect(clip);
-
         let parent = std::mem::replace(
-            &mut self.region,
-            Region {
+            &mut self.layout,
+            Layout {
                 rect,
-                clip,
                 origin,
                 cursor: origin,
                 used: Rect::NOTHING,
@@ -172,11 +170,32 @@ impl<'a> Ui<'a> {
         );
 
         let result = build(self);
-        let child = std::mem::replace(&mut self.region, parent);
-
-        self.ctx.painter.set_clip_rect(previous_clip);
+        let child = std::mem::replace(&mut self.layout, parent);
 
         (result, child.used)
+    }
+
+    /// Builds a child layout covering `rect` and narrows the clip to it.
+    ///
+    /// Used by viewports and placed regions. The previous clip is restored afterwards.
+    fn clipped_layout_at<R>(
+        &mut self,
+        rect: Rect,
+        origin: Pos2,
+        direction: Direction,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> (R, Rect) {
+        let clip = self.clip.intersect(rect);
+        let previous_painter_clip = self.ctx.painter.clip_rect();
+        self.ctx.painter.set_clip_rect(clip);
+        let previous_clip = std::mem::replace(&mut self.clip, clip);
+
+        let (result, used) = self.layout_at(rect, origin, direction, build);
+
+        self.clip = previous_clip;
+        self.ctx.painter.set_clip_rect(previous_painter_clip);
+
+        (result, used)
     }
 }
 

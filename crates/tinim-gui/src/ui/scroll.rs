@@ -29,8 +29,8 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, ScrollResponse) {
         let size = sanitize_size(size);
-        let rect = next_rect(&self.region, size, self.spacing());
-        let hovered = pointer_over(&self.region, &self.ctx.input, rect);
+        let rect = next_rect(&self.layout, size, self.spacing());
+        let hovered = pointer_over(self.clip, &self.ctx.input, rect);
         let known_max_offset = state
             .content_size
             .map(|content_size| (content_size - size).max(Vec2::ZERO));
