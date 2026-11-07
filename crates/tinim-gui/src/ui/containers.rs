@@ -28,7 +28,7 @@ impl Ui<'_> {
     /// rectangle.
     pub fn place<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
         let (start, max) = {
-            let parent = self.regions.last().expect("root region");
+            let parent = &self.region;
             (parent.origin + pos, parent.rect.max)
         };
         self.region_at(
@@ -58,7 +58,7 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, PaneResponse) {
         let spacing = self.spacing();
-        let rect = allocate_space(&mut self.regions, size, spacing);
+        let rect = allocate_space(&mut self.region, size, spacing);
         let origin = rect.min + offset;
 
         let (result, used) = self.region_at(rect, origin, Direction::Vertical, build);

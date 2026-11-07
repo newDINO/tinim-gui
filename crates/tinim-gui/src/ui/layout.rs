@@ -11,8 +11,9 @@ pub(super) enum Direction {
     Horizontal,
 }
 
+/// The layout context of the region currently being built.
 pub(super) struct Region {
-    /// Area available to this stack.
+    /// Area available to this region.
     pub(super) rect: Rect,
     /// Clip inherited from the parent, narrowed to `rect`.
     pub(super) clip: Rect,
@@ -37,8 +38,7 @@ pub(super) fn sanitize_size(size: Vec2) -> Vec2 {
 }
 
 /// Start of the next child, including the gap from the previous child if there is one.
-pub(super) fn next_pos(regions: &[Region], spacing: f32) -> Pos2 {
-    let region = regions.last().expect("root region");
+pub(super) fn next_pos(region: &Region, spacing: f32) -> Pos2 {
     let gap = if region.has_children {
         spacing.max(0.0)
     } else {
@@ -50,15 +50,14 @@ pub(super) fn next_pos(regions: &[Region], spacing: f32) -> Pos2 {
     }
 }
 
-pub(super) fn next_rect(regions: &[Region], size: Vec2, spacing: f32) -> Rect {
-    Rect::from_min_size(next_pos(regions, spacing), size)
+pub(super) fn next_rect(region: &Region, size: Vec2, spacing: f32) -> Rect {
+    Rect::from_min_size(next_pos(region, spacing), size)
 }
 
-pub(super) fn allocate_space(regions: &mut [Region], size: Vec2, spacing: f32) -> Rect {
+pub(super) fn allocate_space(region: &mut Region, size: Vec2, spacing: f32) -> Rect {
     let size = sanitize_size(size);
-    let rect = next_rect(regions, size, spacing);
+    let rect = next_rect(region, size, spacing);
 
-    let region = regions.last_mut().expect("root region");
     match region.direction {
         Direction::Vertical => region.cursor.y = rect.max.y,
         Direction::Horizontal => region.cursor.x = rect.max.x,
@@ -72,8 +71,7 @@ pub(super) fn allocate_space(regions: &mut [Region], size: Vec2, spacing: f32) -
     rect
 }
 
-pub(super) fn available_size(regions: &[Region], spacing: f32) -> Vec2 {
-    let region = regions.last().expect("root region");
+pub(super) fn available_size(region: &Region, spacing: f32) -> Vec2 {
     let gap = if region.has_children {
         spacing.max(0.0)
     } else {
@@ -91,13 +89,8 @@ pub(super) fn available_size(regions: &[Region], spacing: f32) -> Vec2 {
     }
 }
 
-pub(super) fn current_clip(regions: &[Region]) -> Rect {
-    regions.last().expect("root region").clip
-}
-
-pub(super) fn pointer_over(regions: &[Region], input: &RawInput, rect: Rect) -> bool {
-    let clip = current_clip(regions);
+pub(super) fn pointer_over(region: &Region, input: &RawInput, rect: Rect) -> bool {
     input
         .pointer
-        .is_some_and(|pointer| rect.contains(pointer) && clip.contains(pointer))
+        .is_some_and(|pointer| rect.contains(pointer) && region.clip.contains(pointer))
 }

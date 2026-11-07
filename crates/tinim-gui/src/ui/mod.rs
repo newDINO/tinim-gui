@@ -28,7 +28,9 @@ use layout::{Direction, Region, allocate_space, available_size, next_pos};
 /// resolve occlusion: a later widget does not suppress an earlier widget's `hovered`/`pressed`.
 pub struct Ui<'a> {
     ctx: &'a mut Context,
-    regions: Vec<Region>,
+    /// Layout state of the region currently being built. Nested containers swap it out and restore
+    /// the parent when they finish.
+    region: Region,
     /// Scroll delta not yet consumed by a scrollable.
     scroll_remaining: Vec2,
 }
@@ -43,7 +45,7 @@ impl<'a> Ui<'a> {
         };
         Self {
             ctx,
-            regions: vec![Region {
+            region: Region {
                 rect,
                 clip: rect,
                 origin: rect.min,
@@ -51,7 +53,7 @@ impl<'a> Ui<'a> {
                 used: Rect::NOTHING,
                 has_children: false,
                 direction: Direction::Vertical,
-            }],
+            },
             scroll_remaining,
         }
     }
@@ -89,10 +91,10 @@ impl<'a> Ui<'a> {
         result
     }
 
-    /// Reserves a rectangle in the current stack and advances the cursor.
+    /// Reserves a rectangle in the current region and advances the cursor.
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         let spacing = self.spacing();
-        allocate_space(&mut self.regions, size, spacing)
+        allocate_space(&mut self.region, size, spacing)
     }
 
     /// Space between children in the current style, clamped to a non-negative value.
@@ -100,28 +102,26 @@ impl<'a> Ui<'a> {
         self.ctx.style().spacing.max(0.0)
     }
 
-    /// Space left in the current stack.
+    /// Space left in the current region.
     pub fn available_size(&self) -> Vec2 {
-        available_size(&self.regions, self.spacing())
+        available_size(&self.region, self.spacing())
     }
 
     fn with_region<R>(&mut self, direction: Direction, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let (start, rect) = {
-            let start = next_pos(&self.regions, self.spacing());
-            let parent = self.regions.last().expect("root region");
-            (start, Rect::from_min_max(start, parent.rect.max))
-        };
+        let start = next_pos(&self.region, self.spacing());
+        let rect = Rect::from_min_max(start, self.region.rect.max);
         let (result, used) = self.region_at(rect, start, direction, build);
 
         if used.is_positive() {
-            let parent = self.regions.last_mut().expect("root region");
-            match parent.direction {
-                Direction::Vertical => parent.cursor.y = parent.cursor.y.max(used.max.y),
-                Direction::Horizontal => parent.cursor.x = parent.cursor.x.max(used.max.x),
+            match self.region.direction {
+                Direction::Vertical => self.region.cursor.y = self.region.cursor.y.max(used.max.y),
+                Direction::Horizontal => {
+                    self.region.cursor.x = self.region.cursor.x.max(used.max.x);
+                }
             }
-            parent.has_children = true;
-            parent.used = if parent.used.is_positive() {
-                parent.used.union(used)
+            self.region.has_children = true;
+            self.region.used = if self.region.used.is_positive() {
+                self.region.used.union(used)
             } else {
                 used
             };
@@ -132,10 +132,11 @@ impl<'a> Ui<'a> {
 
     /// Builds a child region covering `rect`, with relative coordinates measured from `origin`.
     ///
-    /// Painting inside `build` is clipped to the region, and the previous painter clip is
-    /// restored afterwards. Returns the closure's result and the rectangle used by in-flow
-    /// children. The parent's cursor and used rectangle are not touched; callers decide whether
-    /// the region participates in the parent's flow.
+    /// The current region is replaced for the duration of `build` and restored afterwards, so the
+    /// parent layout state lives on this call frame. Painting inside `build` is clipped to the
+    /// region, and the previous painter clip is restored afterwards. Returns the closure's result
+    /// and the rectangle used by in-flow children. The parent's cursor and used rectangle are not
+    /// touched; callers decide whether the region participates in the parent's flow.
     fn region_at<R>(
         &mut self,
         rect: Rect,
@@ -143,23 +144,25 @@ impl<'a> Ui<'a> {
         direction: Direction,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
-        let clip = self.regions.last().expect("root region").clip;
-        let clip = clip.intersect(rect);
+        let clip = self.region.clip.intersect(rect);
         let previous_clip = self.ctx.painter.clip_rect();
         self.ctx.painter.set_clip_rect(clip);
 
-        self.regions.push(Region {
-            rect,
-            clip,
-            origin,
-            cursor: origin,
-            used: Rect::NOTHING,
-            has_children: false,
-            direction,
-        });
+        let parent = std::mem::replace(
+            &mut self.region,
+            Region {
+                rect,
+                clip,
+                origin,
+                cursor: origin,
+                used: Rect::NOTHING,
+                has_children: false,
+                direction,
+            },
+        );
 
         let result = build(self);
-        let child = self.regions.pop().expect("child region");
+        let child = std::mem::replace(&mut self.region, parent);
 
         self.ctx.painter.set_clip_rect(previous_clip);
 
