@@ -110,13 +110,18 @@ impl ButtonsPage {
 }
 
 fn draw_placed_page(ui: &mut Ui) {
-    ui.label("place() is relative to the current region's content origin.");
-    ui.place(pos2(48.0, 150.0), |ui| {
-        ui.label("placed at (48, 150)");
+    ui.label(
+        "place_at() uses absolute coordinates; place_relative() offsets from the region origin.",
+    );
+    ui.place_at(pos2(48.0, 150.0), |ui| {
+        ui.label("placed at absolute (48, 150)");
         ui.button("Floating button");
+        ui.place_relative(vec2(10.0, 40.0), |ui| {
+            ui.label("nested at + (10, 40)");
+        });
     });
-    ui.place(pos2(320.0, 210.0), |ui| {
-        ui.label("placed at (320, 210)");
+    ui.place_relative(vec2(320.0, 210.0), |ui| {
+        ui.label("placed at origin + (320, 210)");
     });
 }
 

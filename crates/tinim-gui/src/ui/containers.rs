@@ -17,27 +17,32 @@ impl Ui<'_> {
         self.with_region(Direction::Horizontal, build)
     }
 
-    /// Starts a vertical region at `pos`, relative to the current region's content origin.
+    /// Starts a vertical region at an absolute position.
     ///
-    /// For ordinary regions the content origin is the region's top-left corner. Inside a
-    /// [`Ui::pane`] it is shifted by the pane's offset, so placed content scrolls with the pane
-    /// content.
+    /// `pos` is in absolute logical coordinates, the same space used by rectangles returned from
+    /// widgets and by [`Ui::origin`]. Use [`Ui::place_relative`] to offset from the current
+    /// region's content origin instead.
     ///
     /// The region extends to the current region's bottom-right corner. It is out of flow: the
     /// parent cursor does not advance and the region does not contribute to the parent's used
     /// rectangle.
-    pub fn place<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        let (start, max) = {
-            let parent = &self.region;
-            (parent.origin + pos, parent.rect.max)
-        };
-        self.region_at(
-            Rect::from_min_max(start, max),
-            start,
-            Direction::Vertical,
-            build,
-        )
-        .0
+    pub fn place_at<R>(&mut self, pos: Pos2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        let rect = Rect::from_min_max(pos, self.region.rect.max);
+        self.region_at(rect, pos, Direction::Vertical, build).0
+    }
+
+    /// Starts a vertical region at `offset` from the current region's content origin.
+    ///
+    /// For ordinary regions the content origin is the region's top-left corner. Inside a
+    /// [`Ui::pane`] it is shifted by the pane's offset, so placed content scrolls with the pane
+    /// content. The placed region's absolute origin is available through [`Ui::origin`].
+    ///
+    /// The region extends to the current region's bottom-right corner. It is out of flow: the
+    /// parent cursor does not advance and the region does not contribute to the parent's used
+    /// rectangle.
+    pub fn place_relative<R>(&mut self, offset: Vec2, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
+        let pos = self.region.origin + offset;
+        self.place_at(pos, build)
     }
 
     /// Builds content in an in-flow viewport of a fixed `size`.
@@ -48,9 +53,9 @@ impl Ui<'_> {
     ///
     /// Returns the closure's result, the viewport rectangle and the measured extent of the
     /// in-flow content. The extent does not depend on `offset`. Out-of-flow children such as
-    /// [`Ui::place`] are not included.
+    /// [`Ui::place_at`] and [`Ui::place_relative`] are not included.
     ///
-    /// To create an out-of-flow pane, wrap it in [`Ui::place`].
+    /// To create an out-of-flow pane, wrap it in [`Ui::place_at`] or [`Ui::place_relative`].
     pub fn pane<R>(
         &mut self,
         size: Vec2,
@@ -118,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn place_starts_a_region_at_a_position_relative_to_the_region_origin() {
+    fn place_relative_starts_a_region_at_a_position_relative_to_the_region_origin() {
         let mut context = context();
         let spacing = context.style().spacing;
         let mut first = Rect::NOTHING;
@@ -128,9 +133,9 @@ mod tests {
 
         let _ = context.run(vec2(400.0, 300.0), 1.0, RawInput::default(), |ui| {
             first = ui.label("first");
-            placed = ui.place(pos2(120.0, 80.0), |ui| ui.label("floating"));
-            ui.place(pos2(200.0, 100.0), |ui| {
-                nested = ui.place(pos2(5.0, 6.0), |ui| ui.label("nested"));
+            placed = ui.place_relative(vec2(120.0, 80.0), |ui| ui.label("floating"));
+            ui.place_relative(vec2(200.0, 100.0), |ui| {
+                nested = ui.place_relative(vec2(5.0, 6.0), |ui| ui.label("nested"));
             });
             next = ui.label("next");
         });
@@ -139,6 +144,53 @@ mod tests {
         assert_eq!(nested.min, pos2(205.0, 106.0));
         assert_eq!(next.min.x, first.min.x);
         assert_eq!(next.min.y, first.max.y + spacing);
+    }
+
+    #[test]
+    fn place_at_uses_absolute_coordinates() {
+        let mut context = context();
+        let mut outer_origin = None;
+        let mut inner = Rect::NOTHING;
+
+        let _ = context.run(vec2(400.0, 300.0), 1.0, RawInput::default(), |ui| {
+            ui.place_at(pos2(100.0, 50.0), |ui| {
+                outer_origin = Some(ui.origin());
+                inner = ui.place_at(pos2(120.0, 80.0), |ui| ui.allocate_space(vec2(5.0, 5.0)));
+            });
+        });
+
+        assert_eq!(outer_origin, Some(pos2(100.0, 50.0)));
+        assert_eq!(inner.min, pos2(120.0, 80.0));
+    }
+
+    #[test]
+    fn ui_origin_is_absolute_in_placed_and_panned_regions() {
+        let mut context = context();
+        let mut root = None;
+        let mut placed = None;
+        let mut nested = None;
+        let mut panned = None;
+        let mut pane_rect = Rect::NOTHING;
+
+        let _ = context.run(vec2(300.0, 200.0), 1.0, RawInput::default(), |ui| {
+            root = Some(ui.origin());
+            ui.place_at(pos2(40.0, 30.0), |ui| {
+                placed = Some(ui.origin());
+                ui.place_relative(vec2(5.0, 6.0), |ui| {
+                    nested = Some(ui.origin());
+                });
+            });
+
+            let ((), response) = ui.pane(vec2(100.0, 50.0), vec2(7.0, 9.0), |ui| {
+                panned = Some(ui.origin());
+            });
+            pane_rect = response.rect;
+        });
+
+        assert_eq!(root, Some(pos2(0.0, 0.0)));
+        assert_eq!(placed, Some(pos2(40.0, 30.0)));
+        assert_eq!(nested, Some(pos2(45.0, 36.0)));
+        assert_eq!(panned, Some(pane_rect.min + vec2(7.0, 9.0)));
     }
 
     #[test]
@@ -215,7 +267,7 @@ mod tests {
             ..Default::default()
         };
         let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
-            ui.place(pos2(0.0, 100.0), |ui| {
+            ui.place_relative(vec2(0.0, 100.0), |ui| {
                 ui.pane(vec2(100.0, 50.0), vec2(0.0, -20.0), |ui| {
                     pressed = Some(ui.button("go").pressed);
                 });
@@ -235,7 +287,8 @@ mod tests {
 
         let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
             ui.pane(vec2(100.0, 100.0), vec2(0.0, 40.0), |ui| {
-                placed = ui.place(pos2(10.0, 20.0), |ui| ui.allocate_space(vec2(5.0, 5.0)));
+                placed =
+                    ui.place_relative(vec2(10.0, 20.0), |ui| ui.allocate_space(vec2(5.0, 5.0)));
                 next = ui.allocate_space(vec2(5.0, 5.0));
             });
         });
@@ -248,7 +301,7 @@ mod tests {
     fn region_clips_painting_and_restores_the_parent_clip() {
         let mut context = context();
         let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
-            ui.place(pos2(50.0, 60.0), |ui| {
+            ui.place_relative(vec2(50.0, 60.0), |ui| {
                 ui.label("inside");
             });
             ui.label("after");
@@ -271,7 +324,7 @@ mod tests {
 
         let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
             first = ui.allocate_space(vec2(10.0, 10.0));
-            ui.place(pos2(50.0, 50.0), |ui| {
+            ui.place_relative(vec2(50.0, 50.0), |ui| {
                 ui.pane(vec2(30.0, 30.0), Vec2::ZERO, |ui| {
                     ui.allocate_space(vec2(10.0, 10.0));
                 });

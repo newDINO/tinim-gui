@@ -20,7 +20,8 @@ pub struct PaneResponse {
     pub rect: Rect,
     /// Extent of the in-flow content, independent of the pane's offset.
     ///
-    /// Out-of-flow children such as [`Ui::place`](crate::Ui::place) are not included.
+    /// Out-of-flow children such as [`Ui::place_at`](crate::Ui::place_at) and
+    /// [`Ui::place_relative`](crate::Ui::place_relative) are not included.
     pub content_size: Vec2,
 }
 

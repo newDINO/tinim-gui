@@ -23,9 +23,10 @@ use layout::{Direction, Region, allocate_space, available_size, next_pos};
 
 /// Builds one frame's widgets.
 ///
-/// Widgets normally follow the current region's flow, or start at an arbitrary position with
-/// [`Ui::place`]. Overlapping widgets are painted in declaration order, but hit testing does not
-/// resolve occlusion: a later widget does not suppress an earlier widget's `hovered`/`pressed`.
+/// Widgets normally follow the current region's flow, or start at an absolute position with
+/// [`Ui::place_at`] or an offset from the region origin with [`Ui::place_relative`]. Overlapping
+/// widgets are painted in declaration order, but hit testing does not resolve occlusion: a later
+/// widget does not suppress an earlier widget's `hovered`/`pressed`.
 pub struct Ui<'a> {
     ctx: &'a mut Context,
     /// Layout state of the region currently being built. Nested containers swap it out and restore
@@ -89,6 +90,15 @@ impl<'a> Ui<'a> {
         let result = build(self);
         *self.ctx.style_mut() = previous;
         result
+    }
+
+    /// Absolute position of the current region's content origin.
+    ///
+    /// This is the point relative coordinates are measured from. In an ordinary region it is the
+    /// region's top-left corner; inside a [`Ui::pane`] it is shifted by the pane's offset. Custom
+    /// widgets that paint in absolute screen space can use it to convert local coordinates.
+    pub fn origin(&self) -> Pos2 {
+        self.region.origin
     }
 
     /// Reserves a rectangle in the current region and advances the cursor.
