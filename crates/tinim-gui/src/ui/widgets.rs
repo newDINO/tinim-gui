@@ -1,6 +1,6 @@
-//! Leaf widgets: text labels and buttons.
+//! Leaf widgets: text labels, buttons and checkboxes.
 
-use tinim_paint::{Color32, Painter, Pos2, Rect, RectShape, Shape, Vec2};
+use tinim_paint::{Color32, Painter, Pos2, Rect, RectShape, Shape, Stroke, Vec2};
 use tinim_text::{TextLayout, TextSystem};
 
 use super::Ui;
@@ -63,6 +63,55 @@ impl Ui<'_> {
         self.draw_button(text, selected)
     }
 
+    /// Draws a checkbox without a label and toggles `checked` when it is pressed.
+    ///
+    /// Like [`Ui::button`], this reports a press edge rather than a full click.
+    pub fn checkbox(&mut self, checked: &mut bool) -> Response {
+        let checkbox = self.ctx.style().checkbox.clone();
+        let spacing = self.spacing();
+        let rect = allocate_space(&mut self.layout, checkbox.size, spacing);
+
+        let hovered = pointer_over(self.clip, &self.ctx.input, rect);
+        let pressed = hovered && self.ctx.input.primary_pressed;
+        let down = hovered && self.ctx.input.primary_down;
+
+        if pressed {
+            *checked = !*checked;
+        }
+
+        let clip = self.ctx.painter.clip_rect();
+        if clip.intersect(rect).is_positive() {
+            let fill = if down || pressed {
+                checkbox.pressed
+            } else if *checked {
+                checkbox.checked
+            } else if hovered {
+                checkbox.hovered
+            } else {
+                checkbox.normal
+            };
+
+            self.ctx.painter.add(Shape::Rect(
+                RectShape::new(rect, fill)
+                    .with_corner_radius(checkbox.corner_radius)
+                    .with_stroke(Stroke::new(checkbox.border_width, checkbox.border)),
+            ));
+
+            if *checked {
+                self.ctx
+                    .painter
+                    .line(&check_mark(rect), checkbox.check_width, checkbox.check);
+            }
+        }
+
+        Response {
+            rect,
+            hovered,
+            pressed,
+            down,
+        }
+    }
+
     fn draw_button(&mut self, text: &str, selected: bool) -> Response {
         let button = self.ctx.style().button.clone();
         let mut font = self.ctx.style().font.clone();
@@ -121,6 +170,16 @@ impl Ui<'_> {
     }
 }
 
+/// Check-mark polyline inside `rect`, from the lower-left to the upper-right.
+fn check_mark(rect: Rect) -> [Pos2; 3] {
+    let size = rect.size();
+    [
+        Pos2::new(rect.min.x + size.x * 0.24, rect.min.y + size.y * 0.52),
+        Pos2::new(rect.min.x + size.x * 0.42, rect.min.y + size.y * 0.70),
+        Pos2::new(rect.min.x + size.x * 0.78, rect.min.y + size.y * 0.30),
+    ]
+}
+
 fn paint_text(
     text: &mut TextSystem,
     painter: &mut Painter,
@@ -176,6 +235,75 @@ mod tests {
         });
 
         assert_eq!(pressed, Some(false));
+    }
+
+    #[test]
+    fn checkbox_toggles_when_pressed() {
+        let mut context = context();
+        let mut checked = false;
+
+        let input = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.checkbox(&mut checked);
+        });
+
+        assert!(checked);
+    }
+
+    #[test]
+    fn checkbox_keeps_the_value_when_not_pressed() {
+        let mut context = context();
+        let mut checked = true;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.checkbox(&mut checked);
+        });
+
+        assert!(checked);
+    }
+
+    #[test]
+    fn checkbox_does_not_toggle_when_pointer_is_outside() {
+        let mut context = context();
+        let mut checked = false;
+
+        let input = RawInput {
+            pointer: Some(pos2(500.0, 500.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.checkbox(&mut checked);
+        });
+
+        assert!(!checked);
+    }
+
+    #[test]
+    fn checkbox_paints_a_check_mark_only_when_checked() {
+        let mut context = context();
+        let check = Color32::from_rgb(1, 2, 3);
+        context.style_mut().checkbox.check = check;
+
+        let has_check = |context: &mut crate::Context, checked: &mut bool| {
+            let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+                ui.checkbox(checked);
+            });
+            frame
+                .paint
+                .vertices
+                .iter()
+                .any(|vertex| vertex.color == check.to_array())
+        };
+
+        assert!(!has_check(&mut context, &mut false));
+        assert!(has_check(&mut context, &mut true));
     }
 
     #[test]

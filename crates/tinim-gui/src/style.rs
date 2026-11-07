@@ -11,6 +11,7 @@ pub struct Style {
     /// Space between children in a vertical or horizontal stack.
     pub spacing: f32,
     pub button: ButtonStyle,
+    pub checkbox: CheckboxStyle,
 }
 
 impl Default for Style {
@@ -19,6 +20,7 @@ impl Default for Style {
             font: TextStyle::default(),
             spacing: 8.0,
             button: ButtonStyle::default(),
+            checkbox: CheckboxStyle::default(),
         }
     }
 }
@@ -48,6 +50,43 @@ impl Default for ButtonStyle {
             corner_radius: 4,
             min_size: vec2(64.0, 28.0),
             padding: vec2(12.0, 6.0),
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::checkbox`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckboxStyle {
+    /// Fill when the box is unchecked.
+    pub normal: Color32,
+    /// Fill when the pointer is over an unchecked box.
+    pub hovered: Color32,
+    /// Fill while the box is held down.
+    pub pressed: Color32,
+    /// Fill when the box is checked.
+    pub checked: Color32,
+    pub border: Color32,
+    /// Color of the check mark.
+    pub check: Color32,
+    pub corner_radius: u8,
+    pub size: Vec2,
+    pub border_width: f32,
+    pub check_width: f32,
+}
+
+impl Default for CheckboxStyle {
+    fn default() -> Self {
+        Self {
+            normal: Color32::from_rgb(58, 58, 62),
+            hovered: Color32::from_rgb(76, 76, 82),
+            pressed: Color32::from_rgb(42, 42, 46),
+            checked: Color32::from_rgb(52, 88, 145),
+            border: Color32::from_rgb(120, 120, 128),
+            check: Color32::WHITE,
+            corner_radius: 4,
+            size: vec2(20.0, 20.0),
+            border_width: 1.5,
+            check_width: 2.0,
         }
     }
 }

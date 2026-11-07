@@ -117,10 +117,14 @@ impl Demo {
 
 struct ButtonsPage {
     counter: usize,
+    checked: bool,
 }
 impl ButtonsPage {
     pub fn new() -> Self {
-        Self { counter: 0 }
+        Self {
+            counter: 0,
+            checked: false,
+        }
     }
     pub fn draw(&mut self, ui: &mut Ui) {
         if ui.button("+1").pressed {
@@ -130,6 +134,15 @@ impl ButtonsPage {
             self.counter = self.counter.saturating_sub(1);
         }
         ui.label(&format!("Value: {}", self.counter));
+
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.checked);
+            ui.label(if self.checked {
+                "checkbox: checked"
+            } else {
+                "checkbox: unchecked"
+            });
+        });
     }
 }
 
