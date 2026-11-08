@@ -70,7 +70,9 @@ impl Ui<'_> {
         // otherwise the discarded distance would look like scroll input.
         state.offset = state.offset.clamp(Vec2::ZERO, max_offset);
 
-        if hovered && self.scroll_remaining != Vec2::ZERO {
+        // A drag keeps control of the area after the finger leaves it, until it is released.
+        let drag_captured = self.ctx.input.scroll_dragging && state.dragging;
+        if self.scroll_remaining != Vec2::ZERO && (hovered || drag_captured) {
             // RawInput uses screen axes (positive y scrolls up), while `offset` counts how far the
             // content has moved left/up.
             let delta = Vec2::new(self.scroll_remaining.x, -self.scroll_remaining.y);
@@ -561,6 +563,53 @@ mod tests {
             );
         }
         assert_eq!(state.offset.y, released);
+    }
+
+    #[test]
+    fn a_drag_keeps_scrolling_after_the_pointer_leaves() {
+        let mut context = context();
+        let mut state = ScrollState::default();
+
+        run_scroll(
+            &mut context,
+            &mut state,
+            RawInput {
+                pointer: Some(pos2(5.0, 5.0)),
+                primary_down: true,
+                scroll: vec2(0.0, -20.0),
+                scroll_dragging: true,
+                dt: 1.0 / 60.0,
+                ..Default::default()
+            },
+        );
+        assert_eq!(state.offset.y, 20.0);
+
+        // The finger is now outside the 100x100 viewport, but the drag still owns the area.
+        run_scroll(
+            &mut context,
+            &mut state,
+            RawInput {
+                pointer: Some(pos2(300.0, 300.0)),
+                primary_down: true,
+                scroll: vec2(0.0, -10.0),
+                scroll_dragging: true,
+                dt: 1.0 / 60.0,
+                ..Default::default()
+            },
+        );
+        assert_eq!(state.offset.y, 30.0);
+        assert!(state.dragging);
+
+        run_scroll(
+            &mut context,
+            &mut state,
+            RawInput {
+                pointer: Some(pos2(300.0, 300.0)),
+                dt: 1.0 / 60.0,
+                ..Default::default()
+            },
+        );
+        assert!(!state.dragging);
     }
 
     #[test]
