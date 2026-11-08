@@ -33,7 +33,9 @@ pub struct Frame<'a> {
 impl Context {
     /// Creates a context whose glyph atlas uses `texture_id`.
     ///
-    /// `TextureId::WHITE` is reserved by the renderer, so use another id.
+    /// Solid shapes sample the atlas's reserved white texel, so they batch with text instead of
+    /// alternating between the atlas and the renderer's white texture. `TextureId::WHITE` is
+    /// reserved by the renderer, so use another id.
     pub fn new(texture_id: TextureId) -> Self {
         Self {
             text_system: TextSystem::new(texture_id),
@@ -117,6 +119,12 @@ impl Context {
             self.painter.set_size(self.size.x, self.size.y);
         }
 
+        // Solid geometry samples the atlas's reserved white texel so it batches with text. The
+        // painter is recreated when the DPI scale changes, so reapply the setting every frame.
+        self.text_system.ensure_atlas_texture();
+        let solid_texture = self.text_system.atlas_texture_id();
+        self.painter.set_solid_texture(solid_texture);
+
         self.painter.clear();
         self.painter.reset_clip_rect();
     }
@@ -135,5 +143,41 @@ fn sanitize_scale(scale: f32) -> f32 {
         scale
     } else {
         1.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_frame_allocates_the_atlas_even_without_text() {
+        let mut context = Context::new(TextureId(1));
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
+
+        assert!(frame.paint.draws.is_empty());
+        assert_eq!(frame.textures.create, vec![(TextureId(1), [512, 512])]);
+        assert_eq!(frame.textures.set.len(), 1);
+        assert_eq!(frame.textures.set[0].1.pos, Some([0, 0]));
+        assert_eq!(frame.textures.set[0].1.size, [1, 1]);
+        assert_eq!(frame.textures.set[0].1.rgba, vec![255, 255, 255, 255]);
+
+        drop(frame);
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
+        assert!(frame.textures.is_empty(), "the texture already exists");
+    }
+
+    #[test]
+    fn solid_texture_follows_the_atlas_after_a_dpi_change() {
+        let mut context = Context::new(TextureId(1));
+        context
+            .text_system_mut()
+            .add_font(font_test_data::AHEM.to_vec())
+            .unwrap();
+        let frame = context.run(Vec2::new(100.0, 100.0), 2.0, RawInput::default(), |ui| {
+            ui.button("go");
+        });
+        assert_eq!(frame.paint.draws.len(), 1, "rect and text share the atlas");
+        assert_eq!(frame.paint.draws[0].texture_id, TextureId(1));
     }
 }

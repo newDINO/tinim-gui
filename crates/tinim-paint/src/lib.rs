@@ -26,6 +26,26 @@
 //! A [`Mesh`] declares its coordinate space with [`MeshSpace`]; meshes built with
 //! [`Mesh::with_texture`] default to logical points and are scaled on insertion, while
 //! [`Mesh::physical`] meshes are already in physical pixels and are appended unchanged.
+//!
+//! ## Backend contract
+//!
+//! A renderer consuming a [`PaintList`] and [`TexturesDelta`] must uphold these rules:
+//!
+//! * [`TextureId::WHITE`] always exists and contains a 1×1 opaque white texel at `(0, 0)`.
+//!   Untextured geometry samples [`Vertex::WHITE_UV`], which is `(0, 0)`.
+//! * Textures listed in `TexturesDelta::create` are allocated and zero-initialized. Creating an id
+//!   that already exists replaces the texture and discards every previous texel. Apply `create`
+//!   before `set`, and apply `set` entries in order.
+//! * An [`ImageDelta`] with `pos = Some(..)` is a partial update and is only valid after the
+//!   texture has been created, either earlier or by the same delta.
+//! * Textures not mentioned by the delta keep their contents; ids in `TexturesDelta::free` are
+//!   released.
+//!
+//! An application may point [`Painter::set_solid_texture`] at a different texture that reserves
+//! an opaque white texel at `(0, 0)`, such as a glyph atlas. It then owns creating and uploading
+//! that texture before the first draw. `tinim-text` exposes
+//! `TextSystem::ensure_atlas_texture` for this and re-uploads the white texel whenever the atlas
+//! texture is created or replaced.
 
 mod color;
 mod math;

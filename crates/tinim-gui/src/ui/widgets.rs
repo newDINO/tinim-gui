@@ -311,6 +311,30 @@ mod tests {
     }
 
     #[test]
+    fn button_fill_and_text_share_one_draw() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.button("go");
+        });
+
+        assert_eq!(
+            frame.paint.draws.len(),
+            1,
+            "the button rectangle and its text use the same atlas"
+        );
+        assert_eq!(frame.paint.draws[0].texture_id, tinim_paint::TextureId(1));
+        assert_eq!(frame.textures.create.len(), 1);
+        assert!(
+            frame
+                .textures
+                .set
+                .iter()
+                .any(|(_, delta)| delta.pos == Some([0, 0]) && delta.size == [1, 1]),
+            "the atlas uploads its reserved white texel on creation"
+        );
+    }
+
+    #[test]
     fn checkbox_toggles_when_pressed() {
         let mut context = context();
         let mut checked = false;

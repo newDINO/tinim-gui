@@ -51,6 +51,7 @@ mod error;
 mod font;
 mod hash;
 mod layout;
+mod packer;
 mod raster;
 mod shape;
 #[cfg(feature = "system-fonts")]
@@ -103,8 +104,10 @@ pub struct TextSystem {
 impl TextSystem {
     /// Creates a text system whose glyph atlas is uploaded as `texture_id`.
     ///
-    /// The atlas starts small and grows on demand. `TextureId::WHITE` is reserved by the
-    /// renderer, so use another id.
+    /// The atlas starts small and grows on demand. It reserves an opaque white texel at `(0, 0)`,
+    /// so the same texture can also be used as the painter's solid texture (see
+    /// [`TextSystem::ensure_atlas_texture`]). `TextureId::WHITE` is reserved by the renderer, so
+    /// use another id.
     pub fn new(texture_id: TextureId) -> Self {
         Self::with_atlas_size(texture_id, INITIAL_ATLAS_SIZE)
     }
@@ -112,7 +115,8 @@ impl TextSystem {
     /// Creates a text system with a custom initial square atlas size.
     ///
     /// The atlas doubles its dimensions when it fills up, up to the built-in maximum (or the
-    /// given size, if that is larger).
+    /// given size, if that is larger). Sizes are raised to at least 2×2 so the reserved white
+    /// texel and its padding always fit.
     pub fn with_atlas_size(texture_id: TextureId, size: u32) -> Self {
         let max_size = MAX_ATLAS_SIZE.max(size);
         Self {
@@ -433,6 +437,17 @@ impl TextSystem {
     /// The texture that must be bound when drawing meshes from [`TextSystem::prepare`].
     pub fn atlas_texture_id(&self) -> TextureId {
         self.atlas.texture_id()
+    }
+
+    /// Ensures the atlas texture is allocated on the next [`TextSystem::take_textures`], even if
+    /// no glyph has been rasterized yet.
+    ///
+    /// This is useful when the atlas is also used as a painter's solid texture: untextured
+    /// geometry samples the opaque white texel reserved at `(0, 0)`, so the texture must exist
+    /// before the first draw. The atlas always uploads that white texel whenever it creates or
+    /// replaces the texture.
+    pub fn ensure_atlas_texture(&mut self) {
+        self.atlas.ensure_texture();
     }
 
     /// Forgets every cached glyph.

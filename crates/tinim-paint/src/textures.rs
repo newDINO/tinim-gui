@@ -3,6 +3,17 @@
 //! Pixel data is straight-alpha sRGB: RGB is sRGB color and alpha is linear coverage. The renderer
 //! uploads it into an sRGB texture, so the sampler converts RGB to linear space. Non-color data
 //! (masks, normals, lookup tables) does not belong in this format.
+//!
+//! ## Backend contract
+//!
+//! * [`TexturesDelta::create`] allocates a zero-initialized texture. Creating an id that already
+//!   exists replaces the texture, so every texel not covered by a subsequent [`ImageDelta`] is
+//!   transparent black.
+//! * Apply `create` before `set`. A partial [`ImageDelta`] (`pos = Some(..)`) requires the texture
+//!   to exist, either from an earlier frame or from the same delta.
+//! * [`TextureId::WHITE`] is not part of a delta: the renderer creates it up front with an opaque
+//!   white texel at `(0, 0)`. A texture used as a painter's solid texture must reserve the same
+//!   texel and upload it whenever it is created or replaced.
 
 use crate::TextureId;
 
@@ -51,7 +62,7 @@ pub struct TexturesDelta {
     /// Textures to allocate before applying [`TexturesDelta::set`], with their size in pixels.
     ///
     /// New textures are zero-initialized. A partial update can therefore be uploaded without
-    /// first sending a full-size image.
+    /// first sending a full-size image. Creating an id that already exists replaces it.
     pub create: Vec<(TextureId, [u32; 2])>,
     pub set: Vec<(TextureId, ImageDelta)>,
     pub free: Vec<TextureId>,

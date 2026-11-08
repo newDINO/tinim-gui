@@ -18,12 +18,18 @@ use crate::{
 ///
 /// `pixels_per_point` is captured when the painter is created. Recreate the painter when the DPI
 /// scale changes; existing vertices are already in physical pixels.
+///
+/// Untextured shapes sample [`TextureId::WHITE`] by default. [`Painter::set_solid_texture`] can
+/// point them at another texture that reserves an opaque white texel at `(0, 0)`, which lets them
+/// batch with meshes that use that texture (for example a glyph atlas).
 #[derive(Clone, Debug)]
 pub struct Painter {
     canvas_size: Vec2,
     pixels_per_point: f32,
     clip_rect: Rect,
     texture_id: TextureId,
+    /// Texture sampled by untextured shapes. Defaults to [`TextureId::WHITE`].
+    solid_texture: TextureId,
     run_start: u32,
     list: PaintList,
 }
@@ -36,6 +42,7 @@ impl Painter {
             pixels_per_point: sanitize_ppp(pixels_per_point),
             clip_rect: Rect::NOTHING,
             texture_id: TextureId::WHITE,
+            solid_texture: TextureId::WHITE,
             run_start: 0,
             list: PaintList::new(),
         };
@@ -108,11 +115,30 @@ impl Painter {
         }
     }
 
-    /// Remove all geometry and draw commands. The clip rectangle is left unchanged.
+    /// Remove all geometry and draw commands. The clip rectangle and solid texture are left
+    /// unchanged.
     pub fn clear(&mut self) {
         self.list.clear();
         self.run_start = 0;
-        self.texture_id = TextureId::WHITE;
+        self.texture_id = self.solid_texture;
+    }
+
+    /// Set the texture sampled by untextured shapes.
+    ///
+    /// Untextured shapes sample [`Vertex::WHITE_UV`](crate::Vertex::WHITE_UV), so the texture
+    /// must have an opaque white texel at `(0, 0)`. The default is [`TextureId::WHITE`]. A glyph
+    /// atlas that reserves a white texel can be used instead, which lets shapes and text share a
+    /// draw call.
+    ///
+    /// Changing the texture affects only subsequently added shapes; the next shape flushes the
+    /// current run if the texture differs. The setting survives [`Painter::clear`].
+    pub fn set_solid_texture(&mut self, texture_id: TextureId) {
+        self.solid_texture = texture_id;
+    }
+
+    /// The texture sampled by untextured shapes.
+    pub fn solid_texture(&self) -> TextureId {
+        self.solid_texture
     }
 
     /// Add a shape using the current clip.
@@ -125,15 +151,18 @@ impl Painter {
 
         match shape {
             Shape::Rect(shape) => {
-                self.use_texture(TextureId::WHITE);
+                let texture = self.solid_texture;
+                self.use_texture(texture);
                 add_rect(&mut self.list, &shape, self.pixels_per_point);
             }
             Shape::Circle(shape) => {
-                self.use_texture(TextureId::WHITE);
+                let texture = self.solid_texture;
+                self.use_texture(texture);
                 add_circle(&mut self.list, &shape, self.pixels_per_point);
             }
             Shape::Line(shape) => {
-                self.use_texture(TextureId::WHITE);
+                let texture = self.solid_texture;
+                self.use_texture(texture);
                 add_line(
                     &mut self.list,
                     &shape.points,
@@ -151,7 +180,8 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::WHITE);
+        let texture = self.solid_texture;
+        self.use_texture(texture);
         add_rect(
             &mut self.list,
             &RectShape::new(rect, fill),
@@ -164,7 +194,8 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::WHITE);
+        let texture = self.solid_texture;
+        self.use_texture(texture);
         add_circle(
             &mut self.list,
             &CircleShape::new(center, radius, fill),
@@ -177,7 +208,8 @@ impl Painter {
         if !self.clip_rect.is_positive() {
             return;
         }
-        self.use_texture(TextureId::WHITE);
+        let texture = self.solid_texture;
+        self.use_texture(texture);
         add_line(&mut self.list, points, width, color, self.pixels_per_point);
     }
 
@@ -348,6 +380,77 @@ mod tests {
             Color32::WHITE,
         );
         assert_eq!(check_draws(&mut painter).draws.len(), 1);
+    }
+
+    #[test]
+    fn solid_texture_defaults_to_white() {
+        let painter = Painter::new(100.0, 100.0, 1.0);
+        assert_eq!(painter.solid_texture(), TextureId::WHITE);
+    }
+
+    #[test]
+    fn solid_texture_batches_shapes_and_matching_meshes() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        painter.set_solid_texture(texture);
+
+        painter.rect(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+        painter.circle(pos2(30.0, 30.0), 5.0, Color32::WHITE);
+
+        let mut mesh = Mesh::with_texture(texture);
+        mesh.add_rect_with_uv(
+            Rect::from_min_size(pos2(50.0, 50.0), vec2(10.0, 10.0)),
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+        painter.add_mesh(mesh);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(list.draws[0].texture_id, texture);
+    }
+
+    #[test]
+    fn solid_texture_survives_clear() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        painter.set_solid_texture(texture);
+        painter.rect(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+
+        painter.clear();
+        painter.rect(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(list.draws[0].texture_id, texture);
+    }
+
+    #[test]
+    fn changing_the_solid_texture_starts_a_new_draw() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        painter.rect(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+        painter.set_solid_texture(TextureId(7));
+        painter.rect(
+            Rect::from_min_size(pos2(20.0, 20.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 2);
+        assert_eq!(list.draws[0].texture_id, TextureId::WHITE);
+        assert_eq!(list.draws[1].texture_id, TextureId(7));
     }
 
     #[test]

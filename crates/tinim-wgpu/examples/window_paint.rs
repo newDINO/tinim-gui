@@ -65,10 +65,12 @@ impl AppInner {
         };
         surface.configure(&device, &surface_config);
 
-        let painter = tinim_paint::Painter::new(size.width as f32, size.height as f32, 1.0);
+        let mut painter = tinim_paint::Painter::new(size.width as f32, size.height as f32, 1.0);
         let d2_renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
         let mut text_system = tinim_text::TextSystem::new(tinim_paint::TextureId(1));
         text_system.load_system_fonts();
+        text_system.ensure_atlas_texture();
+        painter.set_solid_texture(text_system.atlas_texture_id());
 
         Self {
             window,

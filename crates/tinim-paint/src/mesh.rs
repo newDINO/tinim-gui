@@ -7,7 +7,14 @@ use crate::{Color32, Pos2, Rect};
 /// Which texture a [`Mesh`] samples from.
 ///
 /// [`TextureId::WHITE`] is reserved for the renderer's 1×1 opaque white texture, which all
-/// untextured geometry samples. User textures must use a different id.
+/// untextured geometry samples through [`Vertex::WHITE_UV`]. User textures must use a different
+/// id.
+///
+/// A renderer must always make [`TextureId::WHITE`] available, even before any
+/// [`TexturesDelta`](crate::TexturesDelta) is applied. Applications that batch solid geometry
+/// with text can instead configure
+/// [`Painter::set_solid_texture`](crate::Painter::set_solid_texture) to use a texture that
+/// reserves an opaque white texel at `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TextureId(pub u32);
 

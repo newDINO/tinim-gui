@@ -189,6 +189,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut painter = timed("create painter", || {
         Painter::new(WIDTH as f32, HEIGHT as f32, 1.0)
     });
+    // Solid geometry samples the atlas's reserved white texel, so backgrounds and text share one
+    // draw call instead of alternating between the atlas and the renderer's white texture.
+    text.ensure_atlas_texture();
+    painter.set_solid_texture(text.atlas_texture_id());
     painter.rect(painter.canvas_rect(), BACKGROUND);
     painter.rect(
         tinim_paint::Rect::from_min_size(pos2(40.0, 36.0), tinim_paint::vec2(4.0, 54.0)),

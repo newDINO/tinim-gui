@@ -44,9 +44,14 @@ fn ahem_layout_and_atlas_upload() {
         "the first frame creates the texture"
     );
     assert_eq!(textures.create[0].0, TextureId(1));
-    assert_eq!(textures.set.len(), 1, "only the new glyph is uploaded");
+    assert_eq!(
+        textures.set.len(),
+        2,
+        "the white texel and the new glyph are uploaded"
+    );
+    assert!(is_white_texel(&textures.set[0].1));
     assert!(
-        textures.set[0].1.pos.is_some(),
+        textures.set[1].1.pos.is_some(),
         "glyphs are uploaded into their own rectangle"
     );
 
@@ -92,7 +97,8 @@ fn growth_recreates_an_existing_texture() {
     system.prepare(&small, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
-    assert_eq!(textures.set.len(), 1);
+    assert_eq!(textures.set.len(), 2);
+    assert!(is_white_texel(&textures.set[0].1));
 
     let text = "abcdefghijklmnopqrstuvwxyz";
     let big = system.layout(text, &style(16.0), None);
@@ -116,7 +122,8 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
-    assert_eq!(textures.set.len(), 1);
+    assert_eq!(textures.set.len(), 2);
+    assert!(is_white_texel(&textures.set[0].1));
 
     // Next frame: a mesh is built before the overflowing layout is prepared.
     system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
@@ -257,7 +264,9 @@ fn second_upload_is_partial() {
     system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
-    assert!(textures.set[0].1.pos.is_some());
+    assert_eq!(textures.set.len(), 2);
+    assert!(is_white_texel(&textures.set[0].1));
+    assert!(textures.set[1].1.pos.is_some());
 
     let second = system.layout("z", &style(16.0), None);
     let mesh = system.prepare(&second, pos2(0.0, 0.0), Color32::BLACK, 1.0);
@@ -403,7 +412,7 @@ fn cbdt_bitmap_glyph_is_color() {
     assert_eq!(mesh.vertices[0].color, Color32::WHITE.to_array());
 
     let textures = system.take_textures();
-    let pixels = &textures.set[0].1.rgba;
+    let pixels = &glyph_delta(&textures).rgba;
     let pixels = pixels.as_chunks::<4>().0;
     assert!(pixels.iter().any(|pixel| pixel[3] != 0));
     assert!(
@@ -439,8 +448,84 @@ fn colrv0_glyph_is_composited() {
     assert_eq!(mesh.vertices[0].color, Color32::WHITE.to_array());
 
     let textures = system.take_textures();
-    let pixels = &textures.set[0].1.rgba;
+    let pixels = &glyph_delta(&textures).rgba;
     assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
+}
+
+#[test]
+fn ensure_atlas_texture_allocates_without_glyphs() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.ensure_atlas_texture();
+
+    let textures = system.take_textures();
+    assert_eq!(textures.create, vec![(TextureId(1), [512, 512])]);
+    assert_eq!(textures.set.len(), 1);
+    assert_eq!(textures.set[0].0, TextureId(1));
+    assert!(is_white_texel(&textures.set[0].1));
+    assert!(
+        system.take_textures().is_empty(),
+        "the texture already exists"
+    );
+}
+
+#[test]
+fn glyphs_are_packed_after_the_white_texel() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+    let layout = system.layout("a", &style(16.0), None);
+    system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
+
+    let textures = system.take_textures();
+    assert!(is_white_texel(&textures.set[0].1));
+    let [x, y] = glyph_delta(&textures)
+        .pos
+        .expect("glyph uploads are partial");
+    assert!(
+        x >= 2 || y >= 2,
+        "glyph at ({x}, {y}) overlaps the white texel"
+    );
+}
+
+#[test]
+fn growth_reuploads_the_white_texel() {
+    let mut system = TextSystem::with_atlas_size(TextureId(1), 64);
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let small = system.layout("a", &style(16.0), None);
+    system.prepare(&small, pos2(0.0, 0.0), Color32::BLACK, 1.0);
+    system.take_textures();
+
+    let big = system.layout("abcdefghijklmnopqrstuvwxyz", &style(16.0), None);
+    system.prepare(&big, pos2(0.0, 0.0), Color32::BLACK, 1.0);
+    let textures = system.take_textures();
+    assert_eq!(textures.create.len(), 1);
+    assert!(
+        textures.set.iter().any(|(_, image)| is_white_texel(image)),
+        "a replaced texture is zero-initialized, so white must be uploaded again"
+    );
+}
+
+#[test]
+fn reset_re_reserves_the_white_texel() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+    let layout = system.layout("a", &style(16.0), None);
+    system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
+    let first = system.take_textures();
+    let first_pos = glyph_delta(&first).pos;
+
+    system.reset_atlas();
+    system.prepare(&layout, pos2(0.0, 0.0), Color32::BLACK, 1.0);
+    let textures = system.take_textures();
+    assert!(textures.create.is_empty(), "the texture still exists");
+
+    let pos = glyph_delta(&textures).pos;
+    assert_eq!(pos, first_pos);
+    let [x, y] = pos.expect("glyph uploads are partial");
+    assert!(
+        x >= 2 || y >= 2,
+        "glyph at ({x}, {y}) overlaps the white texel"
+    );
 }
 
 #[test]
@@ -475,4 +560,19 @@ fn first_bitmap_char(font_data: &[u8]) -> (char, skrifa::GlyphId) {
             }
         })
         .expect("test font has at least one bitmap glyph")
+}
+
+fn is_white_texel(delta: &tinim_paint::ImageDelta) -> bool {
+    delta.pos == Some([0, 0])
+        && delta.size == [1, 1]
+        && delta.rgba.as_slice() == [255, 255, 255, 255]
+}
+
+fn glyph_delta(textures: &tinim_paint::TexturesDelta) -> &tinim_paint::ImageDelta {
+    textures
+        .set
+        .iter()
+        .map(|(_, delta)| delta)
+        .find(|delta| !is_white_texel(delta))
+        .expect("the frame contains a glyph upload")
 }

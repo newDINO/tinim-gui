@@ -29,6 +29,13 @@ impl ScreenDescriptor {
 /// Usage: create one `Renderer` per window/surface, call [`Renderer::update_textures`] with the
 /// [`TexturesDelta`] of the frame, then [`Renderer::render`] inside a render pass.
 ///
+/// The renderer owns [`TextureId::WHITE`]: a 1×1 opaque white texture sampled by untextured
+/// geometry. Textures created by [`Renderer::update_textures`] are zero-initialized; a `create`
+/// for an existing id replaces it. Every draw's texture should exist by the time it is rendered,
+/// either because the renderer created it up front or because the frame's delta uploaded it.
+/// Missing textures fall back to [`TextureId::WHITE`] (and assert in debug builds) rather than
+/// dropping the draw.
+///
 /// `target_format` should be an sRGB format (`*Srgb`) so that the linear-space blending done by
 /// the shader is converted correctly on write.
 pub struct Renderer {
@@ -197,6 +204,10 @@ impl Renderer {
     }
 
     /// Apply this frame's texture uploads. Call before [`Renderer::render`].
+    ///
+    /// `create` entries allocate zero-initialized textures (replacing any existing texture with
+    /// the same id), then `set` entries are applied in order. [`TextureId::WHITE`] is never
+    /// replaced by a delta.
     pub fn update_textures(
         &mut self,
         device: &wgpu::Device,
@@ -292,14 +303,20 @@ impl Renderer {
 
         let mut bound_texture = None;
         for draw in &list.draws {
-            if bound_texture != Some(draw.texture_id) {
-                let Some(texture) = self.textures.get(&draw.texture_id) else {
-                    // Missing textures are skipped rather than aborting the whole frame.
-                    debug_assert!(false, "no texture for {:?}", draw.texture_id);
+            // Missing textures fall back to the reserved white texture so the rest of the frame
+            // still renders. This is a contract violation, so debug builds assert.
+            let texture_id = if self.textures.contains_key(&draw.texture_id) {
+                draw.texture_id
+            } else {
+                debug_assert!(false, "no texture for {:?}", draw.texture_id);
+                TextureId::WHITE
+            };
+            if bound_texture != Some(texture_id) {
+                let Some(texture) = self.textures.get(&texture_id) else {
                     continue;
                 };
                 pass.set_bind_group(1, &texture.bind_group, &[]);
-                bound_texture = Some(draw.texture_id);
+                bound_texture = Some(texture_id);
             }
 
             let Some([x, y, w, h]) = clamp_scissor(draw.clip_rect, screen.size_in_pixels) else {
