@@ -2,6 +2,8 @@
 
 mod pages;
 
+use web_time::{Duration, Instant};
+
 use tinim_gui::{Color32, Context, Frame, RawInput, TextureId, Vec2};
 
 use pages::{LayoutPage, PanePage, ScrollPage, StylePage, WidgetsPage, draw_placed_page};
@@ -36,9 +38,9 @@ pub struct Demo {
     style_page: StylePage,
 
     /// Time spent building the previous frame's UI.
-    ui_dt: Option<web_time::Duration>,
+    ui_dt: Duration,
     /// Start of the previous frame, used to measure the frame interval.
-    last_run: Option<web_time::Instant>,
+    last_run: Instant,
 }
 
 impl Default for Demo {
@@ -67,30 +69,22 @@ impl Demo {
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
 
-            ui_dt: None,
-            last_run: None,
+            ui_dt: Duration::ZERO,
+            last_run: Instant::now(),
         }
     }
 
     /// Builds one frame and returns its paint data.
     pub fn run(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) -> Frame<'_> {
         let start = web_time::Instant::now();
-        let frame_dt = self.last_run.map(|last| start.duration_since(last));
-        self.last_run = Some(start);
+        let frame_dt = start.duration_since(self.last_run);
+        self.last_run = start;
 
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.label("tinim-gui demo");
-            let ui_time = match self.ui_dt {
-                Some(ui_dt) => format!("{:.2} ms", ui_dt.as_secs_f64() * 1e3),
-                None => "--".to_owned(),
-            };
-            let frame_time = match frame_dt {
-                Some(frame_dt) if frame_dt.as_secs_f64() > 0.0 => {
-                    let frame_secs = frame_dt.as_secs_f64();
-                    format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, 1.0 / frame_secs)
-                }
-                _ => "-- ms | FPS: --".to_owned(),
-            };
+            let ui_time = format!("{:.2} ms", self.ui_dt.as_secs_f64() * 1e3);
+            let frame_secs = frame_dt.as_secs_f64();
+            let frame_time = format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, 1.0 / frame_secs);
             ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
             ui.horizontal(|ui| {
@@ -111,7 +105,7 @@ impl Demo {
             }
         });
 
-        self.ui_dt = Some(start.elapsed());
+        self.ui_dt = start.elapsed();
 
         frame
     }
