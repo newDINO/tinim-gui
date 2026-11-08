@@ -23,6 +23,8 @@ pub struct WinitInput {
     primary_pressed: bool,
     primary_released: bool,
     scroll: Vec2,
+    /// Whether this frame's `scroll` came from a touch drag.
+    scroll_dragging: bool,
     modifiers: Modifiers,
     text: String,
     /// The touch currently driving the primary pointer, if any. The GUI has a single pointer,
@@ -34,6 +36,8 @@ pub struct WinitInput {
     touch_last: Pos2,
     /// Whether the active touch has moved far enough to scroll rather than click.
     touch_dragged: bool,
+    /// Timestamp of the previous [`Self::take`], used to report the frame duration.
+    last_frame: web_time::Instant,
 }
 
 impl Default for WinitInput {
@@ -52,12 +56,14 @@ impl WinitInput {
             primary_pressed: false,
             primary_released: false,
             scroll: Vec2::ZERO,
+            scroll_dragging: false,
             modifiers: Modifiers::default(),
             text: String::new(),
             active_touch: None,
             touch_start: Pos2::ZERO,
             touch_last: Pos2::ZERO,
             touch_dragged: false,
+            last_frame: web_time::Instant::now(),
         }
     }
 
@@ -206,14 +212,21 @@ impl WinitInput {
             let moved = self.touch_last - self.touch_start;
             // `scroll` uses wheel axes: positive x scrolls right and positive y scrolls up.
             self.scroll += vec2(-moved.x, moved.y);
+            self.scroll_dragging = true;
         } else {
             self.scroll += vec2(-delta.x, delta.y);
+            self.scroll_dragging = true;
         }
     }
 
     /// Takes this frame's input. Edges, scroll and text are cleared; pointer, held buttons and
     /// modifiers are kept.
     pub fn take(&mut self) -> RawInput {
+        let now = web_time::Instant::now();
+        // Clamp the step so a stalled tab does not make animations jump.
+        let dt = (now - self.last_frame).as_secs_f32().clamp(0.0001, 0.1);
+        self.last_frame = now;
+
         RawInput {
             pointer: self.pointer,
             primary_down: self.primary_down,
@@ -222,6 +235,8 @@ impl WinitInput {
             scroll: std::mem::take(&mut self.scroll),
             modifiers: self.modifiers,
             text: std::mem::take(&mut self.text),
+            scroll_dragging: std::mem::take(&mut self.scroll_dragging),
+            dt,
         }
     }
 }
@@ -283,6 +298,8 @@ mod tests {
         input.on_window_event(&touch(7, TouchPhase::Moved, 100.0, 80.0));
         let frame = input.take();
         assert_eq!(frame.scroll, vec2(0.0, -20.0));
+        assert!(frame.scroll_dragging);
+        assert!(frame.dt > 0.0 && frame.dt <= 0.1);
         assert!(!frame.primary_pressed);
 
         input.on_window_event(&touch(7, TouchPhase::Moved, 100.0, 60.0));

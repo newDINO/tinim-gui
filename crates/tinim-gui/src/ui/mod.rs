@@ -216,7 +216,7 @@ macro_rules! scrollable {
     ($ui:expr, $size:expr, $closure:expr) => {{
         use core::cell::Cell;
         thread_local! {
-            static STATE: Cell<$crate::ScrollState> = Cell::new($crate::ScrollState { offset: $crate::Vec2::ZERO, content_size: None });
+            static STATE: Cell<$crate::ScrollState> = Cell::new($crate::ScrollState::new());
         }
         let mut state = STATE.get();
         let result = $ui.scrollable($size, &mut state, $closure);

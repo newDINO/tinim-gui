@@ -28,13 +28,34 @@ pub struct PaneResponse {
 /// Caller-owned state for [`Ui::scrollable`](crate::Ui::scrollable).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ScrollState {
-    /// Current scroll position. Zero shows the content origin.
+    /// Current scroll position, clamped to the content bounds. Zero shows the content origin.
     pub offset: Vec2,
     /// Content size measured on the previous frame, if any.
     ///
     /// When this is known, the scroll position is clamped before layout, so an out-of-range
     /// position is corrected in the same frame. It is `None` on the first frame.
     pub content_size: Option<Vec2>,
+    /// Visual overscroll past the content bounds, in the same axes as [`Self::offset`].
+    ///
+    /// This is non-zero while a drag pulls past an edge and while the edge springs back.
+    pub overscroll: Vec2,
+    /// Scroll velocity in logical points per second, in the same axes as [`Self::offset`].
+    pub velocity: Vec2,
+    /// Whether a touch drag currently owns the scroll position.
+    pub dragging: bool,
+}
+
+impl ScrollState {
+    /// A scroll state at the content origin with no active animation.
+    pub const fn new() -> Self {
+        Self {
+            offset: Vec2::ZERO,
+            content_size: None,
+            overscroll: Vec2::ZERO,
+            velocity: Vec2::ZERO,
+            dragging: false,
+        }
+    }
 }
 
 /// The result of building a [`Ui::scrollable`](crate::Ui::scrollable).

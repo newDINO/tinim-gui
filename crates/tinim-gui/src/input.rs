@@ -33,4 +33,8 @@ pub struct RawInput {
     pub modifiers: Modifiers,
     /// Text produced by keyboard input during this frame.
     pub text: String,
+    /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
+    pub scroll_dragging: bool,
+    /// Seconds since the previous frame. Used to animate inertia and bounce; zero when unknown.
+    pub dt: f32,
 }
