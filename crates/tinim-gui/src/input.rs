@@ -35,6 +35,6 @@ pub struct RawInput {
     pub text: String,
     /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
     pub scroll_dragging: bool,
-    /// Seconds since the previous frame. Used to animate inertia and bounce; zero when unknown.
+    /// Seconds since the previous frame. Used to animate scroll inertia; zero when unknown.
     pub dt: f32,
 }

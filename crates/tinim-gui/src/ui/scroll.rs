@@ -8,19 +8,10 @@ use super::response::{ScrollResponse, ScrollState};
 
 /// Velocity below which a fling stops, in logical points per second.
 const REST_SPEED: f32 = 10.0;
-/// Overscroll below which the scroll snaps back to the boundary, in logical points.
-const REST_DISTANCE: f32 = 0.25;
 /// Largest velocity derived from one frame of dragging. Keeps a short, fast flick reasonable.
 const MAX_SCROLL_SPEED: f32 = 4000.0;
 /// Inertia friction. Larger values stop a fling sooner.
 const SCROLL_FRICTION: f32 = 4.0;
-/// Fraction of a drag that still moves the content once it is past a boundary.
-const OVERSCROLL_RESISTANCE: f32 = 0.35;
-/// Spring stiffness and damping used to return from overscroll.
-const OVERSCROLL_STIFFNESS: f32 = 180.0;
-const OVERSCROLL_DAMPING: f32 = 22.0;
-/// Physics substep, so a long frame cannot make the spring unstable.
-const MAX_PHYSICS_STEP: f32 = 1.0 / 120.0;
 
 impl Ui<'_> {
     /// Builds scrollable content in an in-flow viewport of a fixed `size`.
@@ -33,15 +24,16 @@ impl Ui<'_> {
     /// measured during layout and stored back in `state`; the offset is clamped again afterwards
     /// to handle content that changed size.
     ///
-    /// Inertia and edge bounce are integrated before layout, using the frame time in
+    /// Inertia is integrated before layout, using the frame time in
     /// [`RawInput::dt`](crate::RawInput::dt). While a touch drag owns the scroll area, the finger
     /// controls the position instead; releasing it turns the last drag velocity into a fling.
+    /// Both dragging and flinging stop at the content bounds.
     ///
     /// Wheel and drag input is applied after the content is built, so nested scrollables can take
     /// priority. The innermost scrollable under the pointer scrolls first and keeps as much of
-    /// the delta as it can use. For the wheel, any remainder is left for an enclosing scrollable.
-    /// A touch drag instead rubber-bands at its bounds. Since input is applied after layout, its
-    /// visual effect appears on the next frame.
+    /// the delta as it can use. The wheel passes any remainder to an enclosing scrollable; a drag
+    /// stops at its bounds. Since input is applied after layout, its visual effect appears on the
+    /// next frame.
     pub fn scrollable<R>(
         &mut self,
         size: Vec2,
@@ -70,7 +62,7 @@ impl Ui<'_> {
 
         // Inner scrollables get input first; whatever they cannot use stays in `scroll_remaining`
         // for an enclosing scrollable.
-        let (result, pane) = self.pane(size, -(state.offset + state.overscroll), build);
+        let (result, pane) = self.pane(size, -state.offset, build);
         let max_offset = (pane.content_size - size).max(Vec2::ZERO);
         state.content_size = Some(pane.content_size);
 
@@ -84,9 +76,13 @@ impl Ui<'_> {
             let delta = Vec2::new(self.scroll_remaining.x, -self.scroll_remaining.y);
             if self.ctx.input.scroll_dragging {
                 state.dragging = true;
+                let before = state.offset;
                 let remaining = drag_scroll(state, delta, max_offset);
                 if dt > 0.0 {
-                    state.velocity = (delta / dt).clamp_length_max(MAX_SCROLL_SPEED);
+                    // Base the fling on the movement that actually happened, so pushing against a
+                    // boundary does not build up velocity.
+                    let applied = state.offset - before;
+                    state.velocity = (applied / dt).clamp_length_max(MAX_SCROLL_SPEED);
                 }
                 self.scroll_remaining = Vec2::new(remaining.x, -remaining.y);
             } else {
@@ -124,9 +120,6 @@ fn sanitize_state(state: &mut ScrollState) {
     if !state.offset.is_finite() {
         state.offset = Vec2::ZERO;
     }
-    if !state.overscroll.is_finite() {
-        state.overscroll = Vec2::ZERO;
-    }
     if !state.velocity.is_finite() {
         state.velocity = Vec2::ZERO;
     }
@@ -141,79 +134,38 @@ fn sanitize_dt(dt: f32) -> f32 {
     }
 }
 
-/// Applies a touch drag, rubber-banding past the content bounds. Returns the delta that should be
-/// offered to an enclosing scrollable: only axes whose content cannot scroll at all.
+/// Applies a touch drag, stopping at the content bounds. Returns the delta that should be offered
+/// to an enclosing scrollable: only axes whose content cannot scroll at all.
 fn drag_scroll(state: &mut ScrollState, delta: Vec2, max_offset: Vec2) -> Vec2 {
-    let position = state.offset + state.overscroll;
-    let next = Vec2::new(
-        if max_offset.x > 0.0 {
-            drag_axis(position.x, delta.x, max_offset.x)
-        } else {
-            position.x
-        },
-        if max_offset.y > 0.0 {
-            drag_axis(position.y, delta.y, max_offset.y)
-        } else {
-            position.y
-        },
-    );
-    let remaining = Vec2::new(
+    let desired = state.offset + delta;
+    state.offset = desired.clamp(Vec2::ZERO, max_offset);
+    Vec2::new(
         if max_offset.x > 0.0 { 0.0 } else { delta.x },
         if max_offset.y > 0.0 { 0.0 } else { delta.y },
-    );
-
-    state.offset = next.clamp(Vec2::ZERO, max_offset);
-    state.overscroll = next - state.offset;
-    remaining
-}
-
-fn drag_axis(position: f32, delta: f32, max: f32) -> f32 {
-    let excess = position - position.clamp(0.0, max);
-    let target = position + delta;
-    let target_bound = target.clamp(0.0, max);
-    let target_excess = target - target_bound;
-
-    if excess == 0.0 {
-        // Free movement inside the content, damped movement past the boundary.
-        target_bound + target_excess * OVERSCROLL_RESISTANCE
-    } else if target_excess != 0.0 && (target_excess > excess) == (excess > 0.0) {
-        // Pulling further past the same boundary.
-        position + delta * OVERSCROLL_RESISTANCE
-    } else {
-        // Returning towards the content, or crossing back inside.
-        target
-    }
+    )
 }
 
 fn animate_scroll(state: &mut ScrollState, dt: f32, max_offset: Vec2) {
-    if dt <= 0.0 || (state.velocity == Vec2::ZERO && state.overscroll == Vec2::ZERO) {
+    if dt <= 0.0 || state.velocity == Vec2::ZERO {
         return;
     }
 
-    let steps = (dt / MAX_PHYSICS_STEP).ceil() as u32;
-    let step = dt / steps.max(1) as f32;
-
-    for _ in 0..steps.max(1) {
-        let position = state.offset + state.overscroll;
-        let excess = position - position.clamp(Vec2::ZERO, max_offset);
-
-        if excess == Vec2::ZERO {
-            state.velocity *= (-SCROLL_FRICTION * step).exp();
-        } else {
-            state.velocity -= excess * (OVERSCROLL_STIFFNESS * step);
-            state.velocity *= (-OVERSCROLL_DAMPING * step).exp();
-        }
-
-        let position = position + state.velocity * step;
-        state.offset = position.clamp(Vec2::ZERO, max_offset);
-        state.overscroll = position - state.offset;
-    }
-
-    if state.overscroll.length() < REST_DISTANCE && state.velocity.length() < REST_SPEED {
-        state.offset = state.offset.clamp(Vec2::ZERO, max_offset);
-        state.overscroll = Vec2::ZERO;
+    state.velocity *= (-SCROLL_FRICTION * dt).exp();
+    if state.velocity.length() < REST_SPEED {
         state.velocity = Vec2::ZERO;
+        return;
     }
+
+    let next = state.offset + state.velocity * dt;
+    let clamped = next.clamp(Vec2::ZERO, max_offset);
+    // Stop dead at the bounds instead of overshooting.
+    if clamped.x != next.x {
+        state.velocity.x = 0.0;
+    }
+    if clamped.y != next.y {
+        state.velocity.y = 0.0;
+    }
+    state.offset = clamped;
 }
 
 #[cfg(test)]
@@ -612,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn dragging_past_the_end_rubber_bands() {
+    fn dragging_past_the_end_stops_at_the_boundary() {
         let mut state = ScrollState {
             offset: vec2(0.0, 200.0),
             ..Default::default()
@@ -621,23 +573,19 @@ mod tests {
 
         assert_eq!(remaining, Vec2::ZERO);
         assert_eq!(state.offset, vec2(0.0, 200.0));
-        assert!(state.overscroll.y > 0.0 && state.overscroll.y < 50.0);
     }
 
     #[test]
-    fn overscroll_springs_back_to_the_boundary() {
+    fn a_fling_stops_at_the_boundary() {
         let mut state = ScrollState {
-            offset: vec2(0.0, 200.0),
-            overscroll: vec2(0.0, 30.0),
+            offset: vec2(0.0, 190.0),
+            velocity: vec2(0.0, 1200.0),
             ..Default::default()
         };
 
-        for _ in 0..240 {
-            animate_scroll(&mut state, 1.0 / 60.0, vec2(0.0, 200.0));
-        }
+        animate_scroll(&mut state, 1.0 / 60.0, vec2(0.0, 200.0));
 
         assert_eq!(state.offset, vec2(0.0, 200.0));
-        assert_eq!(state.overscroll, Vec2::ZERO);
         assert_eq!(state.velocity, Vec2::ZERO);
     }
 }
