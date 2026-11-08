@@ -18,7 +18,9 @@ impl ScrollPage {
         );
 
         let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
-            ui.label("Wheel over this area to scroll; the inner area scrolls independently.");
+            ui.label(
+                "Wheel or drag over this area to scroll; the inner area scrolls independently.",
+            );
             for index in 0..6 {
                 if ui.button(&format!("Scroll item {index}")).pressed {
                     self.action = Some(format!("pressed \"Scroll item {index}\""));
