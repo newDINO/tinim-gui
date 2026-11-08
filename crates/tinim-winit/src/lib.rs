@@ -4,7 +4,7 @@
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
 
 use tinim_gui::{Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 
 /// One wheel line is translated to this many logical points.
 const LINE_HEIGHT: f32 = 50.0;
@@ -20,6 +20,9 @@ pub struct WinitInput {
     scroll: Vec2,
     modifiers: Modifiers,
     text: String,
+    /// The touch currently driving the primary pointer, if any. The GUI has a single pointer,
+    /// so extra fingers are ignored until this one is released.
+    active_touch: Option<u64>,
 }
 
 impl Default for WinitInput {
@@ -40,6 +43,7 @@ impl WinitInput {
             scroll: Vec2::ZERO,
             modifiers: Modifiers::default(),
             text: String::new(),
+            active_touch: None,
         }
     }
 
@@ -101,10 +105,12 @@ impl WinitInput {
                     self.text.push_str(text);
                 }
             }
+            WindowEvent::Touch(touch) => self.on_touch(touch),
             WindowEvent::Focused(false) => {
                 self.primary_down = false;
                 self.primary_pressed = false;
                 self.primary_released = false;
+                self.active_touch = None;
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale_factor = sanitize_scale(*scale_factor as f32);
@@ -112,6 +118,49 @@ impl WinitInput {
                 self.pointer = None;
             }
             _ => {}
+        }
+    }
+
+    /// Translates a touch into the primary pointer. The first finger becomes the pointer; other
+    /// fingers are ignored until it is released, because [`RawInput`] only has one pointer.
+    fn on_touch(&mut self, touch: &winit::event::Touch) {
+        let position = pos2(
+            touch.location.x as f32 / self.scale_factor,
+            touch.location.y as f32 / self.scale_factor,
+        );
+
+        match touch.phase {
+            TouchPhase::Started => {
+                if self.active_touch.is_none() && !self.primary_down {
+                    self.active_touch = Some(touch.id);
+                    self.pointer = Some(position);
+                    self.primary_pressed = true;
+                    self.primary_down = true;
+                }
+            }
+            TouchPhase::Moved => {
+                if self.active_touch == Some(touch.id) {
+                    self.pointer = Some(position);
+                }
+            }
+            TouchPhase::Ended => {
+                if self.active_touch == Some(touch.id) {
+                    self.active_touch = None;
+                    self.pointer = Some(position);
+                    self.primary_down = false;
+                    self.primary_released = true;
+                }
+            }
+            TouchPhase::Cancelled => {
+                if self.active_touch == Some(touch.id) {
+                    self.active_touch = None;
+                    // A cancelled touch must not look like a click.
+                    self.pointer = None;
+                    self.primary_down = false;
+                    self.primary_pressed = false;
+                    self.primary_released = false;
+                }
+            }
         }
     }
 
@@ -139,3 +188,93 @@ fn sanitize_scale(scale: f32) -> f32 {
 }
 
 pub use winit;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use winit::dpi::PhysicalPosition;
+    use winit::event::{DeviceId, Touch};
+
+    fn touch(id: u64, phase: TouchPhase, x: f64, y: f64) -> WindowEvent {
+        WindowEvent::Touch(Touch {
+            device_id: DeviceId::dummy(),
+            phase,
+            location: PhysicalPosition::new(x, y),
+            force: None,
+            id,
+        })
+    }
+
+    #[test]
+    fn touch_becomes_the_primary_pointer() {
+        let mut input = WinitInput::new(2.0);
+
+        input.on_window_event(&touch(7, TouchPhase::Started, 100.0, 50.0));
+        let frame = input.take();
+        assert_eq!(frame.pointer, Some(pos2(50.0, 25.0)));
+        assert!(frame.primary_down);
+        assert!(frame.primary_pressed);
+        assert!(!frame.primary_released);
+
+        input.on_window_event(&touch(7, TouchPhase::Moved, 120.0, 90.0));
+        let frame = input.take();
+        assert_eq!(frame.pointer, Some(pos2(60.0, 45.0)));
+        assert!(frame.primary_down);
+        assert!(!frame.primary_pressed);
+        assert!(!frame.primary_released);
+
+        input.on_window_event(&touch(7, TouchPhase::Ended, 120.0, 90.0));
+        let frame = input.take();
+        assert_eq!(frame.pointer, Some(pos2(60.0, 45.0)));
+        assert!(!frame.primary_down);
+        assert!(!frame.primary_pressed);
+        assert!(frame.primary_released);
+    }
+
+    #[test]
+    fn extra_fingers_are_ignored() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&touch(1, TouchPhase::Started, 10.0, 10.0));
+        input.on_window_event(&touch(2, TouchPhase::Started, 90.0, 90.0));
+        input.on_window_event(&touch(2, TouchPhase::Ended, 90.0, 90.0));
+        let frame = input.take();
+        assert_eq!(frame.pointer, Some(pos2(10.0, 10.0)));
+        assert!(frame.primary_down);
+        assert!(frame.primary_pressed);
+        assert!(!frame.primary_released);
+
+        input.on_window_event(&touch(1, TouchPhase::Ended, 10.0, 10.0));
+        let frame = input.take();
+        assert!(!frame.primary_down);
+        assert!(frame.primary_released);
+    }
+
+    #[test]
+    fn cancelled_touch_does_not_click() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&touch(1, TouchPhase::Started, 10.0, 10.0));
+        input.on_window_event(&touch(1, TouchPhase::Cancelled, 10.0, 10.0));
+        let frame = input.take();
+        assert_eq!(frame.pointer, None);
+        assert!(!frame.primary_down);
+        assert!(!frame.primary_pressed);
+        assert!(!frame.primary_released);
+    }
+
+    #[test]
+    fn touch_does_not_disturb_a_held_mouse_button() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&WindowEvent::MouseInput {
+            device_id: DeviceId::dummy(),
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+        });
+        input.on_window_event(&touch(1, TouchPhase::Started, 10.0, 10.0));
+        input.on_window_event(&touch(1, TouchPhase::Ended, 10.0, 10.0));
+        let frame = input.take();
+        assert!(frame.primary_down);
+        assert!(frame.primary_pressed);
+        assert!(!frame.primary_released);
+        assert_eq!(frame.pointer, None);
+    }
+}
