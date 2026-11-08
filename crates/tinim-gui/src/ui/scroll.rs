@@ -31,8 +31,8 @@ impl Ui<'_> {
     ///
     /// Wheel and drag input is applied after the content is built, so nested scrollables can take
     /// priority. The innermost scrollable under the pointer scrolls first and keeps as much of
-    /// the delta as it can use. The wheel passes any remainder to an enclosing scrollable; a drag
-    /// stops at its bounds. Since input is applied after layout, its visual effect appears on the
+    /// the delta as it can use. Any remainder, from the wheel or a touch drag, is offered to an
+    /// enclosing scrollable. Since input is applied after layout, its visual effect appears on the
     /// next frame.
     pub fn scrollable<R>(
         &mut self,
@@ -136,15 +136,12 @@ fn sanitize_dt(dt: f32) -> f32 {
     }
 }
 
-/// Applies a touch drag, stopping at the content bounds. Returns the delta that should be offered
-/// to an enclosing scrollable: only axes whose content cannot scroll at all.
+/// Applies a touch drag, stopping at the content bounds. Returns the part of `delta` that the
+/// bounds did not allow, which should be offered to an enclosing scrollable.
 fn drag_scroll(state: &mut ScrollState, delta: Vec2, max_offset: Vec2) -> Vec2 {
     let desired = state.offset + delta;
     state.offset = desired.clamp(Vec2::ZERO, max_offset);
-    Vec2::new(
-        if max_offset.x > 0.0 { 0.0 } else { delta.x },
-        if max_offset.y > 0.0 { 0.0 } else { delta.y },
-    )
+    desired - state.offset
 }
 
 fn animate_scroll(state: &mut ScrollState, dt: f32, max_offset: Vec2) {
@@ -422,6 +419,93 @@ mod tests {
     }
 
     #[test]
+    fn nested_scrollables_let_the_inner_one_consume_the_drag_first() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState::default();
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            primary_down: true,
+            scroll: vec2(0.0, -20.0),
+            scroll_dragging: true,
+            dt: 1.0 / 60.0,
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 200.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        assert_eq!(outer.offset, Vec2::ZERO);
+        assert_eq!(inner.offset, vec2(0.0, 20.0));
+    }
+
+    #[test]
+    fn inner_scrollable_passes_unused_drag_delta_to_the_enclosing_one() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState {
+            offset: vec2(0.0, 140.0),
+            content_size: Some(vec2(10.0, 200.0)),
+            ..Default::default()
+        };
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            primary_down: true,
+            scroll: vec2(0.0, -20.0),
+            scroll_dragging: true,
+            dt: 1.0 / 60.0,
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 200.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        // The inner scrollable reaches its 150 boundary and passes the remaining 10 to the outer
+        // scrollable, just like the wheel.
+        assert_eq!(inner.offset, vec2(0.0, 150.0));
+        assert_eq!(outer.offset, vec2(0.0, 10.0));
+    }
+
+    #[test]
+    fn enclosing_scrollable_consumes_the_drag_when_inner_content_fits() {
+        let mut context = context();
+        let mut outer = ScrollState::default();
+        let mut inner = ScrollState::default();
+        let input = RawInput {
+            pointer: Some(pos2(5.0, 5.0)),
+            primary_down: true,
+            scroll: vec2(0.0, -20.0),
+            scroll_dragging: true,
+            dt: 1.0 / 60.0,
+            ..Default::default()
+        };
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            ui.scrollable(vec2(100.0, 100.0), &mut outer, |ui| {
+                ui.scrollable(vec2(50.0, 50.0), &mut inner, |ui| {
+                    ui.allocate_space(vec2(10.0, 10.0));
+                });
+                ui.allocate_space(vec2(10.0, 200.0));
+            });
+        });
+
+        assert_eq!(inner.offset, Vec2::ZERO);
+        assert_eq!(outer.offset, vec2(0.0, 20.0));
+    }
+
+    #[test]
     fn shrinking_inner_content_does_not_forward_stale_offset_as_wheel_delta() {
         let mut context = context();
         let mut outer = ScrollState::default();
@@ -613,14 +697,14 @@ mod tests {
     }
 
     #[test]
-    fn dragging_past_the_end_stops_at_the_boundary() {
+    fn dragging_past_the_end_offers_the_excess_to_the_enclosing_scrollable() {
         let mut state = ScrollState {
             offset: vec2(0.0, 200.0),
             ..Default::default()
         };
         let remaining = drag_scroll(&mut state, vec2(0.0, 50.0), vec2(0.0, 200.0));
 
-        assert_eq!(remaining, Vec2::ZERO);
+        assert_eq!(remaining, vec2(0.0, 50.0));
         assert_eq!(state.offset, vec2(0.0, 200.0));
     }
 
