@@ -6,7 +6,7 @@
 use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1, VAZIRMATN_VAR};
 use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
-use tinim_paint::{Color32, MeshSpace, TextureId, pos2};
+use tinim_paint::{Color32, MeshSpace, Rect, TextureId, pos2, vec2};
 use tinim_text::{TextDirection, TextStyle, TextSystem};
 
 fn style(size: f32) -> TextStyle {
@@ -526,6 +526,24 @@ fn reset_re_reserves_the_white_texel() {
         x >= 2 || y >= 2,
         "glyph at ({x}, {y}) overlaps the white texel"
     );
+}
+
+#[test]
+fn atlas_mesh_draws_the_whole_texture() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.ensure_atlas_texture();
+
+    let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(100.0, 50.0));
+    let mesh = system.atlas_mesh(rect, Color32::WHITE);
+
+    assert_eq!(mesh.texture_id, TextureId(1));
+    assert_eq!(mesh.space, MeshSpace::Logical);
+    assert_eq!(mesh.vertices.len(), 4);
+    assert_eq!(mesh.vertices[0].pos, [10.0, 20.0]);
+    assert_eq!(mesh.vertices[0].uv, [0, 0]);
+    assert_eq!(mesh.vertices[2].pos, [110.0, 70.0]);
+    assert_eq!(mesh.vertices[2].uv, [65535, 65535]);
+    assert_eq!(system.atlas_size(), [512, 512]);
 }
 
 #[test]

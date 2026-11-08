@@ -102,6 +102,11 @@ impl Atlas {
         self.texture_id
     }
 
+    /// The current atlas size, in pixels.
+    pub(crate) fn size(&self) -> [u32; 2] {
+        [self.packer.width(), self.packer.height()]
+    }
+
     /// Ensures the texture is created on the next [`Atlas::take_textures`], even if no glyph has
     /// been rasterized.
     pub(crate) fn ensure_texture(&mut self) {
@@ -226,7 +231,7 @@ impl Atlas {
     /// Returns this frame's uploads and clears the pending state.
     pub(crate) fn take_textures(&mut self) -> TexturesDelta {
         let mut delta = TexturesDelta::default();
-        let size = [self.packer.width(), self.packer.height()];
+        let size = self.size();
 
         // Allocate the texture on first use, or replace it after the atlas grew. A system that
         // never produced a glyph does not allocate anything unless `ensure_texture` was called.

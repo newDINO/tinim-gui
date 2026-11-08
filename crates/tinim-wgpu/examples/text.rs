@@ -21,8 +21,12 @@ use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
 const WIDTH: u32 = 640;
-const HEIGHT: u32 = 360;
+const HEIGHT: u32 = 800;
 const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Size and top edge of the atlas debug preview, in points.
+const ATLAS_PREVIEW: f32 = 384.0;
+const ATLAS_PREVIEW_TOP: f32 = 380.0;
 
 const BACKGROUND: Color32 = Color32::from_rgb(24, 26, 32);
 const FOREGROUND: Color32 = Color32::from_rgb(235, 238, 245);
@@ -211,12 +215,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     timed("prepare rtl", || {
         painter.add_mesh(text.prepare(&rtl, pos2(60.0, 280.0), ACCENT, 1.0))
     });
+
+    // Draw the whole atlas as a debug preview. It uses the same texture as the solid background,
+    // so it stays in the same draw call.
+    let atlas_size = text.atlas_size();
+    let preview = tinim_paint::Rect::from_min_size(
+        pos2((WIDTH as f32 - ATLAS_PREVIEW) * 0.5, ATLAS_PREVIEW_TOP),
+        tinim_paint::vec2(ATLAS_PREVIEW, ATLAS_PREVIEW),
+    );
+    painter.rect(preview.expand(2.0), Color32::from_rgb(70, 76, 92));
+    painter.rect(preview, Color32::from_rgb(16, 18, 24));
+    painter.add_mesh(text.atlas_mesh(preview, Color32::WHITE));
+
     let list = timed("finish painter", || painter.finish());
     println!(
-        "{} lines, {} draws, {} vertices",
+        "{} lines, {} draws, {} vertices, {}×{} atlas",
         title.line_count() + body.line_count() + cjk.line_count() + rtl.line_count(),
         list.draws.len(),
-        list.vertices.len()
+        list.vertices.len(),
+        atlas_size[0],
+        atlas_size[1],
     );
 
     let textures = timed("take textures", || text.take_textures());
@@ -304,6 +322,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     assert!(
         emoji_chroma > 40,
         "fallback emoji did not render in color: {emoji_chroma} px"
+    );
+
+    // The atlas preview below the text must contain actual glyph pixels.
+    let preview_x = ((WIDTH as f32 - ATLAS_PREVIEW) * 0.5) as u32;
+    let preview_y = ATLAS_PREVIEW_TOP as u32;
+    let atlas_light = timed("count atlas pixels", || {
+        count_pixels(
+            &rgba,
+            preview_x,
+            preview_y,
+            preview_x + ATLAS_PREVIEW as u32,
+            preview_y + ATLAS_PREVIEW as u32,
+            |[r, g, b, _]| r > 180 && g > 180 && b > 180,
+        )
+    });
+    assert!(
+        atlas_light > 100,
+        "atlas preview is missing: {atlas_light} px"
     );
 
     timed("write png", || write_png(&rgba))?;

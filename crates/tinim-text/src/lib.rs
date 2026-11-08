@@ -439,6 +439,28 @@ impl TextSystem {
         self.atlas.texture_id()
     }
 
+    /// The current size of the glyph atlas, in pixels.
+    pub fn atlas_size(&self) -> [u32; 2] {
+        self.atlas.size()
+    }
+
+    /// Builds a mesh that draws the whole glyph atlas into `rect`.
+    ///
+    /// `rect` is in logical points and the returned mesh is a logical-space mesh, so
+    /// [`tinim_paint::Painter::add_mesh`] scales it by `pixels_per_point`. This is mainly useful
+    /// for inspecting atlas packing and the reserved white texel. Upload the atlas with
+    /// [`TextSystem::take_textures`] before drawing the mesh; if no glyph has been rasterized
+    /// yet, call [`TextSystem::ensure_atlas_texture`] first.
+    pub fn atlas_mesh(&self, rect: Rect, color: Color32) -> Mesh {
+        let mut mesh = Mesh::with_texture(self.atlas.texture_id());
+        mesh.add_rect_with_uv(
+            rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            color,
+        );
+        mesh
+    }
+
     /// Ensures the atlas texture is allocated on the next [`TextSystem::take_textures`], even if
     /// no glyph has been rasterized yet.
     ///
