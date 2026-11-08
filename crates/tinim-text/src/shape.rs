@@ -55,6 +55,14 @@ pub(crate) fn shape_line(
         );
     }
 
+    // Letter spacing goes between glyphs, not after the last one. The loop above adds it to
+    // every glyph, so remove the trailing instance from the final advance and the line width.
+    if let Some(last) = glyphs.last_mut() {
+        let spacing = style.letter_spacing();
+        last.advance -= spacing;
+        pen_x -= spacing;
+    }
+
     (glyphs, pen_x)
 }
 

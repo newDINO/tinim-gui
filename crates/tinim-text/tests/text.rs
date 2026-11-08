@@ -230,6 +230,28 @@ fn wrapping_uses_line_breaks() {
 }
 
 #[test]
+fn letter_spacing_is_not_added_after_the_last_glyph() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    // AHEM advances one em per glyph. With 1pt spacing, "aaa" is 3 * 16 + 2 * 1 = 50 points.
+    let mut spaced = style(16.0);
+    spaced.letter_spacing = 1.0;
+    let layout = system.layout("aaa", &spaced, None);
+    assert_eq!(layout.line_count(), 1);
+    assert!((layout.width() - 50.0).abs() < 0.01, "{}", layout.width());
+    assert!((layout.lines()[0].width() - 50.0).abs() < 0.01);
+
+    // The trailing spacing must not push the text onto a second line.
+    let wrapped = system.layout("aaa", &spaced, Some(50.0));
+    assert_eq!(
+        wrapped.line_count(),
+        1,
+        "trailing spacing must not cause a wrap"
+    );
+}
+
+#[test]
 fn explicit_newlines_create_empty_lines() {
     let mut system = TextSystem::new(TextureId(1));
     system.add_font(AHEM.to_vec()).unwrap();
