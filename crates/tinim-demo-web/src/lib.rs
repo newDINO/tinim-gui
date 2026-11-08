@@ -2,8 +2,8 @@
 
 //! WebAssembly entry point for the `tinim-gui` demo.
 //!
-//! Build with `wasm-pack build --target web`; `index.html` in this crate loads the generated
-//! `pkg/tinim_demo_web.js`.
+//! `index.html` provides the full-page `#tinim-canvas` element that winit renders into. Build
+//! with `wasm-pack build --target web`; the page loads the generated `pkg/tinim_demo_web.js`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -15,7 +15,7 @@ use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, winit};
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
@@ -49,22 +49,14 @@ struct AppInner {
 
 impl AppInner {
     async fn new(window: Arc<Window>) -> Result<Self, String> {
-        let size = {
-            let mut size = window.inner_size();
-            // Currently this is a hack, because root cause of width and height equals 0 is not found.
-            if size.width == 0 {
-                size.width = 128;
-            }
-            if size.height == 0 {
-                size.height = 128;
-            }
-            size
-        };
-
-        let instance = wgpu::Instance::default();
         let canvas = window
             .canvas()
             .ok_or_else(|| "the winit window has no canvas".to_owned())?;
+        // `Window::inner_size` is populated by winit's `ResizeObserver`, which may not have run
+        // yet. Measuring the canvas CSS box directly gives the correct size immediately.
+        let size = canvas_physical_size(&canvas);
+
+        let instance = wgpu::Instance::default();
         let surface = instance
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
             .map_err(|error| format!("failed to create the browser surface: {error}"))?;
@@ -139,6 +131,13 @@ impl AppInner {
         let physical_size = self.window.inner_size();
         if physical_size.width == 0 || physical_size.height == 0 {
             return;
+        }
+        // A resize can happen while `AppInner` is still being initialized, in which case the
+        // `Resized` event was ignored. Reconcile here so the surface always matches the canvas.
+        if physical_size.width != self.surface_config.width
+            || physical_size.height != self.surface_config.height
+        {
+            self.resize(physical_size.width, physical_size.height);
         }
 
         let mut encoder = self
@@ -215,10 +214,14 @@ impl ApplicationHandler for App {
             return;
         }
 
+        let Some(canvas) = canvas_element() else {
+            log_error("failed to find the #tinim-canvas element");
+            return;
+        };
+        // The canvas is laid out by CSS to fill the page, so winit must not manage its size.
         let attributes = Window::default_attributes()
             .with_title("tinim-gui web demo")
-            .with_inner_size(LogicalSize::new(960.0, 720.0))
-            .with_append(true);
+            .with_canvas(Some(canvas));
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(error) => {
@@ -263,6 +266,24 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
+}
+
+fn canvas_element() -> Option<web_sys::HtmlCanvasElement> {
+    web_sys::window()?
+        .document()?
+        .get_element_by_id("tinim-canvas")?
+        .dyn_into()
+        .ok()
+}
+
+/// The size of the canvas CSS box in physical pixels.
+fn canvas_physical_size(canvas: &web_sys::HtmlCanvasElement) -> PhysicalSize<u32> {
+    let scale = web_sys::window()
+        .map(|window| window.device_pixel_ratio())
+        .unwrap_or(1.0);
+    let width = (canvas.client_width() as f64 * scale).round().max(1.0);
+    let height = (canvas.client_height() as f64 * scale).round().max(1.0);
+    PhysicalSize::new(width as u32, height as u32)
 }
 
 fn log_error(message: &str) {
