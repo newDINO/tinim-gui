@@ -37,10 +37,14 @@ pub struct Demo {
     scroll_page: ScrollPage,
     style_page: StylePage,
 
-    /// Time spent building the previous frame's UI.
-    ui_dt: Duration,
-    /// Start of the previous frame, used to measure the frame interval.
-    last_run: Instant,
+    max_accum_secs: f64,
+    last_accum_time: Instant,
+
+    frames_since_last: u32,
+    average_fps: f64,
+
+    accum_ui_dt: Duration,
+    average_ui_dt: f64,
 }
 
 impl Default for Demo {
@@ -59,6 +63,8 @@ impl Demo {
             .expect("the embedded Comic Mono font must be valid");
         context.style_mut().font.color = DEFAULT_TEXT;
 
+        let now = Instant::now();
+
         Self {
             context,
             page: DemoPage::Widgets,
@@ -69,22 +75,26 @@ impl Demo {
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
 
-            ui_dt: Duration::ZERO,
-            last_run: Instant::now(),
+            max_accum_secs: 0.5,
+            last_accum_time: now,
+
+            frames_since_last: 0,
+            average_fps: 0.0,
+
+            accum_ui_dt: Duration::ZERO,
+            average_ui_dt: 0.0,
         }
     }
 
     /// Builds one frame and returns its paint data.
     pub fn run(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) -> Frame<'_> {
-        let start = web_time::Instant::now();
-        let frame_dt = start.duration_since(self.last_run);
-        self.last_run = start;
+        let start_time = web_time::Instant::now();
 
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.label("tinim-gui demo");
-            let ui_time = format!("{:.2} ms", self.ui_dt.as_secs_f64() * 1e3);
-            let frame_secs = frame_dt.as_secs_f64();
-            let frame_time = format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, 1.0 / frame_secs);
+            let ui_time = format!("{:.2} ms", self.average_ui_dt * 1e3);
+            let frame_secs = 1.0 / self.average_fps;
+            let frame_time = format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, self.average_fps);
             ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
             ui.horizontal(|ui| {
@@ -105,7 +115,25 @@ impl Demo {
             }
         });
 
-        self.ui_dt = start.elapsed();
+        let ui_dt = start_time.elapsed();
+        self.accum_ui_dt += ui_dt;
+
+        self.frames_since_last += 1;
+
+        let secs_since_last = start_time
+            .saturating_duration_since(self.last_accum_time)
+            .as_secs_f64();
+        if secs_since_last > self.max_accum_secs {
+            let n_frames = self.frames_since_last as f64;
+            let fps = n_frames / secs_since_last;
+            self.average_fps = fps;
+
+            self.average_ui_dt = self.accum_ui_dt.as_secs_f64() / n_frames;
+
+            self.accum_ui_dt = Duration::ZERO;
+            self.frames_since_last = 0;
+            self.last_accum_time = start_time;
+        }
 
         frame
     }
