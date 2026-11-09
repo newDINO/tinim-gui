@@ -4,7 +4,8 @@
 //! width), not by a widget id. Paint-only inputs such as color are excluded, so identical text
 //! can share one layout across different places and colors.
 
-use tinim_text::{LayoutKey, TextLayout, TextStyle, TextSystem};
+use tinim_paint_text::TextSystem;
+use tinim_text::{LayoutKey, TextLayout, TextStyle};
 
 use crate::hash::HashMap;
 
@@ -126,7 +127,7 @@ impl TextCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tinim_paint::{Color32, TextureId};
+    use tinim_paint::TextureId;
     use tinim_text::TextStyle;
 
     fn cache_with_font(capacity: usize) -> (TextCache, TextSystem) {
@@ -165,22 +166,6 @@ mod tests {
         let _ = cache.layout(&text, "two", &style, None);
         assert_eq!(cache.len, 1);
         assert_eq!(cache.entries.len(), 1);
-    }
-
-    #[test]
-    fn color_only_change_reuses_the_layout() {
-        let (mut cache, text) = cache_with_font(8);
-        let mut style = TextStyle {
-            color: Color32::BLACK,
-            ..Default::default()
-        };
-        let a = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
-
-        style.color = Color32::WHITE;
-        let b = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
-
-        assert_eq!(a, b);
-        assert_eq!(cache.len, 1);
     }
 
     #[test]

@@ -21,7 +21,7 @@ struct AppInner {
     painter: tinim_paint::Painter,
     d2_renderer: tinim_wgpu::Renderer,
 
-    text_system: tinim_text::TextSystem,
+    text_system: tinim_paint_text::TextSystem,
 }
 
 impl AppInner {
@@ -67,7 +67,7 @@ impl AppInner {
 
         let mut painter = tinim_paint::Painter::new(size.width as f32, size.height as f32, 1.0);
         let d2_renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
-        let mut text_system = tinim_text::TextSystem::new(tinim_paint::TextureId(1));
+        let mut text_system = tinim_paint_text::TextSystem::new(tinim_paint::TextureId(1));
         text_system.load_system_fonts();
         text_system.ensure_atlas_texture();
         painter.set_solid_texture(text_system.atlas_texture_id());
@@ -118,10 +118,7 @@ impl AppInner {
 
             let layout = self.text_system.layout(
                 "Hello, world! 你好，世界！",
-                &tinim_text::TextStyle {
-                    color: Color32::WHITE,
-                    ..Default::default()
-                },
+                &tinim_text::TextStyle::default(),
                 None,
             );
             self.painter.add_mesh(self.text_system.prepare(

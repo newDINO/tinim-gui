@@ -14,6 +14,16 @@ use crate::error::FontError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FontId(pub(crate) u32);
 
+impl FontId {
+    /// Creates an id from an index in a [`FontStack`].
+    ///
+    /// Most callers get ids from [`crate::TextContext::add_font`] or [`FontStack::iter`]. This is
+    /// mainly useful for caches and tests that need a stable key without a font stack at hand.
+    pub const fn from_index(index: u32) -> Self {
+        Self(index)
+    }
+}
+
 /// The bytes behind a [`FontFace`].
 ///
 /// User-provided fonts are owned, while system fonts stay memory-mapped so that the OS can page
@@ -35,7 +45,7 @@ impl FontData {
     }
 }
 
-/// A parsed font face, kept alive for as long as the [`crate::TextSystem`] exists.
+/// A parsed font face, kept alive for as long as the [`crate::TextContext`] exists.
 ///
 /// The font is parsed again on every use. `FontRef` is a cheap view over the bytes (it only
 /// validates the table directory), so this avoids self-referential structs and any `unsafe`.

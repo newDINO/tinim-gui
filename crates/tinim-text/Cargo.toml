@@ -1,14 +1,13 @@
 [package]
 name = "tinim-text"
-description = "Text shaping, layout and glyph atlas for tinim-gui"
+description = "Text shaping, layout and glyph rasterization for tinim-gui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-tinim-paint.workspace = true
-rustc-hash = { workspace = true, optional = true }
+glam.workspace = true
 
 # Font parsing/scaling/color/bitmaps and OpenType shaping. The versions are pinned to the same
 # fontations generation so that only one copy of read-fonts/font-types is compiled.
@@ -31,8 +30,7 @@ png = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
 
 [features]
-default = ["fallback", "emoji-bitmap", "rustc-hash"]
-rustc-hash = ["dep:rustc-hash"]
+default = ["fallback", "emoji-bitmap"]
 fallback = []
 system-fonts = ["dep:memmap2"]
 emoji-bitmap = ["dep:png"]

@@ -1,0 +1,29 @@
+[package]
+name = "tinim-paint-text"
+description = "Glyph atlas and mesh generation for tinim-text on top of tinim-paint"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tinim-paint.workspace = true
+tinim-text = { workspace = true, default-features = false }
+rustc-hash = { workspace = true, optional = true }
+
+[features]
+default = ["rustc-hash", "fallback", "emoji-bitmap"]
+rustc-hash = ["dep:rustc-hash"]
+# Forward the text crate's features so this crate's defaults stay self-contained.
+fallback = ["tinim-text/fallback"]
+emoji-bitmap = ["tinim-text/emoji-bitmap"]
+system-fonts = ["tinim-text/system-fonts"]
+
+[dev-dependencies]
+criterion = "0.8"
+font-test-data = "0.10"
+skrifa = { version = "0.40", default-features = false, features = ["std"] }
+
+[[bench]]
+name = "text"
+harness = false

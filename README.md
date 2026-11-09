@@ -7,7 +7,8 @@ A tiny immediate-mode GUI.
 | crate | what it does |
 |---|---|
 | `tinim-paint` | math, colors, `Painter`, `PaintList`, tessellation |
-| `tinim-text` | shaping, bidi, line breaking and a glyph atlas (harfrust + skrifa) |
+| `tinim-text` | shaping, bidi, line breaking and glyph rasterization (harfrust + skrifa) |
+| `tinim-paint-text` | glyph atlas and mesh generation for `tinim-text` on top of `tinim-paint` |
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
 | `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, checkboxes, radios and press-only buttons |
 | `tinim-winit` | `WindowEvent` → `RawInput` input adapter |
@@ -15,8 +16,9 @@ A tiny immediate-mode GUI.
 | `tinim-demo-native` | native winit + wgpu demo binary |
 | `tinim-demo-web` | WebAssembly demo (WebGPU, with WebGL fallback) |
 
-`tinim-paint` knows nothing about wgpu. `tinim-wgpu` knows nothing about font shaping. Both facts
-are load-bearing.
+`tinim-paint` knows nothing about wgpu. `tinim-wgpu` knows nothing about font shaping.
+`tinim-text` knows nothing about textures, atlases or meshes; `tinim-paint-text` is the only
+crate that turns laid-out glyphs into paint data. All of these facts are load-bearing.
 
 ## Demos
 

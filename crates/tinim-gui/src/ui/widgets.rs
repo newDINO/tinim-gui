@@ -1,7 +1,8 @@
 //! Leaf widgets: text labels, buttons, checkboxes and radios.
 
 use tinim_paint::{CircleShape, Color32, Painter, Pos2, Rect, RectShape, Shape, Stroke, Vec2};
-use tinim_text::{TextLayout, TextSystem};
+use tinim_paint_text::TextSystem;
+use tinim_text::TextLayout;
 
 use super::Ui;
 use super::layout::{allocate_space, available_size, pointer_over};
@@ -11,6 +12,7 @@ impl Ui<'_> {
     /// Draws a non-interactive line of text. Returns the rectangle it occupied.
     pub fn label(&mut self, text: &str) -> Rect {
         let font = self.ctx.style().font.clone();
+        let text_color = self.ctx.style().text_color;
         let spacing = self.spacing();
         let max_width = Some(available_size(&self.layout, spacing).x);
         // Borrow only the fields involved. `layout` keeps `text_cache` borrowed, so everything
@@ -28,7 +30,7 @@ impl Ui<'_> {
             self.ctx.pixels_per_point,
             layout,
             rect.min,
-            font.color,
+            text_color,
         );
         rect
     }
@@ -187,8 +189,7 @@ impl Ui<'_> {
 
     fn draw_button(&mut self, text: &str, selected: bool) -> Response {
         let button = self.ctx.style().button.clone();
-        let mut font = self.ctx.style().font.clone();
-        font.color = button.text;
+        let font = self.ctx.style().font.clone();
         let spacing = self.spacing();
 
         let layout = self
@@ -227,10 +228,12 @@ impl Ui<'_> {
             ));
 
             let origin = rect.center() - text_size * 0.5;
-            let mesh =
-                self.ctx
-                    .text_system
-                    .prepare(layout, origin, font.color, self.ctx.pixels_per_point);
+            let mesh = self.ctx.text_system.prepare(
+                layout,
+                origin,
+                button.text,
+                self.ctx.pixels_per_point,
+            );
             self.ctx.painter.add_mesh(mesh);
         }
 

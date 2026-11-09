@@ -1,6 +1,6 @@
 [package]
 name = "tinim-gui"
-description = "Immediate-mode GUI on top of tinim-paint and tinim-text"
+description = "Immediate-mode GUI on top of tinim-paint, tinim-text and tinim-paint-text"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 tinim-paint.workspace = true
+tinim-paint-text.workspace = true
 tinim-text.workspace = true
 rustc-hash = { workspace = true, optional = true }
 

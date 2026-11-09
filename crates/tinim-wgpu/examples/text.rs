@@ -16,7 +16,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use tinim_paint::{Color32, Painter, TextureId, pos2};
-use tinim_text::{TextStyle, TextSystem};
+use tinim_paint_text::TextSystem;
+use tinim_text::TextStyle;
 use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
@@ -146,7 +147,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             "Hello, tinim! \u{1F600}",
             &TextStyle {
                 font_size: 36.0,
-                color: FOREGROUND,
                 ..Default::default()
             },
             Some((WIDTH - 80) as f32),
@@ -158,7 +158,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
              Everything is drawn into one RGBA8 texture.",
             &TextStyle {
                 font_size: 20.0,
-                color: MUTED,
                 line_height: Some(28.0),
                 ..Default::default()
             },
@@ -170,7 +169,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             CJK_TEXT,
             &TextStyle {
                 font_size: 22.0,
-                color: FOREGROUND,
                 line_height: Some(32.0),
                 ..Default::default()
             },
@@ -182,7 +180,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             RTL_TEXT,
             &TextStyle {
                 font_size: 24.0,
-                color: ACCENT,
                 line_height: Some(34.0),
                 ..Default::default()
             },

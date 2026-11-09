@@ -1,4 +1,4 @@
-//! Release-mode benchmark for text layout and cached glyph preparation.
+//! Release-mode benchmark for text layout.
 //!
 //! Run with:
 //!
@@ -12,14 +12,9 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use tinim_paint::{Color32, TextureId, pos2};
-use tinim_text::{TextStyle, TextSystem};
+use tinim_text::{TextContext, TextStyle};
 
 const WIDTH: u32 = 640;
-
-const BACKGROUND_ACCENT: Color32 = Color32::from_rgb(90, 170, 255);
-const FOREGROUND: Color32 = Color32::from_rgb(235, 238, 245);
-const MUTED: Color32 = Color32::from_rgb(140, 148, 165);
 
 #[cfg(feature = "system-fonts")]
 const PRIMARY_FONT_FILES: &[&str] = &[
@@ -53,7 +48,6 @@ fn samples() -> Vec<Sample> {
             text: "Hello, tinim! \u{1F600}",
             style: TextStyle {
                 font_size: 36.0,
-                color: FOREGROUND,
                 ..Default::default()
             },
             max_width: (WIDTH - 80) as f32,
@@ -64,7 +58,6 @@ fn samples() -> Vec<Sample> {
                    Everything is drawn into one RGBA8 texture.",
             style: TextStyle {
                 font_size: 20.0,
-                color: MUTED,
                 line_height: Some(28.0),
                 ..Default::default()
             },
@@ -75,7 +68,6 @@ fn samples() -> Vec<Sample> {
             text: CJK_TEXT,
             style: TextStyle {
                 font_size: 22.0,
-                color: FOREGROUND,
                 line_height: Some(32.0),
                 ..Default::default()
             },
@@ -86,7 +78,6 @@ fn samples() -> Vec<Sample> {
             text: RTL_TEXT,
             style: TextStyle {
                 font_size: 24.0,
-                color: BACKGROUND_ACCENT,
                 line_height: Some(34.0),
                 ..Default::default()
             },
@@ -95,8 +86,8 @@ fn samples() -> Vec<Sample> {
     ]
 }
 
-fn text_system() -> TextSystem {
-    let mut text = TextSystem::new(TextureId(1));
+fn text_context() -> TextContext {
+    let mut text = TextContext::new();
 
     #[cfg(feature = "system-fonts")]
     let loaded = {
@@ -118,7 +109,7 @@ fn text_system() -> TextSystem {
 }
 
 fn bench_layout(c: &mut Criterion) {
-    let text = text_system();
+    let text = text_context();
     let mut group = c.benchmark_group("text/layout");
     group.sample_size(50);
 
@@ -141,73 +132,5 @@ fn bench_layout(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_prepare_warm(c: &mut Criterion) {
-    let mut text = text_system();
-    let samples = samples();
-    let layouts: Vec<_> = samples
-        .iter()
-        .map(|sample| text.layout(sample.text, &sample.style, Some(sample.max_width)))
-        .collect();
-
-    // Rasterize every glyph once so the benchmark measures mesh building with cached atlas slots.
-    for (sample, layout) in samples.iter().zip(&layouts) {
-        black_box(text.prepare(layout, pos2(0.0, 0.0), sample.style.color, 1.0));
-    }
-    let _ = text.take_textures();
-
-    let mut group = c.benchmark_group("text/prepare_warm");
-    group.sample_size(50);
-    for (sample, layout) in samples.iter().zip(&layouts) {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(sample.name),
-            layout,
-            |b, layout| {
-                b.iter(|| {
-                    black_box(text.prepare(
-                        black_box(layout),
-                        pos2(0.0, 0.0),
-                        sample.style.color,
-                        1.0,
-                    ))
-                })
-            },
-        );
-    }
-    group.finish();
-}
-
-fn bench_layout_and_prepare_warm(c: &mut Criterion) {
-    let mut text = text_system();
-    let samples = samples();
-
-    // Warm the atlas with one layout of each sample before measuring the combined path.
-    for sample in &samples {
-        let layout = text.layout(sample.text, &sample.style, Some(sample.max_width));
-        black_box(text.prepare(&layout, pos2(0.0, 0.0), sample.style.color, 1.0));
-    }
-    let _ = text.take_textures();
-
-    let mut group = c.benchmark_group("text/layout+prepare_warm");
-    group.sample_size(50);
-    for sample in &samples {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(sample.name),
-            sample,
-            |b, sample| {
-                b.iter(|| {
-                    let layout = text.layout(sample.text, &sample.style, Some(sample.max_width));
-                    black_box(text.prepare(&layout, pos2(0.0, 0.0), sample.style.color, 1.0))
-                })
-            },
-        );
-    }
-    group.finish();
-}
-
-criterion_group!(
-    benches,
-    bench_layout,
-    bench_prepare_warm,
-    bench_layout_and_prepare_warm
-);
+criterion_group!(benches, bench_layout);
 criterion_main!(benches);

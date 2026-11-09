@@ -20,5 +20,6 @@ rustc-hash = ["dep:rustc-hash"]
 pollster.workspace = true
 png.workspace = true
 winit = { workspace = true, features = ["rwh_06", "x11"] }
+tinim-paint-text = { workspace = true, features = ["system-fonts"] }
 tinim-text = { workspace = true, features = ["system-fonts"] }
 font-test-data = "0.10"

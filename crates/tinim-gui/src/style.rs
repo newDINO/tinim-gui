@@ -6,8 +6,10 @@ use tinim_text::TextStyle;
 /// Layout and widget styling.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Style {
-    /// Default text style for labels.
+    /// Default layout style for labels.
     pub font: TextStyle,
+    /// Color used to draw labels.
+    pub text_color: Color32,
     /// Space between children in a vertical or horizontal stack.
     pub spacing: f32,
     pub button: ButtonStyle,
@@ -19,6 +21,7 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             font: TextStyle::default(),
+            text_color: Color32::BLACK,
             spacing: 8.0,
             button: ButtonStyle::default(),
             checkbox: CheckboxStyle::default(),

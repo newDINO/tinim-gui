@@ -59,13 +59,13 @@ impl StylePage {
         ui.label("style_mut() changes the style persistently, including future frames:");
         ui.horizontal(|ui| {
             if ui.button("Warm text").pressed {
-                ui.style_mut().font.color = WARM_TEXT;
+                ui.style_mut().text_color = WARM_TEXT;
             }
             if ui.button("Cool text").pressed {
-                ui.style_mut().font.color = COOL_TEXT;
+                ui.style_mut().text_color = COOL_TEXT;
             }
             if ui.button("Default text").pressed {
-                ui.style_mut().font.color = DEFAULT_TEXT;
+                ui.style_mut().text_color = DEFAULT_TEXT;
             }
         });
         ui.label("This label uses the persistent style set above.");

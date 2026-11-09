@@ -9,24 +9,53 @@ use skrifa::{
     raw::types::BoundingBox,
 };
 
-use crate::{atlas::RasterGlyph, font::FontFace};
+use crate::font::FontFace;
+
+/// A glyph rasterized into RGBA8 pixels.
+///
+/// For coverage glyphs the RGB channels are opaque white and alpha is the coverage. For color
+/// glyphs the RGB channels are *straight sRGB* color and alpha is the coverage. A paint backend
+/// that samples the pixels through an sRGB texture gets linear RGB automatically.
+pub struct RasterizedGlyph {
+    /// Width in physical pixels.
+    pub width: u32,
+    /// Height in physical pixels.
+    pub height: u32,
+    /// Horizontal offset from the pen position, in physical pixels.
+    pub left: f32,
+    /// Distance from the baseline to the top edge, in physical pixels.
+    pub top: f32,
+    /// True for color glyphs (bitmaps and COLRv0), which ignore the text color.
+    pub color: bool,
+    /// RGBA8 pixels, row-major, `width * height * 4` bytes.
+    pub pixels: Vec<u8>,
+}
 
 /// Rasterizes one glyph at the given pixels per em.
 ///
 /// Embedded bitmaps are preferred, then COLRv0, then the regular outline. `None` means that
 /// there is nothing to draw (a space, a missing glyph, or a format we cannot decode).
-pub(crate) fn rasterize(face: &FontFace, glyph_id: GlyphId, ppem: f32) -> Option<RasterGlyph> {
+pub fn rasterize(face: &FontFace, glyph_id: u32, ppem: f32) -> Option<RasterizedGlyph> {
     let font = face.font().ok()?;
-    if let Some(glyph) = rasterize_bitmap(&font, glyph_id, ppem, face.units_per_em()) {
-        return Some(glyph);
-    }
-    if let Some(glyph) = rasterize_colr_v0(&font, glyph_id, ppem) {
-        return Some(glyph);
-    }
-    rasterize_outline(&font, glyph_id, ppem)
+    rasterize_font(&font, GlyphId::new(glyph_id), ppem, face.units_per_em())
 }
 
-fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterGlyph> {
+fn rasterize_font(
+    font: &FontRef<'_>,
+    glyph_id: GlyphId,
+    ppem: f32,
+    units_per_em: u16,
+) -> Option<RasterizedGlyph> {
+    if let Some(glyph) = rasterize_bitmap(font, glyph_id, ppem, units_per_em) {
+        return Some(glyph);
+    }
+    if let Some(glyph) = rasterize_colr_v0(font, glyph_id, ppem) {
+        return Some(glyph);
+    }
+    rasterize_outline(font, glyph_id, ppem)
+}
+
+fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
     let glyph = font.outline_glyphs().get(glyph_id)?;
     let mut elements = Vec::new();
     glyph
@@ -84,7 +113,7 @@ fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
         pixels[offset + 3] = *alpha;
     }
 
-    Some(RasterGlyph {
+    Some(RasterizedGlyph {
         width,
         height,
         left: placement.left as f32,
@@ -99,7 +128,7 @@ fn rasterize_bitmap(
     glyph_id: GlyphId,
     ppem: f32,
     units_per_em: u16,
-) -> Option<RasterGlyph> {
+) -> Option<RasterizedGlyph> {
     // Pick the strike closest to the requested size that actually contains this glyph.
     let (strike_ppem, bitmap) = font
         .bitmap_strikes()
@@ -134,7 +163,7 @@ fn rasterize_bitmap(
             Origin::BottomLeft => (bitmap.inner_bearing_y + source_height as f32) * scale,
         };
 
-    Some(RasterGlyph {
+    Some(RasterizedGlyph {
         width,
         height,
         left,
@@ -155,7 +184,7 @@ fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
             }
             let mut rgba = Vec::with_capacity(expected);
             for &[blue, green, red, alpha] in data[..expected].as_chunks::<4>().0 {
-                // CBDT stores premultiplied BGRA in sRGB space; the atlas wants straight alpha.
+                // CBDT stores premultiplied BGRA in sRGB space; the output uses straight alpha.
                 if alpha == 0 {
                     rgba.extend_from_slice(&[0, 0, 0, 0]);
                 } else {
@@ -327,7 +356,7 @@ fn sample_premultiplied(source: &[u8], width: u32, x: u32, y: u32) -> [f32; 4] {
     ]
 }
 
-fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterGlyph> {
+fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
     let palette: Vec<[u8; 4]> = font
         .color_palettes()
         .get(0)
@@ -447,14 +476,14 @@ fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
         let offset = index * 4;
         if alpha > 0.0 {
             for channel in 0..3 {
-                // Layers are composited in linear space above, but the atlas stores sRGB.
+                // Layers are composited in linear space above, but the output stores sRGB.
                 pixels[offset + channel] = linear_to_srgb_u8(premultiplied[channel] / alpha);
             }
         }
         pixels[offset + 3] = (alpha * 255.0).round() as u8;
     }
 
-    Some(RasterGlyph {
+    Some(RasterizedGlyph {
         width,
         height,
         left: min_x,

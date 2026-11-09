@@ -1,8 +1,8 @@
 //! A shelf-packed RGBA8 atlas that uploads glyphs as individual texture patches.
 
 use tinim_paint::{ImageDelta, Rect, TextureId, TexturesDelta, pos2};
+use tinim_text::{FontId, RasterizedGlyph};
 
-use crate::font::FontId;
 use crate::hash::HashMap;
 use crate::packer::ShelfPacker;
 
@@ -41,20 +41,6 @@ pub(crate) struct GlyphSlot {
     pub height: f32,
     /// True for color glyphs (bitmaps and COLRv0), which ignore the text color.
     pub color: bool,
-}
-
-/// A glyph rasterized into RGBA8.
-///
-/// For coverage glyphs the RGB channels are opaque white and alpha is the coverage. For color
-/// glyphs the RGB channels are *straight sRGB* color and alpha is the coverage. The renderer
-/// samples the atlas through an sRGB texture, so the sampler converts RGB to linear space.
-pub(crate) struct RasterGlyph {
-    pub width: u32,
-    pub height: u32,
-    pub left: f32,
-    pub top: f32,
-    pub color: bool,
-    pub pixels: Vec<u8>,
 }
 
 pub(crate) struct Atlas {
@@ -140,12 +126,12 @@ impl Atlas {
     ///
     /// Returns `None` when there is no room left. The caller is expected to reset the atlas and
     /// try again.
-    pub(crate) fn alloc(&mut self, key: GlyphKey, glyph: RasterGlyph) -> Option<GlyphSlot> {
+    pub(crate) fn alloc(&mut self, key: GlyphKey, glyph: RasterizedGlyph) -> Option<GlyphSlot> {
         if let Some(slot) = self.slots.get(&key) {
             return Some(*slot);
         }
 
-        let RasterGlyph {
+        let RasterizedGlyph {
             width,
             height,
             left,
@@ -264,8 +250,8 @@ mod tests {
     use super::*;
     use tinim_paint::pos2;
 
-    fn glyph(width: u32, height: u32) -> RasterGlyph {
-        RasterGlyph {
+    fn glyph(width: u32, height: u32) -> RasterizedGlyph {
+        RasterizedGlyph {
             width,
             height,
             left: 0.0,
@@ -277,7 +263,7 @@ mod tests {
 
     fn key(glyph_id: u32) -> GlyphKey {
         GlyphKey {
-            font: FontId(0),
+            font: FontId::from_index(0),
             glyph_id,
             ppem: 16,
         }

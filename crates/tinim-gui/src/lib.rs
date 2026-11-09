@@ -1,4 +1,4 @@
-//! A tiny immediate-mode GUI built on [`tinim_paint`] and [`tinim_text`].
+//! A tiny immediate-mode GUI built on [`tinim_paint`], [`tinim_text`] and [`tinim_paint_text`].
 //!
 //! # Current design
 //! There are no widget ids or built-in centralized widget state storage.
@@ -44,6 +44,7 @@ mod text_cache;
 mod ui;
 
 pub use tinim_paint::{Color32, PaintList, Pos2, Rect, TextureId, TexturesDelta, Vec2, pos2, vec2};
+pub use tinim_paint_text;
 pub use tinim_text;
 
 pub use context::{Context, Frame};

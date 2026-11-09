@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use tinim_paint::{Color32, Vec2, vec2};
+use glam::{Vec2, vec2};
 use unicode_bidi::{BidiInfo, Level, ParagraphInfo};
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
@@ -24,13 +24,14 @@ pub enum TextDirection {
     RightToLeft,
 }
 
-/// How text should be rendered.
+/// How text should be laid out.
+///
+/// Paint-only inputs such as color are deliberately absent: layout is independent of how the
+/// resulting glyphs are drawn. Pass the color to the paint layer when building a mesh.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
     /// Font size in logical points.
     pub font_size: f32,
-    /// Text color. Color glyphs (emoji) only use its alpha.
-    pub color: Color32,
     /// Distance between baselines in logical points. Defaults to the font's metrics.
     pub line_height: Option<f32>,
     /// Extra horizontal spacing after every glyph, in logical points.
@@ -43,7 +44,6 @@ impl Default for TextStyle {
     fn default() -> Self {
         Self {
             font_size: 14.0,
-            color: Color32::BLACK,
             line_height: None,
             letter_spacing: 0.0,
             direction: TextDirection::Auto,
@@ -51,10 +51,10 @@ impl Default for TextStyle {
     }
 }
 
-/// The layout-affecting part of [`TextStyle`], normalized for comparison and hashing.
+/// The normalized layout-affecting part of [`TextStyle`].
 ///
-/// Paint-only fields such as `color` are deliberately excluded. Two styles that differ only in
-/// color therefore share the same `LayoutStyle` and can reuse the same [`TextLayout`].
+/// This is used for comparison and hashing. Paint-only inputs are not part of [`TextStyle`] at
+/// all, so two layouts can always be reused regardless of the color they are drawn with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LayoutStyle {
     font_size: u32,
@@ -227,10 +227,11 @@ impl TextLine {
     }
 }
 
-/// A laid out string, independent of the glyph atlas.
+/// A laid out string, independent of any glyph atlas or paint backend.
 ///
-/// Layout only shapes text: it does not rasterize anything. Call
-/// [`crate::TextSystem::prepare`] to turn it into a mesh.
+/// Layout only shapes text: it does not rasterize anything. Use [`crate::rasterize`] to turn
+/// individual glyphs into bitmaps, or a paint integration such as `tinim-paint-text` to build a
+/// mesh.
 #[derive(Clone, Debug)]
 pub struct TextLayout {
     key: LayoutKey,

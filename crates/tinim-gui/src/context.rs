@@ -1,7 +1,7 @@
 //! The per-application GUI context and the output of one frame.
 
 use tinim_paint::{PaintList, Painter, TextureId, TexturesDelta, Vec2};
-use tinim_text::TextSystem;
+use tinim_paint_text::TextSystem;
 
 use crate::input::RawInput;
 use crate::style::Style;
