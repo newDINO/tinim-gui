@@ -188,4 +188,21 @@ impl TextContext {
             cfg!(feature = "fallback"),
         )
     }
+
+    /// Line height for `style`, in logical points.
+    ///
+    /// This matches the height [`TextContext::layout`] gives a single line, including an
+    /// explicitly configured line height. It is useful for sizing empty text.
+    pub fn line_height(&self, style: &TextStyle) -> f32 {
+        let style = LayoutStyle::new(style);
+        let metrics = self
+            .fonts
+            .primary()
+            .map(|(_, face)| face.metrics(style.font_size()))
+            .unwrap_or_else(|| FontMetrics::fallback(style.font_size()));
+        style
+            .line_height()
+            .unwrap_or_else(|| metrics.line_height())
+            .max(0.0)
+    }
 }

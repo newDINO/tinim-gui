@@ -2019,6 +2019,7 @@ dependencies = [
  "tinim-paint",
  "tinim-paint-text",
  "tinim-text",
+ "unicode-segmentation",
 ]
 
 [[package]]

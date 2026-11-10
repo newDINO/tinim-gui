@@ -11,6 +11,8 @@
 //! 2. When a widget truly needs state, it is provided by the user.
 //!    For example, [`Ui::scrollable`] takes `&mut ScrollState` as an argument.
 //!    [`ScrollState`] contains necessary states for the scrollable, e.g. scroll position.
+//!    [`Ui::text_edit_singleline`] takes the edited `&mut String` plus a [`TextEditState`]
+//!    for the caret, selection and scroll offset.
 //!
 //! 3. Useful macros are provided to create states in place using TLS (thread local storage).
 //!    User can use [`scrollable!`] macro to create a TLS for [`ScrollState`].
@@ -48,6 +50,9 @@ pub use tinim_paint_text;
 pub use tinim_text;
 
 pub use context::{Context, Frame};
-pub use input::{Modifiers, RawInput};
-pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style};
-pub use ui::{Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, Ui};
+pub use input::{Key, Modifiers, RawInput};
+pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style, TextEditStyle};
+pub use ui::{
+    Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, TextEditResponse,
+    TextEditState, Ui,
+};

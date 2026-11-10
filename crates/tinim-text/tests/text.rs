@@ -22,6 +22,40 @@ fn context(font: &[u8]) -> TextContext {
 }
 
 #[test]
+fn line_maps_caret_positions_to_clusters() {
+    let text = context(AHEM);
+
+    let layout = text.layout("abc", &style(16.0), None);
+    let line = &layout.lines()[0];
+
+    assert_eq!(line.glyphs().len(), 3);
+    assert_eq!(line.glyphs()[0].cluster(), 0..1);
+    assert_eq!(line.glyphs()[1].cluster(), 1..2);
+    assert_eq!(line.glyphs()[2].cluster(), 2..3);
+
+    assert_eq!(line.cursor_x(0), 0.0);
+    assert!((line.cursor_x(1) - 16.0).abs() < 0.01);
+    assert!((line.cursor_x(2) - 32.0).abs() < 0.01);
+    assert!((line.cursor_x(3) - 48.0).abs() < 0.01);
+
+    assert_eq!(line.byte_index_at_x(-1.0), 0);
+    assert_eq!(line.byte_index_at_x(7.9), 0);
+    assert_eq!(line.byte_index_at_x(8.1), 1);
+    assert_eq!(line.byte_index_at_x(20.0), 1);
+    assert_eq!(line.byte_index_at_x(28.0), 2);
+    assert_eq!(line.byte_index_at_x(40.0), 3);
+    assert_eq!(line.byte_index_at_x(100.0), 3);
+}
+
+#[test]
+fn line_height_matches_single_line_layout() {
+    let text = context(AHEM);
+
+    let layout = text.layout("a", &style(16.0), None);
+    assert!((text.line_height(&style(16.0)) - layout.height()).abs() < 0.01);
+}
+
+#[test]
 fn ahem_layout() {
     let text = context(AHEM);
 

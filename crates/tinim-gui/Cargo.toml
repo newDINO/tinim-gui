@@ -11,6 +11,7 @@ tinim-paint.workspace = true
 tinim-paint-text.workspace = true
 tinim-text.workspace = true
 rustc-hash = { workspace = true, optional = true }
+unicode-segmentation = "1"
 
 [features]
 default = ["rustc-hash"]

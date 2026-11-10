@@ -15,6 +15,7 @@ pub struct Style {
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
     pub radio: RadioStyle,
+    pub text_edit: TextEditStyle,
 }
 
 impl Default for Style {
@@ -26,6 +27,7 @@ impl Default for Style {
             button: ButtonStyle::default(),
             checkbox: CheckboxStyle::default(),
             radio: RadioStyle::default(),
+            text_edit: TextEditStyle::default(),
         }
     }
 }
@@ -128,6 +130,49 @@ impl Default for RadioStyle {
             radius: 10.0,
             border_width: 1.5,
             dot_radius: 4.0,
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::text_edit_singleline`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextEditStyle {
+    /// Fill when the editor is neither hovered nor focused.
+    pub normal: Color32,
+    /// Fill when the pointer is over the editor.
+    pub hovered: Color32,
+    /// Fill while the editor has keyboard focus.
+    pub focused: Color32,
+    pub border: Color32,
+    pub border_width: f32,
+    pub corner_radius: u8,
+    /// Space between the border and the text.
+    pub padding: Vec2,
+    /// Color of the text and the caret.
+    pub text: Color32,
+    /// Color of the selection highlight.
+    pub selection: Color32,
+    pub cursor: Color32,
+    pub cursor_width: f32,
+    /// Desired size. The width is also capped by the available space.
+    pub min_size: Vec2,
+}
+
+impl Default for TextEditStyle {
+    fn default() -> Self {
+        Self {
+            normal: Color32::from_rgb(38, 38, 42),
+            hovered: Color32::from_rgb(46, 46, 52),
+            focused: Color32::from_rgb(34, 34, 38),
+            border: Color32::from_rgb(120, 120, 128),
+            border_width: 1.0,
+            corner_radius: 4,
+            padding: vec2(8.0, 4.0),
+            text: Color32::WHITE,
+            selection: Color32::from_rgb(52, 88, 145),
+            cursor: Color32::WHITE,
+            cursor_width: 1.5,
+            min_size: vec2(240.0, 28.0),
         }
     }
 }

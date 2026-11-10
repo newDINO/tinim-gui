@@ -151,6 +151,14 @@ impl TextSystem {
         self.text.layout(text, style, max_width)
     }
 
+    /// Line height for `style`, in logical points.
+    ///
+    /// This matches the height [`TextSystem::layout`] gives a single line, including an
+    /// explicitly configured line height. It is useful for sizing empty text.
+    pub fn line_height(&self, style: &TextStyle) -> f32 {
+        self.text.line_height(style)
+    }
+
     /// Rasterizes any new glyphs and builds a mesh in physical pixels.
     ///
     /// `origin` is the top-left corner of the text block in logical points. `color` is a paint

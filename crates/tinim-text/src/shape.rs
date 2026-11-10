@@ -95,7 +95,7 @@ impl ShapedText {
             count_prefix = vec![0u32; text.len() + 1];
             for item in &items {
                 for glyph in &item.glyphs {
-                    let cluster = glyph.cluster as usize;
+                    let cluster = glyph.cluster.start;
                     advance_prefix[cluster] += glyph.advance + letter_spacing;
                     count_prefix[cluster] += 1;
                 }
@@ -282,7 +282,7 @@ fn emit(
     out: &mut Vec<PositionedGlyph>,
 ) {
     for glyph in &item.glyphs {
-        let cluster = glyph.cluster as usize;
+        let cluster = glyph.cluster.start;
         if cluster < run.start || cluster >= run.end {
             continue;
         }
@@ -404,9 +404,26 @@ fn shape_item(
         0.0
     };
 
+    // HarfBuzz reports a cluster start for every glyph. A cluster ends where the next larger
+    // start begins (or at the end of the shaped range), which lets text editors map byte indices
+    // to caret positions without re-shaping prefixes.
+    let mut cluster_starts: Vec<usize> = shaped
+        .glyph_infos()
+        .iter()
+        .map(|info| item.range.start + info.cluster as usize)
+        .collect();
+    cluster_starts.sort_unstable();
+    cluster_starts.dedup();
+
     let mut glyphs = Vec::with_capacity(shaped.len());
     for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
         let glyph_id = GlyphId::new(info.glyph_id);
+        let cluster_start = item.range.start + info.cluster as usize;
+        let cluster_end = cluster_starts
+            .iter()
+            .copied()
+            .find(|&start| start > cluster_start)
+            .unwrap_or(item.range.end);
         glyphs.push(PositionedGlyph {
             font: item.font,
             glyph_id: info.glyph_id,
@@ -415,7 +432,8 @@ fn shape_item(
             y: position.y_offset as f32 * scale,
             advance: position.x_advance as f32 * scale,
             color: face.has_color_glyph(glyph_id),
-            cluster: item.range.start as u32 + info.cluster,
+            cluster: cluster_start..cluster_end,
+            rtl: direction == Direction::RightToLeft,
         });
     }
 
