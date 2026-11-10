@@ -7,6 +7,7 @@ use tinim_text::TextLayout;
 use super::Ui;
 use super::layout::{allocate_space, available_size, pointer_over};
 use super::response::Response;
+use crate::cursor::CursorIcon;
 
 impl Ui<'_> {
     /// Draws a non-interactive line of text. Returns the rectangle it occupied.
@@ -82,6 +83,9 @@ impl Ui<'_> {
         let hovered = pointer_over(self.clip, &self.ctx.input, rect);
         let pressed = hovered && self.ctx.input.primary_pressed;
         let down = hovered && self.ctx.input.primary_down;
+        if hovered {
+            self.set_cursor_icon(CursorIcon::Pointer);
+        }
 
         if pressed {
             *checked = !*checked;
@@ -135,6 +139,9 @@ impl Ui<'_> {
         let hovered = pointer_over(self.clip, &self.ctx.input, rect);
         let pressed = hovered && self.ctx.input.primary_pressed;
         let down = hovered && self.ctx.input.primary_down;
+        if hovered {
+            self.set_cursor_icon(CursorIcon::Pointer);
+        }
 
         let clip = self.ctx.painter.clip_rect();
         if clip.intersect(rect).is_positive() {
@@ -206,6 +213,11 @@ impl Ui<'_> {
         let hovered = pointer_over(self.clip, &self.ctx.input, rect);
         let pressed = hovered && self.ctx.input.primary_pressed;
         let down = hovered && self.ctx.input.primary_down;
+        if hovered {
+            // The text layout above keeps `text_cache` borrowed; assign the field directly
+            // instead of calling `Ui::set_cursor_icon`, which borrows all of `self`.
+            self.ctx.cursor_icon = CursorIcon::Pointer;
+        }
 
         let clip = self.ctx.painter.clip_rect();
         if clip.intersect(rect).is_positive() {
@@ -275,7 +287,7 @@ fn paint_text(
 mod tests {
     use super::*;
     use crate::ui::test_util::context;
-    use crate::{RawInput, pos2, vec2};
+    use crate::{CursorIcon, RawInput, pos2, vec2};
 
     #[test]
     fn button_reports_press_only_when_pointer_is_over_it() {
@@ -293,6 +305,41 @@ mod tests {
         });
 
         assert_eq!(pressed, Some(true));
+    }
+
+    #[test]
+    fn button_requests_pointer_cursor_only_while_hovered() {
+        let mut context = context();
+        let hover = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            ..Default::default()
+        };
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
+            ui.button("go");
+        });
+        assert_eq!(frame.cursor_icon, CursorIcon::Pointer);
+        drop(frame);
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.button("go");
+        });
+        assert_eq!(frame.cursor_icon, CursorIcon::Default);
+    }
+
+    #[test]
+    fn checkbox_requests_pointer_cursor_while_hovered() {
+        let mut context = context();
+        let mut checked = false;
+        let hover = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            ..Default::default()
+        };
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
+            ui.checkbox(&mut checked);
+        });
+        assert_eq!(frame.cursor_icon, CursorIcon::Pointer);
     }
 
     #[test]

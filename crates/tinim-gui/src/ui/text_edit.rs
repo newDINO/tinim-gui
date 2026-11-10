@@ -6,6 +6,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::Ui;
 use super::layout::{allocate_space, available_size, pointer_over};
 use super::response::{TextEditResponse, TextEditState};
+use crate::cursor::CursorIcon;
 use crate::input::Key;
 
 impl Ui<'_> {
@@ -40,6 +41,9 @@ impl Ui<'_> {
         clamp_state(text, state);
 
         let hovered = pointer_over(self.clip, &self.ctx.input, rect);
+        if hovered {
+            self.set_cursor_icon(CursorIcon::Text);
+        }
         let pressed_inside = hovered && self.ctx.input.primary_pressed;
         let pointer_pressed = self.ctx.input.primary_pressed;
 
@@ -344,7 +348,7 @@ fn next_grapheme_boundary(text: &str, index: usize) -> usize {
 mod tests {
     use super::*;
     use crate::ui::test_util::context;
-    use crate::{Modifiers, RawInput, pos2, vec2};
+    use crate::{CursorIcon, Modifiers, RawInput, pos2, vec2};
 
     fn press() -> RawInput {
         RawInput {
@@ -361,6 +365,22 @@ mod tests {
             modifiers,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn hovered_editor_requests_text_cursor() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+        let hover = RawInput {
+            pointer: Some(pos2(1.0, 1.0)),
+            ..Default::default()
+        };
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        assert_eq!(frame.cursor_icon, CursorIcon::Text);
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub use response::{
 use tinim_paint::{Pos2, Rect, Vec2};
 
 use crate::context::Context;
+use crate::cursor::CursorIcon;
 use crate::style::Style;
 
 use layout::{Direction, Layout, allocate_space, available_size, next_pos};
@@ -105,6 +106,15 @@ impl<'a> Ui<'a> {
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         let spacing = self.spacing();
         allocate_space(&mut self.layout, size, spacing)
+    }
+
+    /// Requests the mouse cursor icon used while the pointer is over a widget.
+    ///
+    /// The last request of a frame wins, so later widgets override earlier ones. Widgets only
+    /// request an icon while they are hovered; the context resets to
+    /// [`CursorIcon::Default`](crate::CursorIcon::Default) at the start of every frame.
+    pub fn set_cursor_icon(&mut self, icon: CursorIcon) {
+        self.ctx.cursor_icon = icon;
     }
 
     /// Space between children in the current style, clamped to a non-negative value.

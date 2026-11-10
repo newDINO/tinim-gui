@@ -5,14 +5,54 @@
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
 
-use tinim_gui::{Key, Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
+use tinim_gui::{CursorIcon, Key, Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::window::{CursorIcon as WinitCursorIcon, Window};
 
 /// One wheel line is translated to this many logical points.
 const LINE_HEIGHT: f32 = 50.0;
 
 /// How far a finger may wander before a touch becomes a drag instead of a click, in logical points.
 const TOUCH_SLOP: f32 = 8.0;
+
+/// Applies the cursor requested by a [`tinim_gui::Frame`] to a winit window.
+///
+/// The requested icon is compared with the last applied icon so the platform cursor is only
+/// changed when it actually differs. Create one `CursorState` per window.
+#[derive(Debug, Default)]
+pub struct CursorState {
+    current: CursorIcon,
+    /// Forces the next apply even when the requested icon equals `current`.
+    dirty: bool,
+}
+
+impl CursorState {
+    /// Applies `icon` when it differs from the icon applied previously.
+    pub fn apply(&mut self, window: &Window, icon: CursorIcon) {
+        if !self.dirty && self.current == icon {
+            return;
+        }
+        window.set_cursor(cursor_icon(icon));
+        self.current = icon;
+        self.dirty = false;
+    }
+
+    /// Forgets the last applied icon, forcing the next [`CursorState::apply`] to update the
+    /// window. Use this after the platform may have reset the cursor, or when reusing the state
+    /// with a different window.
+    pub fn invalidate(&mut self) {
+        self.dirty = true;
+    }
+}
+
+/// Converts a backend-neutral [`CursorIcon`] to winit's cursor icon.
+pub fn cursor_icon(icon: CursorIcon) -> WinitCursorIcon {
+    match icon {
+        CursorIcon::Default => WinitCursorIcon::Default,
+        CursorIcon::Pointer => WinitCursorIcon::Pointer,
+        CursorIcon::Text => WinitCursorIcon::Text,
+    }
+}
 
 /// Accumulates winit events until the next frame.
 #[derive(Debug)]
@@ -306,6 +346,13 @@ mod tests {
             force: None,
             id,
         })
+    }
+
+    #[test]
+    fn maps_cursor_icons_to_winit() {
+        assert_eq!(cursor_icon(CursorIcon::Default), WinitCursorIcon::Default);
+        assert_eq!(cursor_icon(CursorIcon::Pointer), WinitCursorIcon::Pointer);
+        assert_eq!(cursor_icon(CursorIcon::Text), WinitCursorIcon::Text);
     }
 
     #[test]

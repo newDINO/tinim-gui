@@ -39,6 +39,7 @@
 //! the standard library's randomly seeded hasher instead.
 
 mod context;
+mod cursor;
 mod hash;
 mod input;
 mod style;
@@ -50,6 +51,7 @@ pub use tinim_paint_text;
 pub use tinim_text;
 
 pub use context::{Context, Frame};
+pub use cursor::CursorIcon;
 pub use input::{Key, Modifiers, RawInput};
 pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style, TextEditStyle};
 pub use ui::{

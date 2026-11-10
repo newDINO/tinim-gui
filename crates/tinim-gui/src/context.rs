@@ -3,6 +3,7 @@
 use tinim_paint::{PaintList, Painter, TextureId, TexturesDelta, Vec2};
 use tinim_paint_text::TextSystem;
 
+use crate::cursor::CursorIcon;
 use crate::input::RawInput;
 use crate::style::Style;
 use crate::text_cache::TextCache;
@@ -20,6 +21,7 @@ pub struct Context {
     pub(crate) input: RawInput,
     size: Vec2,
     pub(crate) pixels_per_point: f32,
+    pub(crate) cursor_icon: CursorIcon,
 }
 
 /// One frame's rendering data.
@@ -28,6 +30,11 @@ pub struct Frame<'a> {
     pub paint: &'a PaintList,
     /// Glyph atlas uploads produced while building the frame.
     pub textures: TexturesDelta,
+    /// Mouse cursor requested by the widgets built this frame.
+    ///
+    /// Interactable widgets request an icon while the pointer is over them. A backend should
+    /// apply this to its window only when it differs from the icon it applied previously.
+    pub cursor_icon: CursorIcon,
 }
 
 impl Context {
@@ -45,6 +52,7 @@ impl Context {
             input: RawInput::default(),
             size: Vec2::ZERO,
             pixels_per_point: 1.0,
+            cursor_icon: CursorIcon::Default,
         }
     }
 
@@ -105,13 +113,18 @@ impl Context {
 
         let paint = self.painter.finish();
         let textures = self.text_system.take_textures();
-        Frame { paint, textures }
+        Frame {
+            paint,
+            textures,
+            cursor_icon: self.cursor_icon,
+        }
     }
 
     fn begin_frame(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) {
         self.size = sanitize_size(viewport);
         self.pixels_per_point = sanitize_scale(pixels_per_point);
         self.input = input;
+        self.cursor_icon = CursorIcon::Default;
 
         if (self.painter.pixels_per_point() - self.pixels_per_point).abs() > f32::EPSILON {
             self.painter = Painter::from_size(self.size, self.pixels_per_point);
