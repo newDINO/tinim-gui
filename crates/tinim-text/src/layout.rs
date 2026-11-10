@@ -169,6 +169,8 @@ pub struct PositionedGlyph {
     pub(crate) y: f32,
     pub(crate) advance: f32,
     pub(crate) color: bool,
+    /// Byte offset of the glyph's cluster. Only used while assembling lines.
+    pub(crate) cluster: u32,
 }
 
 impl PositionedGlyph {
@@ -302,7 +304,11 @@ pub(crate) fn layout(
         TextDirection::RightToLeft => Some(Level::rtl()),
     };
     let bidi = BidiInfo::new(text, base_level);
-    let ranges = wrap_lines(fonts, text, &style, max_width, &bidi, allow_fallback);
+    // Unbounded layouts never measure prefixes for wrapping; line widths come from the glyphs.
+    let measure_widths = max_width.is_some_and(|width| width != f32::INFINITY);
+    let mut shaped =
+        shape::ShapedText::shape(fonts, text, &bidi, &style, allow_fallback, measure_widths);
+    let ranges = wrap_lines(text, max_width, &shaped);
 
     let metrics = fonts
         .primary()
@@ -318,8 +324,7 @@ pub(crate) fn layout(
     let mut width: f32 = 0.0;
     for (index, range) in ranges.into_iter().enumerate() {
         let paragraph = paragraph_for(&bidi, range.start);
-        let (glyphs, line_width) =
-            shape::shape_line(fonts, text, &bidi, paragraph, range, &style, allow_fallback);
+        let (glyphs, line_width) = shaped.line(&bidi, paragraph, range, &style);
         width = width.max(line_width);
         result.lines.push(TextLine {
             glyphs,
@@ -332,14 +337,7 @@ pub(crate) fn layout(
     result
 }
 
-fn wrap_lines(
-    fonts: &FontStack,
-    text: &str,
-    style: &LayoutStyle,
-    max_width: Option<f32>,
-    bidi: &BidiInfo<'_>,
-    allow_fallback: bool,
-) -> Vec<Range<usize>> {
+fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) -> Vec<Range<usize>> {
     let max_width = max_width.unwrap_or(f32::INFINITY);
     let breaks: Vec<(usize, BreakOpportunity)> = linebreaks(text).collect();
     let mut lines = Vec::new();
@@ -375,9 +373,7 @@ fn wrap_lines(
             // Most lines fit completely, so check the last candidate before searching for the
             // first one that overflows. This turns the common case into a single measurement.
             let (_, last_end) = candidate(last_index);
-            if max_width == f32::INFINITY
-                || measure(fonts, text, bidi, start..last_end, style, allow_fallback) <= max_width
-            {
+            if max_width == f32::INFINITY || shaped.width(start..last_end) <= max_width {
                 Some(last_index)
             } else {
                 // Widths are non-decreasing as more text is added (the same assumption the
@@ -388,9 +384,7 @@ fn wrap_lines(
                 while lo < hi {
                     let mid = lo + (hi - lo) / 2;
                     let (_, content_end) = candidate(mid);
-                    if measure(fonts, text, bidi, start..content_end, style, allow_fallback)
-                        <= max_width
-                    {
+                    if shaped.width(start..content_end) <= max_width {
                         best = Some(mid);
                         lo = mid + 1;
                     } else {
@@ -413,15 +407,7 @@ fn wrap_lines(
                 } else {
                     (text.len(), trim_end(text, start, text.len()))
                 };
-                match emergency_break(
-                    fonts,
-                    text,
-                    bidi,
-                    start..fallback_end,
-                    style,
-                    max_width,
-                    allow_fallback,
-                ) {
+                match emergency_break(text, start..fallback_end, max_width, shaped) {
                     Some((position, content_end)) => (position, content_end),
                     None => (fallback_position, fallback_end),
                 }
@@ -437,13 +423,10 @@ fn wrap_lines(
 /// Breaks inside an over-long word at a grapheme boundary. Returns the position where the next
 /// line starts and the trimmed end of this line.
 fn emergency_break(
-    fonts: &FontStack,
     text: &str,
-    bidi: &BidiInfo<'_>,
     range: Range<usize>,
-    style: &LayoutStyle,
     max_width: f32,
-    allow_fallback: bool,
+    shaped: &shape::ShapedText,
 ) -> Option<(usize, usize)> {
     if range.is_empty() {
         return None;
@@ -455,15 +438,7 @@ fn emergency_break(
         let grapheme_end = range.start + offset + grapheme.len();
         first_end.get_or_insert(grapheme_end);
         let content_end = trim_end(text, range.start, grapheme_end);
-        let width = measure(
-            fonts,
-            text,
-            bidi,
-            range.start..content_end,
-            style,
-            allow_fallback,
-        );
-        if width <= max_width {
+        if shaped.width(range.start..content_end) <= max_width {
             last_fit = Some((grapheme_end, content_end));
         } else {
             break;
@@ -471,21 +446,6 @@ fn emergency_break(
     }
 
     last_fit.or_else(|| first_end.map(|end| (end, trim_end(text, range.start, end))))
-}
-
-fn measure(
-    fonts: &FontStack,
-    text: &str,
-    bidi: &BidiInfo<'_>,
-    range: Range<usize>,
-    style: &LayoutStyle,
-    allow_fallback: bool,
-) -> f32 {
-    if range.is_empty() {
-        return 0.0;
-    }
-    let paragraph = paragraph_for(bidi, range.start);
-    shape::shape_line(fonts, text, bidi, paragraph, range, style, allow_fallback).1
 }
 
 fn paragraph_for<'a>(bidi: &'a BidiInfo<'_>, position: usize) -> &'a ParagraphInfo {

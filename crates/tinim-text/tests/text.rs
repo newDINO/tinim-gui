@@ -143,6 +143,27 @@ fn rtl_reverses_glyph_order() {
     assert_eq!(glyph_ids, [2, 1]);
 }
 
+#[test]
+fn wrapped_rtl_lines_reverse_each_line() {
+    let text = context(VAZIRMATN_VAR);
+
+    // Measure the two-glyph phrase without wrapping, then allow 20% more than that. Two glyphs
+    // fit per line, but three do not.
+    let unit = text.layout("\u{202E}A\u{00C0}", &style(24.0), None);
+    let layout = text.layout(
+        "\u{202E}A\u{00C0}A\u{00C0}",
+        &style(24.0),
+        Some(unit.width() * 1.2),
+    );
+
+    assert_eq!(layout.line_count(), 2);
+    for line in layout.lines() {
+        let glyph_ids: Vec<u32> = line.glyphs().iter().map(|glyph| glyph.glyph_id()).collect();
+        // Each line contains the logical "AÀ" pair, drawn right to left.
+        assert_eq!(glyph_ids, [2, 1]);
+    }
+}
+
 #[cfg(feature = "fallback")]
 #[test]
 fn rtl_fallback_items_are_reversed() {
