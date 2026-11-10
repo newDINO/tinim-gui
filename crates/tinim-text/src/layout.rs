@@ -375,7 +375,9 @@ fn wrap_lines(
             // Most lines fit completely, so check the last candidate before searching for the
             // first one that overflows. This turns the common case into a single measurement.
             let (_, last_end) = candidate(last_index);
-            if measure(fonts, text, bidi, start..last_end, style, allow_fallback) <= max_width {
+            if max_width == f32::INFINITY
+                || measure(fonts, text, bidi, start..last_end, style, allow_fallback) <= max_width
+            {
                 Some(last_index)
             } else {
                 // Widths are non-decreasing as more text is added (the same assumption the
