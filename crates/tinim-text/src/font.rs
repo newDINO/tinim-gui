@@ -54,6 +54,7 @@ pub struct FontFace {
     data: FontData,
     index: u32,
     units_per_em: u16,
+    has_color_tables: bool,
 }
 
 impl std::fmt::Debug for FontFace {
@@ -91,10 +92,18 @@ impl FontFace {
             .map(|head| head.units_per_em())
             .unwrap_or(1000)
             .max(1);
+        let tag = |bytes| skrifa::raw::types::Tag::new(bytes);
+        let has_color_tables = font.table_data(tag(b"COLR")).is_some()
+            || font.table_data(tag(b"CBDT")).is_some()
+            || font.table_data(tag(b"CBLC")).is_some()
+            || font.table_data(tag(b"EBDT")).is_some()
+            || font.table_data(tag(b"EBLC")).is_some()
+            || font.table_data(tag(b"sbix")).is_some();
         Ok(Self {
             data,
             index,
             units_per_em,
+            has_color_tables,
         })
     }
 
@@ -121,6 +130,9 @@ impl FontFace {
 
     /// Whether `glyph_id` is painted with a color representation (bitmap or COLRv0).
     pub(crate) fn has_color_glyph(&self, glyph_id: GlyphId) -> bool {
+        if !self.has_color_tables {
+            return false;
+        }
         let Ok(font) = self.font() else {
             return false;
         };
