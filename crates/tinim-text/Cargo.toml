@@ -21,7 +21,7 @@ unicode-segmentation = "1"
 
 # Outline rasterization. This is a small, focused crate and keeps us from having to write a
 # scanline rasterizer.
-zeno = "0.3"
+ab_glyph_rasterizer = "0.1"
 
 # Optional because not every user needs bitmap color fonts (CBDT/CBLC, sbix).
 png = { workspace = true, optional = true }

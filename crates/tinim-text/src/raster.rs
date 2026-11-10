@@ -5,7 +5,7 @@ use skrifa::{
     bitmap::{BitmapData, BitmapGlyph, Origin},
     color::{Brush, ColorGlyphFormat, ColorPainter, CompositeMode, Transform},
     instance::{LocationRef, Size},
-    outline::{DrawSettings, pen::PathElement},
+    outline::{DrawSettings, OutlinePen},
     raw::types::BoundingBox,
 };
 
@@ -65,71 +65,116 @@ fn rasterize_font(
 }
 
 fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
+    // Pixel bounds from the font's glyph metrics. This avoids a separate bounds pass for
+    // TrueType outlines; for CFF/variable fonts skrifa computes them from the outline.
+    let bounds = font
+        .glyph_metrics(Size::new(ppem), LocationRef::default())
+        .bounds(glyph_id)?;
+    let min_x = bounds.x_min.floor();
+    let max_x = bounds.x_max.ceil();
+    let min_y = bounds.y_min.floor();
+    let max_y = bounds.y_max.ceil();
+    let width = (max_x - min_x) as i32;
+    let height = (max_y - min_y) as i32;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
     let glyph = font.outline_glyphs().get(glyph_id)?;
-    let mut elements = Vec::new();
+    let mut pen = RasterPen::new(width as usize, height as usize, min_x, max_y);
     glyph
         .draw(
             DrawSettings::unhinted(Size::new(ppem), LocationRef::default()),
-            &mut elements,
+            &mut pen,
         )
         .ok()?;
-    if elements.is_empty() {
-        return None;
-    }
-
-    let commands: Vec<zeno::Command> = elements
-        .iter()
-        .map(|element| match *element {
-            PathElement::MoveTo { x, y } => zeno::Command::MoveTo(zeno::Point::new(x, y)),
-            PathElement::LineTo { x, y } => zeno::Command::LineTo(zeno::Point::new(x, y)),
-            PathElement::QuadTo { cx0, cy0, x, y } => {
-                zeno::Command::QuadTo(zeno::Point::new(cx0, cy0), zeno::Point::new(x, y))
-            }
-            PathElement::CurveTo {
-                cx0,
-                cy0,
-                cx1,
-                cy1,
-                x,
-                y,
-            } => zeno::Command::CurveTo(
-                zeno::Point::new(cx0, cy0),
-                zeno::Point::new(cx1, cy1),
-                zeno::Point::new(x, y),
-            ),
-            PathElement::Close => zeno::Command::Close,
-        })
-        .collect();
-
-    let mut mask = zeno::Mask::new(&commands);
-    mask.origin(zeno::Origin::BottomLeft);
-    // `Placement::top` is only correct once zeno knows the mask height; `inspect` forces that
-    // before rendering, otherwise the glyph is placed as if it hung below the baseline.
-    mask.inspect(|_, _, _| {});
-    let (coverage, placement) = mask.render();
-    let width = placement.width;
-    let height = placement.height;
-    if width == 0 || height == 0 {
-        return None;
-    }
 
     let mut pixels = vec![0u8; width as usize * height as usize * 4];
-    for (index, alpha) in coverage.iter().enumerate() {
+    let mut index = 0;
+    pen.rasterizer.for_each_pixel(|_, alpha| {
         let offset = index * 4;
         pixels[offset] = 255;
         pixels[offset + 1] = 255;
         pixels[offset + 2] = 255;
-        pixels[offset + 3] = *alpha;
-    }
+        pixels[offset + 3] = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+        index += 1;
+    });
 
     Some(RasterizedGlyph {
-        width,
-        height,
-        left: placement.left as f32,
-        top: placement.top as f32,
+        width: width as u32,
+        height: height as u32,
+        left: min_x,
+        top: max_y,
         color: false,
         pixels,
     })
+}
+
+/// Draws an outline straight into a coverage rasterizer, flipping the y axis to match the
+/// rasterizer's top-left origin.
+struct RasterPen {
+    rasterizer: ab_glyph_rasterizer::Rasterizer,
+    min_x: f32,
+    max_y: f32,
+    start: (f32, f32),
+    current: (f32, f32),
+}
+
+impl RasterPen {
+    fn new(width: usize, height: usize, min_x: f32, max_y: f32) -> Self {
+        Self {
+            rasterizer: ab_glyph_rasterizer::Rasterizer::new(width, height),
+            min_x,
+            max_y,
+            start: (0.0, 0.0),
+            current: (0.0, 0.0),
+        }
+    }
+
+    #[inline]
+    fn point(&self, x: f32, y: f32) -> ab_glyph_rasterizer::Point {
+        ab_glyph_rasterizer::point(x - self.min_x, self.max_y - y)
+    }
+}
+
+impl OutlinePen for RasterPen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.start = (x, y);
+        self.current = (x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.rasterizer
+            .draw_line(self.point(self.current.0, self.current.1), self.point(x, y));
+        self.current = (x, y);
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.rasterizer.draw_quad(
+            self.point(self.current.0, self.current.1),
+            self.point(cx0, cy0),
+            self.point(x, y),
+        );
+        self.current = (x, y);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.rasterizer.draw_cubic(
+            self.point(self.current.0, self.current.1),
+            self.point(cx0, cy0),
+            self.point(cx1, cy1),
+            self.point(x, y),
+        );
+        self.current = (x, y);
+    }
+
+    fn close(&mut self) {
+        self.rasterizer.draw_line(
+            self.point(self.current.0, self.current.1),
+            self.point(self.start.0, self.start.1),
+        );
+        self.current = self.start;
+    }
 }
 
 fn rasterize_bitmap(
