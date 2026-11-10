@@ -466,6 +466,9 @@ pub(crate) fn layout(
 
 fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) -> Vec<Range<usize>> {
     let max_width = max_width.unwrap_or(f32::INFINITY);
+    // Wrapped lines drop trailing spaces so they cannot overflow the wrap width. Unbounded
+    // layouts keep them: text editors need the advance of a trailing space to place the caret.
+    let trim_spaces = max_width.is_finite();
     let breaks: Vec<(usize, BreakOpportunity)> = linebreaks(text).collect();
     let mut lines = Vec::new();
     let mut start = 0usize;
@@ -490,7 +493,7 @@ fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) ->
 
         let candidate = |index: usize| {
             let position = breaks[index].0;
-            let content_end = trim_end(text, start, position);
+            let content_end = trim_end(text, start, position, trim_spaces);
             (position, content_end)
         };
 
@@ -532,7 +535,7 @@ fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) ->
                 let (fallback_position, fallback_end) = if first_index < breaks.len() {
                     candidate(first_index)
                 } else {
-                    (text.len(), trim_end(text, start, text.len()))
+                    (text.len(), trim_end(text, start, text.len(), trim_spaces))
                 };
                 match emergency_break(text, start..fallback_end, max_width, shaped) {
                     Some((position, content_end)) => (position, content_end),
@@ -564,7 +567,7 @@ fn emergency_break(
     for (offset, grapheme) in text[range.clone()].grapheme_indices(true) {
         let grapheme_end = range.start + offset + grapheme.len();
         first_end.get_or_insert(grapheme_end);
-        let content_end = trim_end(text, range.start, grapheme_end);
+        let content_end = trim_end(text, range.start, grapheme_end, true);
         if shaped.width(range.start..content_end) <= max_width {
             last_fit = Some((grapheme_end, content_end));
         } else {
@@ -572,7 +575,7 @@ fn emergency_break(
         }
     }
 
-    last_fit.or_else(|| first_end.map(|end| (end, trim_end(text, range.start, end))))
+    last_fit.or_else(|| first_end.map(|end| (end, trim_end(text, range.start, end, true))))
 }
 
 fn paragraph_for<'a>(bidi: &'a BidiInfo<'_>, position: usize) -> &'a ParagraphInfo {
@@ -583,15 +586,20 @@ fn paragraph_for<'a>(bidi: &'a BidiInfo<'_>, position: usize) -> &'a ParagraphIn
         .expect("BidiInfo of a non-empty string has at least one paragraph")
 }
 
-/// Trims spaces and line terminators from the end of a line, without touching NBSP.
-fn trim_end(text: &str, start: usize, end: usize) -> usize {
+/// Trims line terminators from the end of a line, without touching NBSP.
+///
+/// When `trim_spaces` is set, spaces and tabs are trimmed as well. Wrapped lines do that so
+/// trailing whitespace cannot overflow the wrap width; unbounded layouts keep it so caret
+/// positions after a trailing space are available.
+fn trim_end(text: &str, start: usize, end: usize, trim_spaces: bool) -> usize {
     let mut end = end.min(text.len());
     while end > start {
         let ch = text[..end]
             .chars()
             .next_back()
             .expect("end > start implies a character");
-        if matches!(ch, ' ' | '\t' | '\n' | '\r' | '\u{000B}' | '\u{000C}') {
+        let is_line_terminator = matches!(ch, '\n' | '\r' | '\u{000B}' | '\u{000C}');
+        if is_line_terminator || (trim_spaces && matches!(ch, ' ' | '\t')) {
             end -= ch.len_utf8();
         } else {
             break;

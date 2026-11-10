@@ -48,6 +48,25 @@ fn line_maps_caret_positions_to_clusters() {
 }
 
 #[test]
+fn trailing_spaces_keep_the_caret_advance() {
+    let text = context(AHEM);
+
+    // An unbounded line keeps trailing spaces so an editor can place its caret after them.
+    let layout = text.layout("a ", &style(16.0), None);
+    let line = &layout.lines()[0];
+    assert_eq!(line.glyphs().len(), 2);
+    assert_eq!(line.glyphs()[1].cluster(), 1..2);
+    assert!((layout.width() - 32.0).abs() < 0.01);
+    assert!((line.cursor_x(2) - 32.0).abs() < 0.01);
+    assert_eq!(line.byte_index_at_x(32.0), 2);
+
+    // Wrapped lines still trim the trailing space so it cannot overflow the wrap width.
+    let wrapped = text.layout("a ", &style(16.0), Some(40.0));
+    assert_eq!(wrapped.lines()[0].glyphs().len(), 1);
+    assert!((wrapped.width() - 16.0).abs() < 0.01);
+}
+
+#[test]
 fn line_height_matches_single_line_layout() {
     let text = context(AHEM);
 
