@@ -149,6 +149,10 @@ impl Ui<'_> {
             .first()
             .map(|line| line.cursor_x(state.cursor))
             .unwrap_or(0.0);
+        // `inner` can be taller than the text (for example when `min_size.y` exceeds the line
+        // height plus padding). Center the line box the same way `button` centers its text.
+        let text_top = inner.min.y + (inner.height() - text_height).max(0.0) * 0.5;
+        let text_height = text_height.min(inner.height());
 
         let max_scroll = (layout.width() - inner.width()).max(0.0);
         state.scroll = state.scroll.clamp(0.0, max_scroll);
@@ -191,15 +195,15 @@ impl Ui<'_> {
                             continue;
                         }
                         let selection_rect = Rect::from_min_size(
-                            pos2(inner.min.x + glyph.x() - state.scroll, inner.min.y),
-                            vec2(glyph.advance(), text_height.min(inner.height())),
+                            pos2(inner.min.x + glyph.x() - state.scroll, text_top),
+                            vec2(glyph.advance(), text_height),
                         );
                         self.ctx.painter.rect(selection_rect, edit_style.selection);
                     }
                 }
 
                 if !layout.lines().is_empty() {
-                    let origin = inner.min - vec2(state.scroll, 0.0);
+                    let origin = pos2(inner.min.x - state.scroll, text_top);
                     let mesh = self.ctx.text_system.prepare(
                         layout,
                         origin,
@@ -211,8 +215,8 @@ impl Ui<'_> {
 
                 if state.focused && state.blink < 0.5 {
                     let caret = Rect::from_min_size(
-                        pos2(inner.min.x + cursor_x - state.scroll, inner.min.y),
-                        vec2(edit_style.cursor_width, text_height.min(inner.height())),
+                        pos2(inner.min.x + cursor_x - state.scroll, text_top),
+                        vec2(edit_style.cursor_width, text_height),
                     );
                     self.ctx.painter.rect(caret, edit_style.cursor);
                 }
@@ -473,6 +477,38 @@ mod tests {
         });
 
         assert_eq!(state.cursor(), 2);
+    }
+
+    #[test]
+    fn caret_is_vertically_centered_in_the_editor() {
+        let mut context = context();
+        let mut text = "abc".to_owned();
+        let mut state = TextEditState::new();
+        let mut rect = None;
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            rect = Some(ui.text_edit_singleline(&mut text, &mut state).rect);
+        });
+
+        let rect = rect.expect("editor was built");
+        // The caret is the last shape drawn and therefore the last four vertices.
+        let vertices = &frame.paint.vertices;
+        let caret = &vertices[vertices.len() - 4..];
+        let top = caret
+            .iter()
+            .map(|vertex| vertex.pos[1])
+            .fold(f32::INFINITY, f32::min);
+        let bottom = caret
+            .iter()
+            .map(|vertex| vertex.pos[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let caret_center = (top + bottom) * 0.5;
+
+        assert!(
+            (caret_center - rect.center().y).abs() < 0.01,
+            "caret center {caret_center} should match editor center {}",
+            rect.center().y
+        );
     }
 
     #[test]
