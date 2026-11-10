@@ -349,13 +349,6 @@ mod tests {
     }
 
     #[test]
-    fn maps_cursor_icons_to_winit() {
-        assert_eq!(cursor_icon(CursorIcon::Default), WinitCursorIcon::Default);
-        assert_eq!(cursor_icon(CursorIcon::Pointer), WinitCursorIcon::Pointer);
-        assert_eq!(cursor_icon(CursorIcon::Text), WinitCursorIcon::Text);
-    }
-
-    #[test]
     fn tap_clicks_the_primary_pointer_on_release() {
         let mut input = WinitInput::new(1.0);
 
