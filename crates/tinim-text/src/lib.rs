@@ -1,7 +1,7 @@
 //! Text shaping, line layout and glyph rasterization.
 //!
 //! The crate is deliberately small: it uses [`harfrust`] for OpenType shaping and [`skrifa`] for
-//! font metadata, outlines, bitmaps and COLRv0. Rasterization is done by [`zeno`]. Nothing here
+//! font metadata, outlines, bitmaps and COLRv0. Rasterization is done by [`ab_glyph_rasterizer`]. Nothing here
 //! knows about textures, atlases or meshes; a paint integration such as `tinim-paint-text` turns
 //! [`TextLayout`]s and [`RasterizedGlyph`]s into backend-specific draw data.
 //!

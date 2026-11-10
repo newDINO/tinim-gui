@@ -54,6 +54,8 @@ pub struct FontFace {
     data: FontData,
     index: u32,
     units_per_em: u16,
+    has_color_tables: bool,
+    shaper_data: Arc<harfrust::ShaperData>,
 }
 
 impl std::fmt::Debug for FontFace {
@@ -91,10 +93,20 @@ impl FontFace {
             .map(|head| head.units_per_em())
             .unwrap_or(1000)
             .max(1);
+        let tag = |bytes| skrifa::raw::types::Tag::new(bytes);
+        let has_color_tables = font.table_data(tag(b"COLR")).is_some()
+            || font.table_data(tag(b"CBDT")).is_some()
+            || font.table_data(tag(b"CBLC")).is_some()
+            || font.table_data(tag(b"EBDT")).is_some()
+            || font.table_data(tag(b"EBLC")).is_some()
+            || font.table_data(tag(b"sbix")).is_some();
+        let shaper_data = Arc::new(harfrust::ShaperData::new(&font));
         Ok(Self {
             data,
             index,
             units_per_em,
+            has_color_tables,
+            shaper_data,
         })
     }
 
@@ -121,6 +133,9 @@ impl FontFace {
 
     /// Whether `glyph_id` is painted with a color representation (bitmap or COLRv0).
     pub(crate) fn has_color_glyph(&self, glyph_id: GlyphId) -> bool {
+        if !self.has_color_tables {
+            return false;
+        }
         let Ok(font) = self.font() else {
             return false;
         };
@@ -134,6 +149,14 @@ impl FontFace {
         font.bitmap_strikes()
             .iter()
             .any(|strike| strike.get(glyph_id).is_some())
+    }
+
+    pub(crate) fn shaper_data(&self) -> &harfrust::ShaperData {
+        &self.shaper_data
+    }
+
+    pub(crate) fn has_color_tables(&self) -> bool {
+        self.has_color_tables
     }
 
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
@@ -258,8 +281,18 @@ impl FontStack {
         let Some(face) = self.get(font) else {
             return false;
         };
-        let chars = cluster_chars(cluster);
-        !chars.is_empty() && chars.iter().all(|&ch| face.has_char(ch))
+        if cluster.is_empty() {
+            return false;
+        }
+        let mut meaningful = false;
+        for ch in cluster.chars().filter(|ch| !is_ignorable(*ch)) {
+            meaningful = true;
+            if !face.has_char(ch) {
+                return false;
+            }
+        }
+        // All-ignorable clusters still need a face that maps them.
+        meaningful || cluster.chars().all(|ch| face.has_char(ch))
     }
 }
 

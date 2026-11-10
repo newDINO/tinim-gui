@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use harfrust::{Direction, ShaperData, UnicodeBuffer};
+use harfrust::{Direction, UnicodeBuffer};
 use skrifa::GlyphId;
 use unicode_bidi::{BidiInfo, ParagraphInfo};
 use unicode_script::Script as UnicodeScript;
@@ -82,14 +82,21 @@ fn shape_visual_run(
     let mut item_start = run.start;
     let mut item_font: Option<FontId> = None;
     let mut item_script = harfrust::script::COMMON;
+    // With a single face there is no fallback decision to make; punctuation always stays in it.
+    let single_font = if fonts.len() == 1 {
+        fonts.primary().map(|(id, _)| id)
+    } else {
+        None
+    };
 
     for (offset, cluster) in run_text.grapheme_indices(true) {
         let absolute = run.start + offset;
-        let Some(mut font) = fonts.select(cluster, allow_fallback) else {
+        let Some(mut font) = single_font.or_else(|| fonts.select(cluster, allow_fallback)) else {
             return;
         };
         let mut script = script_of(cluster);
-        if script == harfrust::script::COMMON
+        if single_font.is_none()
+            && script == harfrust::script::COMMON
             && let Some(previous_font) = item_font
             && fonts.covers(previous_font, cluster)
         {
@@ -173,8 +180,7 @@ fn shape_item(
         return;
     };
 
-    let data = ShaperData::new(&font);
-    let shaper = data.shaper(&font).build();
+    let shaper = face.shaper_data().shaper(&font).build();
     let mut buffer = UnicodeBuffer::new();
     buffer.push_str(&text[range]);
     buffer.set_direction(direction);
@@ -207,6 +213,16 @@ fn shape_item(
 
 /// Maps a grapheme cluster to the script HarfBuzz should shape it with.
 fn script_of(cluster: &str) -> harfrust::Script {
+    // ASCII dominates UI text; skip the script table and short-name parse for it.
+    if let Some(first) = cluster.chars().next()
+        && first.is_ascii()
+    {
+        return if first.is_ascii_alphabetic() {
+            harfrust::script::LATIN
+        } else {
+            harfrust::script::COMMON
+        };
+    }
     for ch in cluster.chars() {
         match UnicodeScript::from(ch) {
             UnicodeScript::Common | UnicodeScript::Inherited | UnicodeScript::Unknown => {}
