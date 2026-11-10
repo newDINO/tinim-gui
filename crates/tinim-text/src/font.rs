@@ -270,8 +270,18 @@ impl FontStack {
         let Some(face) = self.get(font) else {
             return false;
         };
-        let chars = cluster_chars(cluster);
-        !chars.is_empty() && chars.iter().all(|&ch| face.has_char(ch))
+        if cluster.is_empty() {
+            return false;
+        }
+        let mut meaningful = false;
+        for ch in cluster.chars().filter(|ch| !is_ignorable(*ch)) {
+            meaningful = true;
+            if !face.has_char(ch) {
+                return false;
+            }
+        }
+        // All-ignorable clusters still need a face that maps them.
+        meaningful || cluster.chars().all(|ch| face.has_char(ch))
     }
 }
 
