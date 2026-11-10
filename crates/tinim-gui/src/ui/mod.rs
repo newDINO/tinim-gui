@@ -114,7 +114,7 @@ impl<'a> Ui<'a> {
     /// request an icon while they are hovered; the context resets to
     /// [`CursorIcon::Default`](crate::CursorIcon::Default) at the start of every frame.
     pub fn set_cursor_icon(&mut self, icon: CursorIcon) {
-        self.ctx.cursor_icon = icon;
+        self.ctx.platform.cursor_icon = icon;
     }
 
     /// Space between children in the current style, clamped to a non-negative value.

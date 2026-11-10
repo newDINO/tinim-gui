@@ -216,7 +216,7 @@ impl Ui<'_> {
         if hovered {
             // The text layout above keeps `text_cache` borrowed; assign the field directly
             // instead of calling `Ui::set_cursor_icon`, which borrows all of `self`.
-            self.ctx.cursor_icon = CursorIcon::Pointer;
+            self.ctx.platform.cursor_icon = CursorIcon::Pointer;
         }
 
         let clip = self.ctx.painter.clip_rect();
@@ -318,13 +318,13 @@ mod tests {
         let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
             ui.button("go");
         });
-        assert_eq!(frame.cursor_icon, CursorIcon::Pointer);
+        assert_eq!(frame.platform.cursor_icon, CursorIcon::Pointer);
         drop(frame);
 
         let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
             ui.button("go");
         });
-        assert_eq!(frame.cursor_icon, CursorIcon::Default);
+        assert_eq!(frame.platform.cursor_icon, CursorIcon::Default);
     }
 
     #[test]
@@ -339,7 +339,7 @@ mod tests {
         let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
             ui.checkbox(&mut checked);
         });
-        assert_eq!(frame.cursor_icon, CursorIcon::Pointer);
+        assert_eq!(frame.platform.cursor_icon, CursorIcon::Pointer);
     }
 
     #[test]

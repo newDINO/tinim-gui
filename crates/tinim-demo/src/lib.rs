@@ -4,7 +4,7 @@ mod pages;
 
 use web_time::{Duration, Instant};
 
-use tinim_gui::{Color32, Context, Frame, RawInput, TextureId, Vec2};
+use tinim_gui::{Color32, Context, FullOutput, RawInput, TextureId, Vec2};
 
 use pages::{LayoutPage, PanePage, ScrollPage, StylePage, WidgetsPage, draw_placed_page};
 
@@ -87,8 +87,13 @@ impl Demo {
         }
     }
 
-    /// Builds one frame and returns its paint data.
-    pub fn run(&mut self, viewport: Vec2, pixels_per_point: f32, input: RawInput) -> Frame<'_> {
+    /// Builds one frame and returns its rendering and platform output.
+    pub fn run(
+        &mut self,
+        viewport: Vec2,
+        pixels_per_point: f32,
+        input: RawInput,
+    ) -> FullOutput<'_> {
         let start_time = web_time::Instant::now();
 
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {

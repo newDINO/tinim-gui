@@ -3,8 +3,8 @@
 /// The mouse cursor a widget wants while the pointer is over it.
 ///
 /// Widgets request an icon through [`Ui::set_cursor_icon`](crate::Ui::set_cursor_icon); the
-/// backend applies the icon returned by [`Frame::cursor_icon`](crate::Frame::cursor_icon) to the
-/// window after building the frame.
+/// backend applies the icon in [`FullOutput::platform`](crate::FullOutput::platform) to the window
+/// after building the frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorIcon {
     /// The platform's default arrow cursor.

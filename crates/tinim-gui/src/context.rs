@@ -3,16 +3,16 @@
 use tinim_paint::{PaintList, Painter, TextureId, TexturesDelta, Vec2};
 use tinim_paint_text::TextSystem;
 
-use crate::cursor::CursorIcon;
 use crate::input::RawInput;
+use crate::platform::PlatformOutput;
 use crate::style::Style;
 use crate::text_cache::TextCache;
 use crate::ui::Ui;
 
 /// Owns the text system, painter and text cache.
 ///
-/// Call [`Context::run`] once per frame. The returned [`Frame`] borrows the paint list, so it must
-/// be rendered before the next frame starts.
+/// Call [`Context::run`] once per frame. The returned [`FullOutput`] borrows the paint list, so it
+/// must be rendered before the next frame starts.
 pub struct Context {
     pub(crate) text_system: TextSystem,
     pub(crate) painter: Painter,
@@ -21,20 +21,25 @@ pub struct Context {
     pub(crate) input: RawInput,
     size: Vec2,
     pub(crate) pixels_per_point: f32,
-    pub(crate) cursor_icon: CursorIcon,
+    pub(crate) platform: PlatformOutput,
 }
 
-/// One frame's rendering data.
-pub struct Frame<'a> {
+/// Everything produced by one frame.
+pub struct FullOutput<'a> {
     /// Tessellated geometry in physical pixels.
     pub paint: &'a PaintList,
     /// Glyph atlas uploads produced while building the frame.
     pub textures: TexturesDelta,
-    /// Mouse cursor requested by the widgets built this frame.
+    /// Non-rendering requests for the platform or application.
     ///
-    /// Interactable widgets request an icon while the pointer is over them. A backend should
-    /// apply this to its window only when it differs from the icon it applied previously.
-    pub cursor_icon: CursorIcon,
+    /// This includes the mouse cursor requested by hovered widgets. Rendering uses [`paint`] and
+    /// [`textures`]; [`platform`] is applied through a backend integration such as
+    /// `tinim-winit`.
+    ///
+    /// [`paint`]: FullOutput::paint
+    /// [`textures`]: FullOutput::textures
+    /// [`platform`]: FullOutput::platform
+    pub platform: PlatformOutput,
 }
 
 impl Context {
@@ -52,7 +57,7 @@ impl Context {
             input: RawInput::default(),
             size: Vec2::ZERO,
             pixels_per_point: 1.0,
-            cursor_icon: CursorIcon::Default,
+            platform: PlatformOutput::default(),
         }
     }
 
@@ -103,7 +108,7 @@ impl Context {
         pixels_per_point: f32,
         input: RawInput,
         build: impl FnOnce(&mut Ui<'_>),
-    ) -> Frame<'_> {
+    ) -> FullOutput<'_> {
         self.begin_frame(viewport, pixels_per_point, input);
 
         {
@@ -113,10 +118,11 @@ impl Context {
 
         let paint = self.painter.finish();
         let textures = self.text_system.take_textures();
-        Frame {
+        let platform = std::mem::take(&mut self.platform);
+        FullOutput {
             paint,
             textures,
-            cursor_icon: self.cursor_icon,
+            platform,
         }
     }
 
@@ -124,7 +130,7 @@ impl Context {
         self.size = sanitize_size(viewport);
         self.pixels_per_point = sanitize_scale(pixels_per_point);
         self.input = input;
-        self.cursor_icon = CursorIcon::Default;
+        self.platform = PlatformOutput::default();
 
         if (self.painter.pixels_per_point() - self.pixels_per_point).abs() > f32::EPSILON {
             self.painter = Painter::from_size(self.size, self.pixels_per_point);

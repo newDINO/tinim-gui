@@ -380,7 +380,7 @@ mod tests {
         let frame = context.run(vec2(200.0, 100.0), 1.0, hover, |ui| {
             ui.text_edit_singleline(&mut text, &mut state);
         });
-        assert_eq!(frame.cursor_icon, CursorIcon::Text);
+        assert_eq!(frame.platform.cursor_icon, CursorIcon::Text);
     }
 
     #[test]

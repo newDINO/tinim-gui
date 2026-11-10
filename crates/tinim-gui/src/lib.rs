@@ -42,6 +42,7 @@ mod context;
 mod cursor;
 mod hash;
 mod input;
+mod platform;
 mod style;
 mod text_cache;
 mod ui;
@@ -50,9 +51,10 @@ pub use tinim_paint::{Color32, PaintList, Pos2, Rect, TextureId, TexturesDelta, 
 pub use tinim_paint_text;
 pub use tinim_text;
 
-pub use context::{Context, Frame};
+pub use context::{Context, FullOutput};
 pub use cursor::CursorIcon;
 pub use input::{Key, Modifiers, RawInput};
+pub use platform::PlatformOutput;
 pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style, TextEditStyle};
 pub use ui::{
     Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, TextEditResponse,

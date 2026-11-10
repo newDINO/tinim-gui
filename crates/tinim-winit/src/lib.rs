@@ -5,7 +5,7 @@
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
 
-use tinim_gui::{CursorIcon, Key, Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
+use tinim_gui::{CursorIcon, Key, Modifiers, PlatformOutput, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::window::{CursorIcon as WinitCursorIcon, Window};
 
@@ -15,7 +15,31 @@ const LINE_HEIGHT: f32 = 50.0;
 /// How far a finger may wander before a touch becomes a drag instead of a click, in logical points.
 const TOUCH_SLOP: f32 = 8.0;
 
-/// Applies the cursor requested by a [`tinim_gui::Frame`] to a winit window.
+/// Applies the platform output of a frame to a winit window.
+///
+/// Each part is applied through its own state, so future outputs such as IME state can be added
+/// without turning this into one monolithic handler. Create one `WinitOutput` per window.
+#[derive(Debug, Default)]
+pub struct WinitOutput {
+    cursor: CursorState,
+}
+
+impl WinitOutput {
+    /// Applies `output` to `window`.
+    ///
+    /// Only values that differ from the previously applied state reach the platform.
+    pub fn apply(&mut self, window: &Window, output: &PlatformOutput) {
+        self.cursor.apply(window, output.cursor_icon);
+    }
+
+    /// Forgets the applied state so the next [`WinitOutput::apply`] updates the window even when
+    /// nothing changed. Use this after the platform may have reset its state.
+    pub fn invalidate(&mut self) {
+        self.cursor.invalidate();
+    }
+}
+
+/// Applies the cursor requested by [`PlatformOutput::cursor_icon`] to a winit window.
 ///
 /// The requested icon is compared with the last applied icon so the platform cursor is only
 /// changed when it actually differs. Create one `CursorState` per window.

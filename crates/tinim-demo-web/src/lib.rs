@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tinim_demo::Demo;
 use tinim_gui::vec2;
 use tinim_wgpu::wgpu;
-use tinim_winit::{CursorState, WinitInput, winit};
+use tinim_winit::{WinitInput, WinitOutput, winit};
 use wasm_bindgen::prelude::*;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -44,7 +44,7 @@ struct AppInner {
 
     demo: Demo,
     input: WinitInput,
-    cursor: CursorState,
+    output: WinitOutput,
     renderer: tinim_wgpu::Renderer,
 }
 
@@ -115,7 +115,7 @@ impl AppInner {
             surface_config,
             demo,
             input,
-            cursor: CursorState::default(),
+            output: WinitOutput::default(),
             renderer,
         })
     }
@@ -166,7 +166,7 @@ impl AppInner {
 
         let input = self.input.take();
         let frame = self.demo.run(viewport, pixels_per_point, input);
-        self.cursor.apply(&self.window, frame.cursor_icon);
+        self.output.apply(&self.window, &frame.platform);
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);
