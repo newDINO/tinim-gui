@@ -55,6 +55,7 @@ pub struct FontFace {
     index: u32,
     units_per_em: u16,
     has_color_tables: bool,
+    shaper_data: Arc<harfrust::ShaperData>,
 }
 
 impl std::fmt::Debug for FontFace {
@@ -99,11 +100,13 @@ impl FontFace {
             || font.table_data(tag(b"EBDT")).is_some()
             || font.table_data(tag(b"EBLC")).is_some()
             || font.table_data(tag(b"sbix")).is_some();
+        let shaper_data = Arc::new(harfrust::ShaperData::new(&font));
         Ok(Self {
             data,
             index,
             units_per_em,
             has_color_tables,
+            shaper_data,
         })
     }
 
@@ -146,6 +149,10 @@ impl FontFace {
         font.bitmap_strikes()
             .iter()
             .any(|strike| strike.get(glyph_id).is_some())
+    }
+
+    pub(crate) fn shaper_data(&self) -> &harfrust::ShaperData {
+        &self.shaper_data
     }
 
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {

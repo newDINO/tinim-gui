@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use harfrust::{Direction, ShaperData, UnicodeBuffer};
+use harfrust::{Direction, UnicodeBuffer};
 use skrifa::GlyphId;
 use unicode_bidi::{BidiInfo, ParagraphInfo};
 use unicode_script::Script as UnicodeScript;
@@ -180,8 +180,7 @@ fn shape_item(
         return;
     };
 
-    let data = ShaperData::new(&font);
-    let shaper = data.shaper(&font).build();
+    let shaper = face.shaper_data().shaper(&font).build();
     let mut buffer = UnicodeBuffer::new();
     buffer.push_str(&text[range]);
     buffer.set_direction(direction);
