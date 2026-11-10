@@ -9,7 +9,7 @@ A tiny immediate-mode GUI.
 | `tinim-paint` | math, colors, `Painter`, `PaintList`, tessellation |
 | `tinim-text` | shaping, bidi, line breaking and a glyph atlas (harfrust + skrifa) |
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
-| `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, checkboxes, radios and press-only buttons |
+| `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, checkboxes, radios, press-only buttons and single-line text editing |
 | `tinim-winit` | `WindowEvent` → `RawInput` input adapter |
 | `tinim-demo` | shared demo UI and the embedded Comic Mono font |
 | `tinim-demo-native` | native winit + wgpu demo binary |

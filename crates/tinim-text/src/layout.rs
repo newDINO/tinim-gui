@@ -169,6 +169,10 @@ pub struct PositionedGlyph {
     pub(crate) y: f32,
     pub(crate) advance: f32,
     pub(crate) color: bool,
+    /// Byte range of the source cluster this glyph was shaped from.
+    pub(crate) cluster: Range<usize>,
+    /// Whether the glyph belongs to a right-to-left run.
+    pub(crate) rtl: bool,
 }
 
 impl PositionedGlyph {
@@ -201,6 +205,19 @@ impl PositionedGlyph {
     pub fn is_color(&self) -> bool {
         self.color
     }
+
+    /// Byte range of the source text cluster that produced this glyph.
+    ///
+    /// A cluster can contain more than one byte, and several glyphs can share one cluster
+    /// (for example a base character and its combining mark).
+    pub fn cluster(&self) -> Range<usize> {
+        self.cluster.clone()
+    }
+
+    /// Whether this glyph belongs to a right-to-left run.
+    pub fn is_rtl(&self) -> bool {
+        self.rtl
+    }
 }
 
 /// One line of a [`TextLayout`].
@@ -225,6 +242,118 @@ impl TextLine {
     pub fn baseline(&self) -> f32 {
         self.baseline
     }
+
+    /// X position of the caret before `byte_index`, relative to the line start.
+    ///
+    /// Indices inside a shaping cluster snap to the start of that cluster. An index at or past
+    /// the end of the line returns its width. This is used by text editors to draw the caret.
+    pub fn cursor_x(&self, byte_index: usize) -> f32 {
+        let clusters = self.clusters();
+        let mut after = None;
+        let mut nearest: Option<(usize, f32)> = None;
+
+        for cluster in &clusters {
+            let (before, after_x) = if cluster.rtl {
+                (cluster.right, cluster.left)
+            } else {
+                (cluster.left, cluster.right)
+            };
+
+            if byte_index == cluster.range.start
+                || (cluster.range.start < byte_index && byte_index < cluster.range.end)
+            {
+                return before;
+            }
+            if byte_index == cluster.range.end {
+                after = Some(after_x);
+            }
+
+            let distance = if byte_index < cluster.range.start {
+                cluster.range.start - byte_index
+            } else {
+                byte_index.saturating_sub(cluster.range.end)
+            };
+            if nearest.is_none_or(|(best, _)| distance < best) {
+                nearest = Some((distance, before));
+            }
+        }
+
+        after
+            .or_else(|| nearest.map(|(_, x)| x))
+            .unwrap_or(self.width)
+    }
+
+    /// Byte index of the caret nearest to `x`, measured from the line start.
+    ///
+    /// Used by text editors to place the caret from a pointer position.
+    pub fn byte_index_at_x(&self, x: f32) -> usize {
+        let clusters = self.clusters();
+        if clusters.is_empty() {
+            return 0;
+        }
+
+        for cluster in &clusters {
+            if x < cluster.left {
+                return if cluster.rtl {
+                    cluster.range.end
+                } else {
+                    cluster.range.start
+                };
+            }
+            if x <= cluster.right {
+                let middle = (cluster.left + cluster.right) * 0.5;
+                return if x < middle {
+                    if cluster.rtl {
+                        cluster.range.end
+                    } else {
+                        cluster.range.start
+                    }
+                } else if cluster.rtl {
+                    cluster.range.start
+                } else {
+                    cluster.range.end
+                };
+            }
+        }
+
+        let cluster = clusters.last().expect("clusters is not empty");
+        if cluster.rtl {
+            cluster.range.start
+        } else {
+            cluster.range.end
+        }
+    }
+
+    /// Visual spans of the line's shaping clusters, ordered from left to right.
+    fn clusters(&self) -> Vec<Cluster> {
+        let mut clusters: Vec<Cluster> = Vec::new();
+        for glyph in &self.glyphs {
+            let range = glyph.cluster();
+            let left = glyph.x;
+            let right = glyph.x + glyph.advance;
+            if let Some(cluster) = clusters.iter_mut().find(|cluster| cluster.range == range) {
+                cluster.left = cluster.left.min(left);
+                cluster.right = cluster.right.max(right);
+            } else {
+                clusters.push(Cluster {
+                    range,
+                    rtl: glyph.rtl,
+                    left,
+                    right,
+                });
+            }
+        }
+        clusters.sort_by(|a, b| a.left.total_cmp(&b.left));
+        clusters
+    }
+}
+
+/// Visual geometry of one shaping cluster on a line.
+struct Cluster {
+    range: Range<usize>,
+    rtl: bool,
+    left: f32,
+    right: f32,
 }
 
 /// A laid out string, independent of the glyph atlas.

@@ -5,7 +5,7 @@
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
 
-use tinim_gui::{Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
+use tinim_gui::{Key, Modifiers, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 
 /// One wheel line is translated to this many logical points.
@@ -27,6 +27,7 @@ pub struct WinitInput {
     scroll_dragging: bool,
     modifiers: Modifiers,
     text: String,
+    keys: Vec<Key>,
     /// The touch currently driving the primary pointer, if any. The GUI has a single pointer,
     /// so extra fingers are ignored until this one is released.
     active_touch: Option<u64>,
@@ -59,6 +60,7 @@ impl WinitInput {
             scroll_dragging: false,
             modifiers: Modifiers::default(),
             text: String::new(),
+            keys: Vec::new(),
             active_touch: None,
             touch_start: Pos2::ZERO,
             touch_last: Pos2::ZERO,
@@ -118,11 +120,8 @@ impl WinitInput {
                 };
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed
-                    && !event.repeat
-                    && let Some(text) = &event.text
-                {
-                    self.text.push_str(text);
+                if event.state == ElementState::Pressed {
+                    self.on_key_pressed(&event.logical_key, event.text.as_deref(), event.repeat);
                 }
             }
             WindowEvent::Touch(touch) => self.on_touch(touch),
@@ -219,6 +218,24 @@ impl WinitInput {
         }
     }
 
+    /// Handles one pressed key. Kept separate from [`Self::on_window_event`] so tests can feed
+    /// logical keys without constructing winit's `KeyEvent`, which has private fields.
+    fn on_key_pressed(
+        &mut self,
+        logical_key: &winit::keyboard::Key,
+        text: Option<&str>,
+        repeat: bool,
+    ) {
+        if let Some(key) = translate_key(logical_key) {
+            // Repeats are useful for held Backspace/Delete/arrow keys.
+            self.keys.push(key);
+        }
+        if !repeat && let Some(text) = text {
+            // Enter, Backspace and friends may carry control characters as text.
+            self.text.extend(text.chars().filter(|ch| !ch.is_control()));
+        }
+    }
+
     /// Takes this frame's input. Edges, scroll and text are cleared; pointer, held buttons and
     /// modifiers are kept.
     pub fn take(&mut self) -> RawInput {
@@ -235,9 +252,32 @@ impl WinitInput {
             scroll: std::mem::take(&mut self.scroll),
             modifiers: self.modifiers,
             text: std::mem::take(&mut self.text),
+            keys: std::mem::take(&mut self.keys),
             scroll_dragging: std::mem::take(&mut self.scroll_dragging),
             dt,
         }
+    }
+}
+
+/// Translates a winit logical key into the subset the GUI understands.
+fn translate_key(key: &winit::keyboard::Key) -> Option<Key> {
+    use winit::keyboard::{Key as WinitKey, NamedKey};
+
+    match key {
+        WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
+        WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
+        WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
+        WinitKey::Named(NamedKey::Escape) => Some(Key::Escape),
+        WinitKey::Named(NamedKey::Tab) => Some(Key::Tab),
+        WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::ArrowLeft),
+        WinitKey::Named(NamedKey::ArrowRight) => Some(Key::ArrowRight),
+        WinitKey::Named(NamedKey::Home) => Some(Key::Home),
+        WinitKey::Named(NamedKey::End) => Some(Key::End),
+        WinitKey::Character(text) => text
+            .chars()
+            .next()
+            .map(|ch| Key::Character(ch.to_ascii_lowercase())),
+        _ => None,
     }
 }
 
@@ -256,6 +296,7 @@ mod tests {
     use super::*;
     use winit::dpi::PhysicalPosition;
     use winit::event::{DeviceId, Touch};
+    use winit::keyboard::{Key as WinitKey, NamedKey};
 
     fn touch(id: u64, phase: TouchPhase, x: f64, y: f64) -> WindowEvent {
         WindowEvent::Touch(Touch {
@@ -389,5 +430,31 @@ mod tests {
         assert!(frame.primary_pressed);
         assert!(!frame.primary_released);
         assert_eq!(frame.pointer, None);
+    }
+
+    #[test]
+    fn named_keys_are_translated_and_text_is_kept() {
+        let mut input = WinitInput::new(1.0);
+        input.on_key_pressed(&WinitKey::Named(NamedKey::Backspace), Some("\u{8}"), false);
+        input.on_key_pressed(&WinitKey::Named(NamedKey::ArrowLeft), None, false);
+        input.on_key_pressed(&WinitKey::Character("A".into()), Some("A"), false);
+
+        let frame = input.take();
+        assert_eq!(
+            frame.keys,
+            vec![Key::Backspace, Key::ArrowLeft, Key::Character('a')]
+        );
+        assert_eq!(frame.text, "A", "control characters are not text");
+    }
+
+    #[test]
+    fn key_repeats_are_reported_but_text_is_not_duplicated() {
+        let mut input = WinitInput::new(1.0);
+        input.on_key_pressed(&WinitKey::Named(NamedKey::Backspace), None, true);
+        input.on_key_pressed(&WinitKey::Character("a".into()), Some("a"), true);
+
+        let frame = input.take();
+        assert_eq!(frame.keys, vec![Key::Backspace, Key::Character('a')]);
+        assert!(frame.text.is_empty());
     }
 }

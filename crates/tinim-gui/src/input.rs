@@ -14,6 +14,25 @@ pub struct Modifiers {
     pub logo: bool,
 }
 
+/// A non-text key press.
+///
+/// Printable text is delivered separately through [`RawInput::text`]. Keys are reported here so
+/// widgets such as text editors can handle editing commands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Key {
+    Backspace,
+    Delete,
+    Enter,
+    Escape,
+    Tab,
+    ArrowLeft,
+    ArrowRight,
+    Home,
+    End,
+    /// A character key, normalized to lowercase, for shortcuts such as Ctrl+A.
+    Character(char),
+}
+
 /// Everything the GUI needs to know about input for one frame.
 ///
 /// `primary_pressed` and `primary_released` are edges: they are true only on the frame in
@@ -33,6 +52,8 @@ pub struct RawInput {
     pub modifiers: Modifiers,
     /// Text produced by keyboard input during this frame.
     pub text: String,
+    /// Non-text key presses during this frame, in event order.
+    pub keys: Vec<Key>,
     /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
     pub scroll_dragging: bool,
     /// Seconds since the previous frame. Used to animate scroll inertia; zero when unknown.

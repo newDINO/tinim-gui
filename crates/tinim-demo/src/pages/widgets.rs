@@ -1,12 +1,14 @@
 //! Widget showcase.
 
-use tinim_gui::{Align, FlowConfig, Ui, vec2};
+use tinim_gui::{Align, FlowConfig, TextEditState, Ui, vec2};
 
 pub(crate) struct WidgetsPage {
     counter: usize,
     checked: bool,
     radio: usize,
     radio_value: usize,
+    text: String,
+    text_edit: TextEditState,
 }
 
 trait UiExt {
@@ -30,6 +32,8 @@ impl WidgetsPage {
             checked: false,
             radio: 0,
             radio_value: 0,
+            text: "editable text".to_owned(),
+            text_edit: TextEditState::new(),
         }
     }
 
@@ -52,6 +56,13 @@ impl WidgetsPage {
                 "checkbox: unchecked"
             });
         });
+
+        ui.label("text_edit_singleline(): click to focus, drag to select, Enter submits:");
+        let edit = ui.text_edit_singleline(&mut self.text, &mut self.text_edit);
+        ui.label(&format!(
+            "text: {:?} | focused: {} | changed: {} | submitted: {}",
+            self.text, edit.focused, edit.changed, edit.submitted
+        ));
 
         ui.label("radio(selected) is the label-free counterpart of selectable_label:");
         ui.sized_horizontal(fixed_height, |ui| {

@@ -175,8 +175,9 @@ fn shape_item(
 
     let data = ShaperData::new(&font);
     let shaper = data.shaper(&font).build();
+    let range_end = range.end;
     let mut buffer = UnicodeBuffer::new();
-    buffer.push_str(&text[range]);
+    buffer.push_str(&text[range.clone()]);
     buffer.set_direction(direction);
     buffer.set_script(script);
     buffer.guess_segment_properties();
@@ -189,10 +190,27 @@ fn shape_item(
     };
     let spacing = style.letter_spacing();
 
+    // HarfBuzz reports a cluster start for every glyph. A cluster ends where the next larger
+    // start begins (or at the end of the shaped range), which lets text editors map byte indices
+    // to caret positions without re-shaping prefixes.
+    let mut cluster_starts: Vec<usize> = shaped
+        .glyph_infos()
+        .iter()
+        .map(|info| range.start + info.cluster as usize)
+        .collect();
+    cluster_starts.sort_unstable();
+    cluster_starts.dedup();
+
     for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
         let glyph_id = GlyphId::new(info.glyph_id);
         let color = face.has_color_glyph(glyph_id);
         let advance = position.x_advance as f32 * scale;
+        let cluster_start = range.start + info.cluster as usize;
+        let cluster_end = cluster_starts
+            .iter()
+            .copied()
+            .find(|&start| start > cluster_start)
+            .unwrap_or(range_end);
         out.push(PositionedGlyph {
             font: font_id,
             glyph_id: info.glyph_id,
@@ -200,6 +218,8 @@ fn shape_item(
             y: position.y_offset as f32 * scale,
             advance: advance + spacing,
             color,
+            cluster: cluster_start..cluster_end,
+            rtl: direction == Direction::RightToLeft,
         });
         *pen_x += advance + spacing;
     }

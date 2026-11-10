@@ -1,5 +1,7 @@
 //! Results and caller-owned state exchanged with widgets.
 
+use std::ops::Range;
+
 use tinim_paint::{Rect, Vec2};
 
 /// What a widget reports for this frame.
@@ -11,6 +13,85 @@ pub struct Response {
     pub pressed: bool,
     /// The primary button is currently held over this widget.
     pub down: bool,
+}
+
+/// Caller-owned state for [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline).
+///
+/// The caret and selection are byte indices into the edited string and are kept on character
+/// boundaries. Use [`TextEditState::new`] or [`Default`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextEditState {
+    /// Whether the editor currently owns keyboard input.
+    ///
+    /// Clicking the editor focuses it and clicking anywhere else blurs it. Applications can also
+    /// set this directly to move focus programmatically.
+    pub focused: bool,
+    /// Caret position as a byte index into the text.
+    pub(crate) cursor: usize,
+    /// The other end of the selection, also a byte index.
+    pub(crate) anchor: usize,
+    /// Horizontal scroll offset in logical points.
+    pub(crate) scroll: f32,
+    /// Seconds since the caret last moved, used for blinking.
+    pub(crate) blink: f32,
+    /// Whether a pointer drag is extending the selection.
+    pub(crate) dragging: bool,
+}
+
+impl TextEditState {
+    /// A blurred editor with the caret at the start and no selection.
+    pub const fn new() -> Self {
+        Self {
+            focused: false,
+            cursor: 0,
+            anchor: 0,
+            scroll: 0.0,
+            blink: 0.0,
+            dragging: false,
+        }
+    }
+
+    /// Caret position as a byte index into the text.
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Selected byte range. Empty when there is no selection.
+    pub fn selection(&self) -> Range<usize> {
+        self.cursor.min(self.anchor)..self.cursor.max(self.anchor)
+    }
+
+    /// Current horizontal scroll offset in logical points.
+    pub fn scroll(&self) -> f32 {
+        self.scroll
+    }
+
+    /// Whether the editor currently owns keyboard input.
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+
+    /// Focuses or blurs the editor. Blurring collapses the selection.
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+        self.blink = 0.0;
+        if !focused {
+            self.anchor = self.cursor;
+            self.dragging = false;
+        }
+    }
+}
+
+/// The result of building a [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextEditResponse {
+    pub rect: Rect,
+    pub hovered: bool,
+    pub focused: bool,
+    /// The text changed during this frame.
+    pub changed: bool,
+    /// Enter was pressed while the editor was focused.
+    pub submitted: bool,
 }
 
 /// The result of building a [`Ui::pane`](crate::Ui::pane).

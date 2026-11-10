@@ -2012,6 +2012,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "tinim-paint",
  "tinim-text",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -62,6 +62,7 @@ impl Demo {
             .add_font(FONT)
             .expect("the embedded Comic Mono font must be valid");
         context.style_mut().font.color = DEFAULT_TEXT;
+        context.style_mut().text_edit.text = DEFAULT_TEXT;
 
         let now = Instant::now();
 
