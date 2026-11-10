@@ -214,6 +214,16 @@ fn shape_item(
 
 /// Maps a grapheme cluster to the script HarfBuzz should shape it with.
 fn script_of(cluster: &str) -> harfrust::Script {
+    // ASCII dominates UI text; skip the script table and short-name parse for it.
+    if let Some(first) = cluster.chars().next()
+        && first.is_ascii()
+    {
+        return if first.is_ascii_alphabetic() {
+            harfrust::script::LATIN
+        } else {
+            harfrust::script::COMMON
+        };
+    }
     for ch in cluster.chars() {
         match UnicodeScript::from(ch) {
             UnicodeScript::Common | UnicodeScript::Inherited | UnicodeScript::Unknown => {}
