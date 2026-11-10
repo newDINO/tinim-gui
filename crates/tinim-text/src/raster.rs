@@ -37,7 +37,13 @@ pub struct RasterizedGlyph {
 /// there is nothing to draw (a space, a missing glyph, or a format we cannot decode).
 pub fn rasterize(face: &FontFace, glyph_id: u32, ppem: f32) -> Option<RasterizedGlyph> {
     let font = face.font().ok()?;
-    rasterize_font(&font, GlyphId::new(glyph_id), ppem, face.units_per_em())
+    rasterize_font(
+        &font,
+        GlyphId::new(glyph_id),
+        ppem,
+        face.units_per_em(),
+        face.has_color_tables(),
+    )
 }
 
 fn rasterize_font(
@@ -45,12 +51,15 @@ fn rasterize_font(
     glyph_id: GlyphId,
     ppem: f32,
     units_per_em: u16,
+    has_color_tables: bool,
 ) -> Option<RasterizedGlyph> {
-    if let Some(glyph) = rasterize_bitmap(font, glyph_id, ppem, units_per_em) {
-        return Some(glyph);
-    }
-    if let Some(glyph) = rasterize_colr_v0(font, glyph_id, ppem) {
-        return Some(glyph);
+    if has_color_tables {
+        if let Some(glyph) = rasterize_bitmap(font, glyph_id, ppem, units_per_em) {
+            return Some(glyph);
+        }
+        if let Some(glyph) = rasterize_colr_v0(font, glyph_id, ppem) {
+            return Some(glyph);
+        }
     }
     rasterize_outline(font, glyph_id, ppem)
 }

@@ -155,6 +155,10 @@ impl FontFace {
         &self.shaper_data
     }
 
+    pub(crate) fn has_color_tables(&self) -> bool {
+        self.has_color_tables
+    }
+
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
         let Ok(font) = self.font() else {
             return FontMetrics::fallback(size);
