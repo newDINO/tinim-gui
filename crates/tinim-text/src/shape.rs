@@ -82,14 +82,21 @@ fn shape_visual_run(
     let mut item_start = run.start;
     let mut item_font: Option<FontId> = None;
     let mut item_script = harfrust::script::COMMON;
+    // With a single face there is no fallback decision to make; punctuation always stays in it.
+    let single_font = if fonts.len() == 1 {
+        fonts.primary().map(|(id, _)| id)
+    } else {
+        None
+    };
 
     for (offset, cluster) in run_text.grapheme_indices(true) {
         let absolute = run.start + offset;
-        let Some(mut font) = fonts.select(cluster, allow_fallback) else {
+        let Some(mut font) = single_font.or_else(|| fonts.select(cluster, allow_fallback)) else {
             return;
         };
         let mut script = script_of(cluster);
-        if script == harfrust::script::COMMON
+        if single_font.is_none()
+            && script == harfrust::script::COMMON
             && let Some(previous_font) = item_font
             && fonts.covers(previous_font, cluster)
         {
