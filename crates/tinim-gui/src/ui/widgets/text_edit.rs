@@ -106,6 +106,9 @@ impl Ui<'_> {
     /// caret. While focused, the editor reports its caret area through
     /// [`PlatformOutput::ime`](crate::PlatformOutput::ime) so the backend can enable IME input and
     /// place the candidate window.
+    ///
+    /// The backend must supply the IME events. Native winit does; winit 0.30's web backend does
+    /// not, so browsers need a separate DOM bridge to open a soft keyboard or forward composition.
     pub fn text_edit_singleline(
         &mut self,
         text: &mut String,

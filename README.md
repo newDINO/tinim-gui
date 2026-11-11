@@ -10,8 +10,8 @@ A tiny immediate-mode GUI.
 | `tinim-text` | shaping, bidi, line breaking and glyph rasterization (harfrust + skrifa) |
 | `tinim-paint-text` | glyph atlas and mesh generation for `tinim-text` on top of `tinim-paint` |
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
-| `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, separators, checkboxes, radios, sliders, press-only buttons, single-line text editing with clipboard shortcuts and numeric inputs |
-| `tinim-winit` | `WindowEvent` → `RawInput` input adapter |
+| `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, separators, checkboxes, radios, sliders, press-only buttons, single-line text editing with clipboard shortcuts and IME composition, and numeric inputs |
+| `tinim-winit` | `WindowEvent` → `RawInput` input adapter, including clipboard and native IME state |
 | `tinim-demo` | shared demo UI, application loop and the embedded Comic Mono font |
 | `tinim-demo-native` | native winit + wgpu demo binary |
 | `tinim-demo-web` | WebAssembly demo (WebGPU, with WebGL fallback) |
@@ -55,6 +55,25 @@ directly opt in by enabling it on their own `wgpu` dependency:
 ```toml
 wgpu = { version = "30", features = ["webgl"] }
 ```
+
+### IME and mobile keyboards
+
+Native builds forward IME composition and commit events, and place the candidate window at the
+focused text editor's caret. This works on the desktop platforms supported by winit.
+
+The web backend of winit 0.30 does not implement `set_ime_allowed` or `set_ime_cursor_area`, and
+it does not emit `WindowEvent::Ime`. As a result, the canvas cannot request a mobile soft keyboard
+and IME composition is not forwarded to the GUI. Browsers only open the soft keyboard for a
+focused editable DOM element, so this cannot be fixed by the canvas alone.
+
+eframe/egui works around this by maintaining a hidden DOM `<input>` element, moving it to the
+caret, focusing it on a user gesture, and forwarding `input`, composition and keyboard events to
+egui. That is a browser-specific bridge rather than a winit feature. `tinim-gui` does not implement
+such a bridge yet, so the web demo has no mobile keyboard or IME input. Applications that need it
+must add a DOM bridge of their own.
+
+Native builds load system fonts as fallback, so IME composition strings outside the embedded
+font's coverage can still be displayed.
 
 ## Development
 

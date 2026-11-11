@@ -1,8 +1,16 @@
 //! Input translation from winit's [`WindowEvent`] to [`tinim_gui::RawInput`].
 //!
-//! Touches drive the primary pointer: a tap clicks on release, and dragging scrolls. IME events
-//! are forwarded as composition state and committed text, and [`PlatformOutput::ime`] enables IME
-//! input while a text widget is focused and positions the candidate window at its caret.
+//! Touches drive the primary pointer: a tap clicks on release, and dragging scrolls.
+//!
+//! On native platforms, IME events are forwarded as composition state and committed text, and
+//! [`PlatformOutput::ime`] enables IME input while a text widget is focused and positions the
+//! candidate window at its caret.
+//!
+//! winit 0.30's web backend does not implement IME requests and does not emit [`WindowEvent::Ime`],
+//! so on the web this crate cannot open a mobile soft keyboard or forward composition events.
+//! Browsers only open the keyboard for a focused editable DOM element; a workaround requires a
+//! hidden `<input>` or `contenteditable` bridge outside winit. See the repository README for
+//! details.
 //!
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
