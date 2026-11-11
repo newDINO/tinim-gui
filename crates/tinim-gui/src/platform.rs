@@ -20,4 +20,11 @@ pub struct PlatformOutput {
     /// A cut is reported the same way as a copy: the widget removes the text itself and asks the
     /// backend to store what it copied.
     pub copy_text: Option<String>,
+    /// Whether a text input owns keyboard focus.
+    ///
+    /// Platforms use this to decide whether a paste shortcut is meaningful. For example,
+    /// `tinim-winit` only reads the system clipboard on Ctrl/Cmd+V when this is true. It is
+    /// reported by text editors while they are focused, so it is false when the UI has no text
+    /// input.
+    pub text_input_focused: bool,
 }

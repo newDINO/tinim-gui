@@ -1,25 +1,43 @@
 [package]
 name = "tinim-winit"
-description = "winit input adapter for tinim-gui"
+description = "winit input, output and clipboard integration for tinim-gui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-copypasta = { workspace = true, optional = true }
+log.workspace = true
 tinim-gui.workspace = true
 web-time = "1"
 winit.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+copypasta = { workspace = true, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", features = [
+    "Clipboard",
+    "Navigator",
+    "Window",
+], optional = true }
+
 [features]
-# Native system clipboard access through copypasta. Applications that handle paste/copy
-# themselves can leave this disabled; the wasm demo does, because copypasta has no browser
-# backend.
+# System clipboard access: copypasta on native targets, the browser Clipboard API on wasm.
+# Applications that handle copy/paste themselves can leave this disabled.
 #
 # On Linux this needs a backend feature as well: `x11` enables copypasta's X11 backend.
 # Without one, `Clipboard` still exists but reads and writes are no-ops.
-clipboard = ["dep:copypasta"]
+clipboard = [
+    "dep:copypasta",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:web-sys",
+]
 # Enable winit's X11 backend on Linux. `winit` needs at least one platform backend to
 # compile, so this is on by default to keep `cargo check` and `cargo doc` working for this
 # crate without extra flags. Applications that depend on winit themselves (with its default

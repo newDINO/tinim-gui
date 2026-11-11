@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use tinim_demo::Demo;
-use tinim_gui::{Key, vec2};
+use tinim_gui::vec2;
 use tinim_wgpu::wgpu;
-use tinim_winit::{Clipboard, WinitInput, WinitOutput, winit};
+use tinim_winit::{WinitPlatform, winit};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -25,9 +25,7 @@ struct AppInner {
     surface_config: wgpu::SurfaceConfiguration,
 
     demo: Demo,
-    input: WinitInput,
-    output: WinitOutput,
-    clipboard: Clipboard,
+    platform: WinitPlatform,
     renderer: tinim_wgpu::Renderer,
 }
 
@@ -78,7 +76,7 @@ impl AppInner {
         surface.configure(&device, &surface_config);
 
         let demo = Demo::new();
-        let input = WinitInput::new(window.scale_factor() as f32);
+        let platform = WinitPlatform::new(window.scale_factor() as f32);
         let renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
 
         Self {
@@ -88,9 +86,7 @@ impl AppInner {
             surface,
             surface_config,
             demo,
-            input,
-            output: WinitOutput::default(),
-            clipboard: Clipboard::new(),
+            platform,
             renderer,
         }
     }
@@ -128,21 +124,15 @@ impl AppInner {
             ..Default::default()
         });
 
-        let pixels_per_point = self.input.scale_factor();
+        let pixels_per_point = self.platform.scale_factor();
         let viewport = vec2(
             physical_size.width as f32 / pixels_per_point,
             physical_size.height as f32 / pixels_per_point,
         );
 
-        let mut input = self.input.take();
-        if input.command() && input.keys.contains(&Key::Character('v')) {
-            input.pasted_text = self.clipboard.read();
-        }
+        let input = self.platform.take_input();
         let frame = self.demo.run(viewport, pixels_per_point, input);
-        if let Some(text) = frame.platform.copy_text.as_deref() {
-            self.clipboard.write(text);
-        }
-        self.output.apply(&self.window, &frame.platform);
+        self.platform.apply_output(&self.window, &frame.platform);
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);
@@ -209,7 +199,7 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if let Some(inner) = &mut self.inner {
-            inner.input.on_window_event(&event);
+            inner.platform.on_window_event(&event);
         }
 
         match event {

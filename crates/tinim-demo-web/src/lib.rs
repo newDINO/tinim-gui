@@ -10,14 +10,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use tinim_demo::Demo;
-use tinim_gui::{Modifiers, vec2};
+use tinim_gui::vec2;
 use tinim_wgpu::wgpu;
-use tinim_winit::{WinitInput, WinitOutput, winit};
+use tinim_winit::{WinitPlatform, winit};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
 use winit::window::{Window, WindowId};
@@ -45,13 +44,8 @@ struct AppInner {
     surface_config: wgpu::SurfaceConfiguration,
 
     demo: Demo,
-    input: WinitInput,
-    output: WinitOutput,
+    platform: WinitPlatform,
     renderer: tinim_wgpu::Renderer,
-    /// Clipboard text read for a paste shortcut, consumed by the next frame.
-    pasted_text: Option<String>,
-    /// A clipboard read is in flight, so another paste shortcut does not start a second one.
-    paste_pending: bool,
 }
 
 impl AppInner {
@@ -109,7 +103,7 @@ impl AppInner {
         surface.configure(&device, &surface_config);
 
         let demo = Demo::new();
-        let input = WinitInput::new(window.scale_factor() as f32);
+        let platform = WinitPlatform::new(window.scale_factor() as f32);
         let renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
 
         Ok(Self {
@@ -119,11 +113,8 @@ impl AppInner {
             surface,
             surface_config,
             demo,
-            input,
-            output: WinitOutput::default(),
+            platform,
             renderer,
-            pasted_text: None,
-            paste_pending: false,
         })
     }
 
@@ -166,19 +157,15 @@ impl AppInner {
             ..Default::default()
         });
 
-        let pixels_per_point = self.input.scale_factor();
+        let pixels_per_point = self.platform.scale_factor();
         let viewport = vec2(
             physical_size.width as f32 / pixels_per_point,
             physical_size.height as f32 / pixels_per_point,
         );
 
-        let mut input = self.input.take();
-        input.pasted_text = self.pasted_text.take();
+        let input = self.platform.take_input();
         let frame = self.demo.run(viewport, pixels_per_point, input);
-        if let Some(text) = frame.platform.copy_text.as_deref() {
-            write_clipboard(text.to_owned());
-        }
-        self.output.apply(&self.window, &frame.platform);
+        self.platform.apply_output(&self.window, &frame.platform);
 
         self.renderer
             .update_textures(&self.device, &self.queue, &frame.textures);
@@ -270,21 +257,7 @@ impl ApplicationHandler for App {
             return;
         };
 
-        let paste_shortcut = is_paste_shortcut(&event, inner.input.modifiers());
-        inner.input.on_window_event(&event);
-
-        if paste_shortcut && !inner.paste_pending {
-            inner.paste_pending = true;
-            let slot = Rc::clone(&self.inner);
-            wasm_bindgen_futures::spawn_local(async move {
-                let text = read_clipboard().await;
-                if let Some(inner) = slot.borrow_mut().as_mut() {
-                    inner.paste_pending = false;
-                    inner.pasted_text = text;
-                    inner.window.request_redraw();
-                }
-            });
-        }
+        inner.platform.on_window_event(&event);
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),

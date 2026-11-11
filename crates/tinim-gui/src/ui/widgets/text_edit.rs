@@ -174,6 +174,7 @@ impl Ui<'_> {
         let mut submitted = false;
 
         if state.focused {
+            self.ctx.platform.text_input_focused = true;
             let command = self.ctx.input.command();
             let shift = self.ctx.input.modifiers.shift;
             let keys = std::mem::take(&mut self.ctx.input.keys);
@@ -521,6 +522,34 @@ mod tests {
             ui.text_edit_singleline(&mut text, &mut state);
         });
         assert_eq!(frame.platform.cursor_icon, CursorIcon::Text);
+    }
+
+    #[test]
+    fn focused_editor_reports_that_a_text_input_has_focus() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert!(state.is_focused());
+        assert!(frame.platform.text_input_focused);
+    }
+
+    #[test]
+    fn unfocused_editor_does_not_report_text_input_focus() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert!(!state.is_focused());
+        assert!(!frame.platform.text_input_focused);
     }
 
     #[test]

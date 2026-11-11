@@ -2161,7 +2161,6 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
- "js-sys",
  "log",
  "tinim-demo",
  "tinim-gui",
@@ -2244,7 +2243,12 @@ name = "tinim-winit"
 version = "0.1.0-alpha.1"
 dependencies = [
  "copypasta",
+ "js-sys",
+ "log",
  "tinim-gui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "web-time",
  "winit",
 ]

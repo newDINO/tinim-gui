@@ -5,9 +5,10 @@
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
 //!
-//! With the `clipboard` feature, the `Clipboard` type wraps a long-lived `copypasta` handle. The
-//! application reads it when it sees a paste shortcut and writes [`PlatformOutput::copy_text`]
-//! after building a frame.
+//! [`WinitPlatform`] combines the input, output and clipboard integrations. With the `clipboard`
+//! feature it reads the system clipboard on Ctrl/Cmd+V when the previous frame reported
+//! [`PlatformOutput::text_input_focused`], and writes [`PlatformOutput::copy_text`] after building
+//! a frame. Native targets use `copypasta`; wasm targets use the browser Clipboard API.
 //!
 //! On Linux, the `x11` feature also enables copypasta's X11 backend, and copypasta's own default
 //! features stay disabled so X11-only builds do not pull in its Wayland dependencies. Without
@@ -341,6 +342,96 @@ impl WinitInput {
             dt,
         }
     }
+}
+
+/// A winit window's input, output and clipboard integration.
+///
+/// This keeps the platform-specific clipboard handling out of the application: events go through
+/// [`WinitPlatform::on_window_event`], [`WinitPlatform::take_input`] supplies the frame's
+/// [`RawInput`] (including pasted text) and [`WinitPlatform::apply_output`] applies the frame's
+/// [`PlatformOutput`].
+///
+/// With the `clipboard` feature, a paste shortcut is only read while the previous frame reported
+/// [`PlatformOutput::text_input_focused`]. That keeps Ctrl/Cmd+V from touching the clipboard when
+/// no text input is active and starts browser reads from the keyboard event, where user activation
+/// is still valid.
+pub struct WinitPlatform {
+    input: WinitInput,
+    output: WinitOutput,
+    #[cfg(feature = "clipboard")]
+    clipboard: Clipboard,
+    #[cfg(feature = "clipboard")]
+    text_input_focused: bool,
+}
+
+impl WinitPlatform {
+    /// `scale_factor` is physical pixels per logical point, usually `window.scale_factor()`.
+    pub fn new(scale_factor: f32) -> Self {
+        Self {
+            input: WinitInput::new(scale_factor),
+            output: WinitOutput::default(),
+            #[cfg(feature = "clipboard")]
+            clipboard: Clipboard::new(),
+            #[cfg(feature = "clipboard")]
+            text_input_focused: false,
+        }
+    }
+
+    /// Physical pixels per logical point.
+    pub fn scale_factor(&self) -> f32 {
+        self.input.scale_factor()
+    }
+
+    /// Feed one window event before building the next frame.
+    pub fn on_window_event(&mut self, event: &WindowEvent) {
+        #[cfg(feature = "clipboard")]
+        if self.text_input_focused && is_paste_shortcut(event, self.input.modifiers()) {
+            self.clipboard.request_read();
+        }
+
+        self.input.on_window_event(event);
+    }
+
+    /// Takes this frame's input.
+    ///
+    /// The returned [`RawInput::pasted_text`] contains clipboard text requested by an earlier
+    /// frame, if any. Browser reads may complete after this call and arrive next frame.
+    pub fn take_input(&mut self) -> RawInput {
+        let mut input = self.input.take();
+        #[cfg(feature = "clipboard")]
+        {
+            input.pasted_text = self.clipboard.take_read();
+        }
+        input
+    }
+
+    /// Applies the frame's platform output to `window`.
+    pub fn apply_output(&mut self, window: &Window, output: &PlatformOutput) {
+        self.output.apply(window, output);
+
+        #[cfg(feature = "clipboard")]
+        {
+            if let Some(text) = output.copy_text.as_deref() {
+                self.clipboard.write(text);
+            }
+            self.text_input_focused = output.text_input_focused;
+        }
+    }
+}
+
+/// Whether `event` is the start of a Ctrl/Cmd+V paste.
+#[cfg(feature = "clipboard")]
+fn is_paste_shortcut(event: &WindowEvent, modifiers: Modifiers) -> bool {
+    let WindowEvent::KeyboardInput { event, .. } = event else {
+        return false;
+    };
+    event.state == ElementState::Pressed
+        && !event.repeat
+        && modifiers.command()
+        && matches!(
+            &event.logical_key,
+            winit::keyboard::Key::Character(text) if text.eq_ignore_ascii_case("v")
+        )
 }
 
 /// Translates a winit logical key into the subset the GUI understands.

@@ -63,11 +63,12 @@ pub struct RawInput {
     pub text: String,
     /// Non-text key presses during this frame, in event order.
     pub keys: Vec<Key>,
-    /// Clipboard text supplied for a paste request in this frame.
+    /// Clipboard text supplied in response to a paste request.
     ///
-    /// The backend reads the clipboard when it observes Ctrl+V or Cmd+V, so widgets can consume
-    /// the text from this field. Browser clipboard reads are asynchronous, so the text may arrive
-    /// in a later frame. `None` means no paste was requested or the clipboard was unavailable.
+    /// A backend reads the clipboard when it observes Ctrl/Cmd+V while the previous frame
+    /// reported [`PlatformOutput::text_input_focused`](crate::PlatformOutput::text_input_focused).
+    /// Native reads are immediate; browser reads are asynchronous, so the text may arrive in a
+    /// later frame. `None` means no paste was requested or the clipboard was unavailable.
     pub pasted_text: Option<String>,
     /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
     pub scroll_dragging: bool,

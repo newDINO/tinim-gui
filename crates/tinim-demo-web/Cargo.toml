@@ -15,19 +15,16 @@ log.workspace = true
 tinim-demo.workspace = true
 tinim-gui.workspace = true
 tinim-wgpu.workspace = true
-tinim-winit = { workspace = true, default-features = false }
+tinim-winit = { workspace = true, default-features = false, features = ["clipboard"] }
 # Enable WebGL output for browsers that do not provide WebGPU.
 wgpu = { workspace = true, features = ["webgl"] }
 
 console_error_panic_hook = "0.1"
-js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
-    "Clipboard",
     "Document",
     "Element",
     "HtmlCanvasElement",
-    "Navigator",
     "Window",
 ] }
