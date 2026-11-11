@@ -12,6 +12,16 @@ impl Color32 {
     pub const BLACK: Self = Self([0, 0, 0, 255]);
     pub const WHITE: Self = Self([255, 255, 255, 255]);
 
+    /// 0xFF0000FF is red.
+    /// 0x00FF00FF is grean.
+    /// 0x0000FFFF is blue.
+    /// 0x000000FF is black.
+    /// 0x00000000 is transparent.
+    #[inline]
+    pub const fn from_u32(v: u32) -> Self {
+        Self(v.to_be_bytes())
+    }
+
     #[inline]
     pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
         Self([r, g, b, 255])
