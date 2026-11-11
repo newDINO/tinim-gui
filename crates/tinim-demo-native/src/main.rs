@@ -53,24 +53,27 @@ impl AppInner {
             .await
             .unwrap();
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|format| format.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+        let surface_config = {
+            let surface_caps = surface.get_capabilities(&adapter);
+            let surface_format = surface_caps
+                .formats
+                .iter()
+                .find(|f| f.is_srgb())
+                .copied()
+                .unwrap_or(surface_caps.formats[0]);
+            wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: surface_format,
+                width: size.width,
+                height: size.height,
+                present_mode: wgpu::PresentMode::AutoVsync,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                view_formats: vec![surface_format.add_srgb_suffix()],
+                desired_maximum_frame_latency: 2,
+                color_space: wgpu::SurfaceColorSpace::Srgb,
+            }
         };
+        let surface_format = surface_config.view_formats[0];
         surface.configure(&device, &surface_config);
 
         let demo = Demo::new();
@@ -118,9 +121,10 @@ impl AppInner {
             // Skip this frame; the surface is expected to recover on its own.
             _ => return,
         };
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.surface_config.format.add_srgb_suffix()),
+            ..Default::default()
+        });
 
         let pixels_per_point = self.input.scale_factor();
         let viewport = vec2(
