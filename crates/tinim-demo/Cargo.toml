@@ -1,11 +1,37 @@
 [package]
 name = "tinim-demo"
-description = "Shared demo UI for the native and web tinim-gui demos"
+description = "Shared demo UI and application loop for the native and web tinim-gui demos"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+log.workspace = true
 tinim-gui.workspace = true
+tinim-wgpu.workspace = true
 web-time = "1"
+winit.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster.workspace = true
+tinim-winit = { workspace = true, features = ["clipboard"] }
+wgpu.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tinim-winit = { workspace = true, default-features = false, features = ["clipboard"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "Window",
+] }
+# Enable WebGL output for browsers that do not provide WebGPU.
+wgpu = { workspace = true, features = ["webgl"] }
+
+[features]
+# Forward to tinim-winit so the native demo can opt into the Wayland clipboard.
+wayland = ["tinim-winit/wayland"]
+wayland-dlopen = ["tinim-winit/wayland-dlopen"]

@@ -12,7 +12,7 @@ A tiny immediate-mode GUI.
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
 | `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, labels, separators, checkboxes, radios, sliders, press-only buttons, single-line text editing with clipboard shortcuts and numeric inputs |
 | `tinim-winit` | `WindowEvent` → `RawInput` input adapter |
-| `tinim-demo` | shared demo UI and the embedded Comic Mono font |
+| `tinim-demo` | shared demo UI, application loop and the embedded Comic Mono font |
 | `tinim-demo-native` | native winit + wgpu demo binary |
 | `tinim-demo-web` | WebAssembly demo (WebGPU, with WebGL fallback) |
 
@@ -49,8 +49,8 @@ The web demo uses the browser Clipboard API for Ctrl/Cmd+C, X and V. Browsers ma
 clipboard permission, and the API requires a secure context such as HTTPS or localhost.
 
 The web demo uses WebGPU when the browser provides it and falls back to WebGL otherwise.
-The fallback is wgpu's `webgl` feature, so applications opt in by enabling it on their own
-`wgpu` dependency:
+`tinim-demo` enables wgpu's `webgl` feature for wasm builds. Applications using `tinim-wgpu`
+directly opt in by enabling it on their own `wgpu` dependency:
 
 ```toml
 wgpu = { version = "30", features = ["webgl"] }
@@ -85,11 +85,11 @@ tinim-winit = { version = "0.1.0-alpha.1", default-features = false, features = 
 On Linux, enabling `clipboard` without either backend feature compiles but leaves `Clipboard`
 as a no-op.
 
-To try the native demo with the Wayland clipboard, enable the feature on its `tinim-winit`
-dependency:
+To try the native demo with the Wayland clipboard, enable its `wayland-dlopen` feature, which
+forwards to `tinim-demo` and then to `tinim-winit`:
 
 ```sh
-cargo run -p tinim-demo-native --features tinim-winit/wayland-dlopen
+cargo run -p tinim-demo-native --features wayland-dlopen
 ```
 
 Recheck whether this is still necessary when new version of rust or winit it released.

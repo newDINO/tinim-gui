@@ -1,6 +1,10 @@
-//! Shared UI used by the native and web demos.
+//! Shared UI and application loop used by the native and web demos.
 
+mod app;
 mod pages;
+
+pub use app::{App, AppInner};
+pub use tinim_winit::winit;
 
 use web_time::{Duration, Instant};
 

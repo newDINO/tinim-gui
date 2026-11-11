@@ -2290,8 +2290,17 @@ dependencies = [
 name = "tinim-demo"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "log",
+ "pollster",
  "tinim-gui",
+ "tinim-wgpu",
+ "tinim-winit",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "web-time",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -2299,12 +2308,7 @@ name = "tinim-demo-native"
 version = "0.1.0-alpha.1"
 dependencies = [
  "env_logger",
- "log",
- "pollster",
  "tinim-demo",
- "tinim-gui",
- "tinim-wgpu",
- "tinim-winit",
 ]
 
 [[package]]
@@ -2315,13 +2319,7 @@ dependencies = [
  "console_log",
  "log",
  "tinim-demo",
- "tinim-gui",
- "tinim-wgpu",
- "tinim-winit",
  "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
 ]
 
 [[package]]

@@ -12,9 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 env_logger.workspace = true
-log.workspace = true
-pollster.workspace = true
 tinim-demo.workspace = true
-tinim-gui.workspace = true
-tinim-wgpu.workspace = true
-tinim-winit = { workspace = true, features = ["clipboard"] }
+
+[features]
+# Forward to tinim-demo, which forwards to tinim-winit.
+wayland = ["tinim-demo/wayland"]
+wayland-dlopen = ["tinim-demo/wayland-dlopen"]
