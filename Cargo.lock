@@ -2028,6 +2028,7 @@ name = "tinim-demo-web"
 version = "0.1.0-alpha.1"
 dependencies = [
  "console_error_panic_hook",
+ "js-sys",
  "tinim-demo",
  "tinim-gui",
  "tinim-wgpu",

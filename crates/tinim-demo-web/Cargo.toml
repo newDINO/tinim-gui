@@ -18,12 +18,15 @@ tinim-winit = { workspace = true, default-features = false }
 wgpu = { workspace = true, features = ["webgl"] }
 
 console_error_panic_hook = "0.1"
+js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
+    "Clipboard",
     "Document",
     "Element",
     "HtmlCanvasElement",
+    "Navigator",
     "Window",
     "console",
 ] }

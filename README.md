@@ -41,6 +41,9 @@ python3 -m http.server 8080
 Then open <http://localhost:8080>. The repository's `index.html` loads the generated
 `pkg/tinim_demo_web.js`.
 
+The web demo uses the browser Clipboard API for Ctrl/Cmd+C, X and V. Browsers may ask for
+clipboard permission, and the API requires a secure context such as HTTPS or localhost.
+
 The web demo uses WebGPU when the browser provides it and falls back to WebGL otherwise.
 The fallback is wgpu's `webgl` feature, so applications opt in by enabling it on their own
 `wgpu` dependency:

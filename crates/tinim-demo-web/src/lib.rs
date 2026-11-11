@@ -10,13 +10,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use tinim_demo::Demo;
-use tinim_gui::vec2;
+use tinim_gui::{Modifiers, vec2};
 use tinim_wgpu::wgpu;
 use tinim_winit::{WinitInput, WinitOutput, winit};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::platform::web::{EventLoopExtWebSys, WindowAttributesExtWebSys, WindowExtWebSys};
 use winit::window::{Window, WindowId};
@@ -46,6 +47,10 @@ struct AppInner {
     input: WinitInput,
     output: WinitOutput,
     renderer: tinim_wgpu::Renderer,
+    /// Clipboard text read for a paste shortcut, consumed by the next frame.
+    pasted_text: Option<String>,
+    /// A clipboard read is in flight, so another paste shortcut does not start a second one.
+    paste_pending: bool,
 }
 
 impl AppInner {
@@ -116,6 +121,8 @@ impl AppInner {
             input,
             output: WinitOutput::default(),
             renderer,
+            pasted_text: None,
+            paste_pending: false,
         })
     }
 
@@ -164,8 +171,12 @@ impl AppInner {
             physical_size.height as f32 / pixels_per_point,
         );
 
-        let input = self.input.take();
+        let mut input = self.input.take();
+        input.pasted_text = self.pasted_text.take();
         let frame = self.demo.run(viewport, pixels_per_point, input);
+        if let Some(text) = frame.platform.copy_text.as_deref() {
+            write_clipboard(text.to_owned());
+        }
         self.output.apply(&self.window, &frame.platform);
 
         self.renderer
@@ -258,7 +269,22 @@ impl ApplicationHandler for App {
             return;
         };
 
+        let paste_shortcut = is_paste_shortcut(&event, inner.input.modifiers());
         inner.input.on_window_event(&event);
+
+        if paste_shortcut && !inner.paste_pending {
+            inner.paste_pending = true;
+            let slot = Rc::clone(&self.inner);
+            wasm_bindgen_futures::spawn_local(async move {
+                let text = read_clipboard().await;
+                if let Some(inner) = slot.borrow_mut().as_mut() {
+                    inner.paste_pending = false;
+                    inner.pasted_text = text;
+                    inner.window.request_redraw();
+                }
+            });
+        }
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
@@ -269,6 +295,54 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
+}
+
+/// Whether `event` is the start of a Ctrl/Cmd+V paste.
+fn is_paste_shortcut(event: &WindowEvent, modifiers: Modifiers) -> bool {
+    let WindowEvent::KeyboardInput { event, .. } = event else {
+        return false;
+    };
+    event.state == ElementState::Pressed
+        && !event.repeat
+        && modifiers.command()
+        && matches!(
+            &event.logical_key,
+            winit::keyboard::Key::Character(text) if text.eq_ignore_ascii_case("v")
+        )
+}
+
+/// The browser clipboard, or `None` when the API is unavailable (for example in an insecure
+/// context).
+fn clipboard() -> Option<web_sys::Clipboard> {
+    let navigator = web_sys::window()?.navigator();
+    let navigator: &JsValue = navigator.as_ref();
+    let value = js_sys::Reflect::get(navigator, &JsValue::from_str("clipboard")).ok()?;
+    if value.is_undefined() || value.is_null() {
+        return None;
+    }
+    value.dyn_into().ok()
+}
+
+async fn read_clipboard() -> Option<String> {
+    let clipboard = clipboard()?;
+    match JsFuture::from(clipboard.read_text()).await {
+        Ok(value) => value.as_string(),
+        Err(error) => {
+            log_error(&format!("failed to read the clipboard: {error:?}"));
+            None
+        }
+    }
+}
+
+fn write_clipboard(text: String) {
+    let Some(clipboard) = clipboard() else {
+        return;
+    };
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(error) = JsFuture::from(clipboard.write_text(&text)).await {
+            log_error(&format!("failed to write the clipboard: {error:?}"));
+        }
+    });
 }
 
 fn canvas_element() -> Option<web_sys::HtmlCanvasElement> {

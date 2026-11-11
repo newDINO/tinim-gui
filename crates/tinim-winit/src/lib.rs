@@ -151,6 +151,11 @@ impl WinitInput {
         self.scale_factor
     }
 
+    /// The modifier keys currently held.
+    pub fn modifiers(&self) -> Modifiers {
+        self.modifiers
+    }
+
     /// Feed one window event. Events not related to input are ignored.
     pub fn on_window_event(&mut self, event: &WindowEvent) {
         match event {

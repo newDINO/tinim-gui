@@ -204,13 +204,7 @@ impl Ui<'_> {
                         }
                     }
                     Key::Character('v') if command => {
-                        if let Some(pasted) = self.ctx.input.pasted_text.take() {
-                            let pasted = sanitize_single_line(&pasted);
-                            if !pasted.is_empty() {
-                                replace_selection(text, state, &pasted);
-                                changed = true;
-                            }
-                        }
+                        changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text);
                     }
                     Key::Enter => submitted = true,
                     Key::Escape => {
@@ -220,6 +214,12 @@ impl Ui<'_> {
                     }
                     Key::Tab | Key::Character(_) => {}
                 }
+            }
+
+            // Browsers read the clipboard asynchronously, so paste text may arrive after the
+            // Ctrl/Cmd+V key was already consumed. Apply it even without the key in this frame.
+            if state.focused {
+                changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text);
             }
 
             // Command shortcuts may also produce text on some platforms. Only plain typing
@@ -362,6 +362,23 @@ fn copy_selection(text: &str, state: &TextEditState) -> Option<String> {
     } else {
         Some(text[selection].to_owned())
     }
+}
+
+/// Inserts clipboard text at the caret or over the selection.
+fn paste_clipboard(
+    text: &mut String,
+    state: &mut TextEditState,
+    pasted: &mut Option<String>,
+) -> bool {
+    let Some(pasted) = pasted.take() else {
+        return false;
+    };
+    let pasted = sanitize_single_line(&pasted);
+    if pasted.is_empty() {
+        return false;
+    }
+    replace_selection(text, state, &pasted);
+    true
 }
 
 /// Converts pasted text to a single line and drops control characters.
@@ -930,6 +947,33 @@ mod tests {
 
         assert_eq!(text, "a b cllo");
         assert_eq!(state.cursor(), 5);
+    }
+
+    #[test]
+    fn pasted_text_can_arrive_without_the_shortcut_key() {
+        // Browser clipboard reads are asynchronous, so the text may arrive a frame after the
+        // Ctrl/Cmd+V key was consumed.
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = text.len();
+        state.anchor = text.len();
+        let mut changed = false;
+
+        let input = RawInput {
+            pasted_text: Some(" world".to_owned()),
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            changed = ui.text_edit_singleline(&mut text, &mut state).changed;
+        });
+
+        assert!(changed);
+        assert_eq!(text, "hello world");
     }
 
     #[test]

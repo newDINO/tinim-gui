@@ -14,6 +14,15 @@ pub struct Modifiers {
     pub logo: bool,
 }
 
+impl Modifiers {
+    /// Whether a Ctrl/Cmd shortcut is active without Alt.
+    ///
+    /// AltGr commonly arrives as Ctrl+Alt, so Alt is excluded to keep it available for text input.
+    pub fn command(&self) -> bool {
+        (self.ctrl || self.logo) && !self.alt
+    }
+}
+
 /// A non-text key press.
 ///
 /// Printable text is delivered separately through [`RawInput::text`]. Keys are reported here so
@@ -54,11 +63,11 @@ pub struct RawInput {
     pub text: String,
     /// Non-text key presses during this frame, in event order.
     pub keys: Vec<Key>,
-    /// Clipboard text supplied for a paste shortcut in this frame.
+    /// Clipboard text supplied for a paste request in this frame.
     ///
-    /// The backend reads the system clipboard when it observes Ctrl+V or Cmd+V, so widgets can
-    /// consume the text from this field. `None` means no paste was requested or the clipboard was
-    /// unavailable.
+    /// The backend reads the clipboard when it observes Ctrl+V or Cmd+V, so widgets can consume
+    /// the text from this field. Browser clipboard reads are asynchronous, so the text may arrive
+    /// in a later frame. `None` means no paste was requested or the clipboard was unavailable.
     pub pasted_text: Option<String>,
     /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
     pub scroll_dragging: bool,
@@ -71,6 +80,38 @@ impl RawInput {
     ///
     /// AltGr commonly arrives as Ctrl+Alt, so Alt is excluded to keep it available for text input.
     pub fn command(&self) -> bool {
-        (self.modifiers.ctrl || self.modifiers.logo) && !self.modifiers.alt
+        self.modifiers.command()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_accepts_ctrl_or_logo_but_not_altgr() {
+        assert!(
+            Modifiers {
+                ctrl: true,
+                ..Default::default()
+            }
+            .command()
+        );
+        assert!(
+            Modifiers {
+                logo: true,
+                ..Default::default()
+            }
+            .command()
+        );
+        assert!(
+            !Modifiers {
+                ctrl: true,
+                alt: true,
+                ..Default::default()
+            }
+            .command()
+        );
+        assert!(!Modifiers::default().command());
     }
 }
