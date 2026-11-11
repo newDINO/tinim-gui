@@ -1,6 +1,15 @@
 //! Non-rendering outputs for the platform or application.
 
+use tinim_paint::Rect;
+
 use crate::cursor::CursorIcon;
+
+/// State requested for the input method editor (IME).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImeOutput {
+    /// Caret area in logical points, used to place the IME candidate window.
+    pub cursor_rect: Rect,
+}
 
 /// Requests that the platform backend apply after building a frame.
 ///
@@ -8,7 +17,7 @@ use crate::cursor::CursorIcon;
 /// [`FullOutput`](crate::FullOutput). This type covers the parts that need a window or application
 /// integration, such as the mouse cursor. Future fields can be added here without changing
 /// [`FullOutput`](crate::FullOutput) itself.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct PlatformOutput {
     /// Mouse cursor requested by the widgets built this frame.
     ///
@@ -27,4 +36,10 @@ pub struct PlatformOutput {
     /// reported by text editors while they are focused, so it is false when the UI has no text
     /// input.
     pub text_input_focused: bool,
+    /// IME state requested by the focused text input.
+    ///
+    /// `Some` means a text input is focused and the platform should allow IME input. The backend
+    /// should place the candidate window at [`ImeOutput::cursor_rect`]. `None` means no text input
+    /// is focused, so the platform should stop IME input.
+    pub ime: Option<ImeOutput>,
 }

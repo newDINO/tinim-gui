@@ -15,6 +15,9 @@ winit.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster.workspace = true
+# Native builds load system fonts as fallback so text outside Comic Mono's coverage, such as
+# IME composition strings, can be displayed.
+tinim-gui = { workspace = true, features = ["system-fonts"] }
 tinim-winit = { workspace = true, features = ["clipboard"] }
 wgpu.workspace = true
 

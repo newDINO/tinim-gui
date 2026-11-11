@@ -53,8 +53,8 @@ pub use tinim_text;
 
 pub use context::{Context, FullOutput};
 pub use cursor::CursorIcon;
-pub use input::{Key, Modifiers, RawInput};
-pub use platform::PlatformOutput;
+pub use input::{ImeInput, Key, Modifiers, RawInput};
+pub use platform::{ImeOutput, PlatformOutput};
 pub use style::{
     ButtonStyle, CheckboxStyle, NumberInputStyle, RadioStyle, SeparatorStyle, SliderStyle, Style,
     TextEditStyle,

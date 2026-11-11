@@ -16,6 +16,9 @@ unicode-segmentation = "1"
 [features]
 default = ["rustc-hash"]
 rustc-hash = ["dep:rustc-hash"]
+# Enable scanning system font directories, for applications that need fallback fonts for
+# scripts not covered by their bundled font.
+system-fonts = ["tinim-paint-text/system-fonts"]
 
 [dev-dependencies]
 font-test-data = "0.10"

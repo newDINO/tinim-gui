@@ -3,6 +3,8 @@
 //! Coordinates are logical points. A backend such as `tinim-winit` converts physical
 //! coordinates and event edges into this snapshot.
 
+use std::ops::Range;
+
 use tinim_paint::{Pos2, Vec2};
 
 /// The modifier keys held at the end of the frame.
@@ -42,6 +44,34 @@ pub enum Key {
     Character(char),
 }
 
+/// Text produced by an input method editor (IME).
+///
+/// While the IME is composing, `preedit` contains the composition string. It is displayed by the
+/// focused text widget but is not part of the edited string until the IME commits it. A backend
+/// should keep the current preedit in every frame until the IME changes or clears it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImeInput {
+    /// Composition text, shown inline in the focused text input.
+    ///
+    /// Empty when the IME is not composing.
+    pub preedit: String,
+    /// Byte range within `preedit` selected by the IME.
+    ///
+    /// The caret is drawn at the end of the range. `None` means the IME did not report a cursor.
+    pub preedit_selection: Option<Range<usize>>,
+    /// Text committed by the IME during this frame.
+    ///
+    /// This is inserted into the focused text input at the caret, replacing any selection.
+    pub commit: String,
+}
+
+impl ImeInput {
+    /// Whether the IME is currently composing text.
+    pub fn is_composing(&self) -> bool {
+        !self.preedit.is_empty()
+    }
+}
+
 /// Everything the GUI needs to know about input for one frame.
 ///
 /// `primary_pressed` and `primary_released` are edges: they are true only on the frame in
@@ -61,6 +91,8 @@ pub struct RawInput {
     pub modifiers: Modifiers,
     /// Text produced by keyboard input during this frame.
     pub text: String,
+    /// Text composed or committed by an input method editor during this frame.
+    pub ime: ImeInput,
     /// Non-text key presses during this frame, in event order.
     pub keys: Vec<Key>,
     /// Clipboard text supplied in response to a paste request.

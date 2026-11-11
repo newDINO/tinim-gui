@@ -1,5 +1,6 @@
 //! Single-line text editing.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
 use tinim_paint::{Rect, RectShape, Shape, Stroke, Vec2, pos2, vec2};
@@ -9,6 +10,7 @@ use super::super::Ui;
 use super::super::layout::{allocate_space, available_size, pointer_over};
 use crate::cursor::CursorIcon;
 use crate::input::Key;
+use crate::platform::ImeOutput;
 
 /// Caller-owned state for [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline).
 ///
@@ -98,6 +100,12 @@ impl Ui<'_> {
     ///
     /// Enter does not insert a newline; it reports [`TextEditResponse::submitted`] instead. The
     /// caller should keep `text` free of line breaks.
+    ///
+    /// IME composition is supported through [`RawInput::ime`](crate::RawInput::ime). The preedit
+    /// is drawn inline and underlined without modifying `text`; committed text is inserted at the
+    /// caret. While focused, the editor reports its caret area through
+    /// [`PlatformOutput::ime`](crate::PlatformOutput::ime) so the backend can enable IME input and
+    /// place the candidate window.
     pub fn text_edit_singleline(
         &mut self,
         text: &mut String,
@@ -223,6 +231,15 @@ impl Ui<'_> {
                 changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text);
             }
 
+            // Insert text committed by an IME. It replaces the selection just like typed text.
+            if state.focused {
+                let committed = sanitize_single_line(&self.ctx.input.ime.commit);
+                if !committed.is_empty() {
+                    replace_selection(text, state, &committed);
+                    changed = true;
+                }
+            }
+
             // Command shortcuts may also produce text on some platforms. Only plain typing
             // inserts characters.
             if state.focused && !command {
@@ -235,10 +252,40 @@ impl Ui<'_> {
             }
         }
 
+        // While the IME composes, draw the preedit in place of the selection without changing the
+        // edited string. `caret` is a byte index into `display_text`.
+        let selection = state.selection();
+        let composing = state.focused && self.ctx.input.ime.is_composing();
+        let (display_text, visible_selection, preedit, caret) = if composing {
+            let preedit = &self.ctx.input.ime.preedit;
+            let mut composed = String::with_capacity(text.len() + preedit.len());
+            composed.push_str(&text[..selection.start]);
+            let preedit_start = composed.len();
+            composed.push_str(preedit);
+            let preedit_end = composed.len();
+            composed.push_str(&text[selection.end..]);
+            let caret_in_preedit = self
+                .ctx
+                .input
+                .ime
+                .preedit_selection
+                .as_ref()
+                .map(|range| floor_boundary(preedit, range.end.min(preedit.len())))
+                .unwrap_or(preedit.len());
+            (
+                Cow::Owned(composed),
+                preedit_start..preedit_start,
+                Some(preedit_start..preedit_end),
+                preedit_start + caret_in_preedit,
+            )
+        } else {
+            (Cow::Borrowed(text.as_str()), selection, None, state.cursor)
+        };
+
         let layout = self
             .ctx
             .text_cache
-            .layout(&self.ctx.text_system, text, &font, None);
+            .layout(&self.ctx.text_system, &display_text, &font, None);
         let text_height = if layout.lines().is_empty() {
             line_height
         } else {
@@ -247,7 +294,7 @@ impl Ui<'_> {
         let cursor_x = layout
             .lines()
             .first()
-            .map(|line| line.cursor_x(state.cursor))
+            .map(|line| line.cursor_x(caret))
             .unwrap_or(0.0);
         // `inner` can be taller than the text (for example when `min_size.y` exceeds the line
         // height plus padding). Center the line box the same way `button` centers its text.
@@ -265,6 +312,13 @@ impl Ui<'_> {
             state.scroll = state.scroll.clamp(0.0, max_scroll);
             state.blink = (state.blink + self.ctx.input.dt.max(0.0)) % 1.0;
         }
+
+        // The platform places the IME candidate window at the caret. Report the same rectangle
+        // that the caret is drawn at, including the current scroll offset.
+        let ime_cursor_rect = Rect::from_min_size(
+            pos2(inner.min.x + cursor_x - state.scroll, text_top),
+            vec2(edit_style.cursor_width.max(1.0), text_height),
+        );
 
         let clip = self.ctx.painter.clip_rect();
         if clip.intersect(rect).is_positive() {
@@ -285,13 +339,14 @@ impl Ui<'_> {
             if inner_clip.is_positive() {
                 self.ctx.painter.set_clip_rect(inner_clip);
 
-                let selection = state.selection();
-                if !selection.is_empty()
+                if !visible_selection.is_empty()
                     && let Some(line) = layout.lines().first()
                 {
                     for glyph in line.glyphs() {
                         let cluster = glyph.cluster();
-                        if cluster.end <= selection.start || cluster.start >= selection.end {
+                        if cluster.end <= visible_selection.start
+                            || cluster.start >= visible_selection.end
+                        {
                             continue;
                         }
                         let selection_rect = Rect::from_min_size(
@@ -313,16 +368,34 @@ impl Ui<'_> {
                     self.ctx.painter.add_mesh(mesh);
                 }
 
-                if state.focused && state.blink < 0.5 {
-                    let caret = Rect::from_min_size(
-                        pos2(inner.min.x + cursor_x - state.scroll, text_top),
-                        vec2(edit_style.cursor_width, text_height),
-                    );
-                    self.ctx.painter.rect(caret, edit_style.cursor);
+                // Underline the composition string so it is distinguishable from committed text.
+                if let (Some(preedit), Some(line)) = (preedit.as_ref(), layout.lines().first()) {
+                    let start_x = line.cursor_x(preedit.start);
+                    let end_x = line.cursor_x(preedit.end);
+                    if end_x > start_x {
+                        let underline = Rect::from_min_size(
+                            pos2(
+                                inner.min.x + start_x - state.scroll,
+                                text_top + text_height - 1.0,
+                            ),
+                            vec2(end_x - start_x, 1.0),
+                        );
+                        self.ctx.painter.rect(underline, edit_style.text);
+                    }
+                }
+
+                if state.focused && (composing || state.blink < 0.5) {
+                    self.ctx.painter.rect(ime_cursor_rect, edit_style.cursor);
                 }
 
                 self.ctx.painter.set_clip_rect(clip);
             }
+        }
+
+        if state.focused {
+            self.ctx.platform.ime = Some(ImeOutput {
+                cursor_rect: ime_cursor_rect,
+            });
         }
 
         TextEditResponse {
@@ -489,7 +562,7 @@ fn next_grapheme_boundary(text: &str, index: usize) -> usize {
 mod tests {
     use super::*;
     use crate::ui::test_util::context;
-    use crate::{CursorIcon, Modifiers, RawInput, pos2, vec2};
+    use crate::{CursorIcon, ImeInput, Modifiers, RawInput, pos2, vec2};
 
     fn press() -> RawInput {
         RawInput {
@@ -504,6 +577,17 @@ mod tests {
         RawInput {
             keys,
             modifiers,
+            ..Default::default()
+        }
+    }
+
+    fn ime(preedit: &str, preedit_selection: Option<Range<usize>>, commit: &str) -> RawInput {
+        RawInput {
+            ime: ImeInput {
+                preedit: preedit.to_owned(),
+                preedit_selection,
+                commit: commit.to_owned(),
+            },
             ..Default::default()
         }
     }
@@ -536,6 +620,10 @@ mod tests {
 
         assert!(state.is_focused());
         assert!(frame.platform.text_input_focused);
+        assert!(
+            frame.platform.ime.is_some(),
+            "a focused editor should allow IME input"
+        );
     }
 
     #[test]
@@ -550,6 +638,146 @@ mod tests {
 
         assert!(!state.is_focused());
         assert!(!frame.platform.text_input_focused);
+        assert!(frame.platform.ime.is_none());
+    }
+
+    #[test]
+    fn ime_preedit_is_shown_without_changing_the_text() {
+        let mut context = context();
+        let mut text = "abc".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = text.len();
+        state.anchor = text.len();
+
+        let committed = context
+            .run(vec2(200.0, 100.0), 1.0, RawInput::default(), |ui| {
+                ui.text_edit_singleline(&mut text, &mut state);
+            })
+            .platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+
+        let frame = context.run(vec2(200.0, 100.0), 1.0, ime("zz", Some(2..2), ""), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert_eq!(text, "abc", "preedit is not inserted before a commit");
+        assert_eq!(state.cursor(), text.len());
+        let composing = frame
+            .platform
+            .ime
+            .expect("composing text still reports IME state")
+            .cursor_rect
+            .min
+            .x;
+        assert!(
+            composing > committed,
+            "the caret and IME candidate window follow the preedit"
+        );
+    }
+
+    #[test]
+    fn ime_preedit_selection_positions_the_caret() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        let start = context
+            .run(vec2(200.0, 100.0), 1.0, ime("abcd", Some(0..0), ""), |ui| {
+                ui.text_edit_singleline(&mut text, &mut state);
+            })
+            .platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+        let middle = context
+            .run(vec2(200.0, 100.0), 1.0, ime("abcd", Some(1..3), ""), |ui| {
+                ui.text_edit_singleline(&mut text, &mut state);
+            })
+            .platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+
+        assert_eq!(text, "");
+        // Ahem advances one em per character, so moving from the start to the end of a
+        // three-byte selection advances by three characters.
+        assert!(
+            middle > start,
+            "preedit cursor end should move the caret: start={start}, middle={middle}"
+        );
+    }
+
+    #[test]
+    fn ime_commit_inserts_text_at_the_caret() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+        let mut changed = false;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = text.len();
+        state.anchor = text.len();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, ime("", None, " world"), |ui| {
+            changed = ui.text_edit_singleline(&mut text, &mut state).changed;
+        });
+
+        assert!(changed);
+        assert_eq!(text, "hello world");
+        assert_eq!(state.cursor(), text.len());
+    }
+
+    #[test]
+    fn ime_commit_replaces_the_selection_and_normalizes_the_line() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = 0;
+        state.anchor = 2;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, ime("", None, "a\nb\tc"), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert_eq!(text, "a b cllo");
+        assert_eq!(state.cursor(), 5);
+    }
+
+    #[test]
+    fn ime_commit_is_ignored_while_unfocused() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+        let mut changed = false;
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, ime("", None, "world"), |ui| {
+            changed = ui.text_edit_singleline(&mut text, &mut state).changed;
+        });
+
+        assert!(!changed);
+        assert_eq!(text, "hello");
     }
 
     #[test]

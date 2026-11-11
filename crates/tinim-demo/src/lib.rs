@@ -59,12 +59,20 @@ impl Default for Demo {
 
 impl Demo {
     /// Creates the demo with the embedded Comic Mono font.
+    ///
+    /// Native builds also load system fonts as fallback. Comic Mono stays primary, but it does not
+    /// cover every script, so system faces are needed for text such as IME composition strings.
     pub fn new() -> Self {
         let mut context = Context::new(TextureId(1));
         context
             .text_system_mut()
             .add_font(FONT)
             .expect("the embedded Comic Mono font must be valid");
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let added = context.text_system_mut().load_system_fonts();
+            log::info!("loaded {added} system font faces for fallback");
+        }
         context.style_mut().text_color = DEFAULT_TEXT;
         context.style_mut().text_edit.text = DEFAULT_TEXT;
 

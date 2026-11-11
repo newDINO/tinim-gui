@@ -1,6 +1,8 @@
 //! Input translation from winit's [`WindowEvent`] to [`tinim_gui::RawInput`].
 //!
-//! Touches drive the primary pointer: a tap clicks on release, and dragging scrolls.
+//! Touches drive the primary pointer: a tap clicks on release, and dragging scrolls. IME events
+//! are forwarded as composition state and committed text, and [`PlatformOutput::ime`] enables IME
+//! input while a text widget is focused and positions the candidate window at its caret.
 //!
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
@@ -16,8 +18,14 @@
 //! selected at runtime from the window's display handle. Without either feature, `Clipboard` is a
 //! no-op.
 
-use tinim_gui::{CursorIcon, Key, Modifiers, PlatformOutput, Pos2, RawInput, Vec2, pos2, vec2};
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use std::ops::Range;
+
+use tinim_gui::{
+    CursorIcon, ImeInput, ImeOutput, Key, Modifiers, PlatformOutput, Pos2, RawInput, Rect, Vec2,
+    pos2, vec2,
+};
+use winit::dpi::{LogicalPosition, LogicalSize};
+use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::window::{CursorIcon as WinitCursorIcon, Window};
 
 #[cfg(feature = "clipboard")]
@@ -34,11 +42,13 @@ const TOUCH_SLOP: f32 = 8.0;
 
 /// Applies the platform output of a frame to a winit window.
 ///
-/// Each part is applied through its own state, so future outputs such as IME state can be added
-/// without turning this into one monolithic handler. Create one `WinitOutput` per window.
+/// Each part is applied through its own state, so outputs such as the cursor and IME state stay
+/// independent instead of turning this into one monolithic handler. Create one `WinitOutput` per
+/// window.
 #[derive(Debug, Default)]
 pub struct WinitOutput {
     cursor: CursorState,
+    ime: ImeState,
 }
 
 impl WinitOutput {
@@ -47,12 +57,14 @@ impl WinitOutput {
     /// Only values that differ from the previously applied state reach the platform.
     pub fn apply(&mut self, window: &Window, output: &PlatformOutput) {
         self.cursor.apply(window, output.cursor_icon);
+        self.ime.apply(window, output.ime);
     }
 
     /// Forgets the applied state so the next [`WinitOutput::apply`] updates the window even when
     /// nothing changed. Use this after the platform may have reset its state.
     pub fn invalidate(&mut self) {
         self.cursor.invalidate();
+        self.ime.invalidate();
     }
 }
 
@@ -95,6 +107,57 @@ pub fn cursor_icon(icon: CursorIcon) -> WinitCursorIcon {
     }
 }
 
+/// Applies IME state requested by [`PlatformOutput::ime`].
+///
+/// IME input is enabled while a text input is focused and disabled otherwise. The cursor area is
+/// kept in logical points and only forwarded when it moves, so the candidate window follows the
+/// caret without redundant platform calls.
+#[derive(Debug, Default)]
+struct ImeState {
+    enabled: bool,
+    cursor_rect: Option<Rect>,
+    /// Forces the next apply even when the requested state equals `enabled`/`cursor_rect`.
+    dirty: bool,
+}
+
+impl ImeState {
+    fn apply(&mut self, window: &Window, output: Option<ImeOutput>) {
+        match output {
+            Some(ime) => {
+                if self.dirty || !self.enabled {
+                    window.set_ime_allowed(true);
+                    self.enabled = true;
+                }
+                if self.dirty || self.cursor_rect != Some(ime.cursor_rect) {
+                    window.set_ime_cursor_area(
+                        LogicalPosition::new(
+                            ime.cursor_rect.min.x as f64,
+                            ime.cursor_rect.min.y as f64,
+                        ),
+                        LogicalSize::new(
+                            ime.cursor_rect.width() as f64,
+                            ime.cursor_rect.height() as f64,
+                        ),
+                    );
+                    self.cursor_rect = Some(ime.cursor_rect);
+                }
+            }
+            None => {
+                if self.dirty || self.enabled {
+                    window.set_ime_allowed(false);
+                    self.enabled = false;
+                    self.cursor_rect = None;
+                }
+            }
+        }
+        self.dirty = false;
+    }
+
+    fn invalidate(&mut self) {
+        self.dirty = true;
+    }
+}
+
 /// Accumulates winit events until the next frame.
 #[derive(Debug)]
 pub struct WinitInput {
@@ -109,6 +172,12 @@ pub struct WinitInput {
     modifiers: Modifiers,
     text: String,
     keys: Vec<Key>,
+    /// Composition string currently shown by the IME, if any.
+    ime_preedit: String,
+    /// Cursor range within `ime_preedit` reported by the IME.
+    ime_preedit_selection: Option<Range<usize>>,
+    /// Text committed by the IME since the previous [`Self::take`].
+    ime_commit: String,
     /// The touch currently driving the primary pointer, if any. The GUI has a single pointer,
     /// so extra fingers are ignored until this one is released.
     active_touch: Option<u64>,
@@ -142,6 +211,9 @@ impl WinitInput {
             modifiers: Modifiers::default(),
             text: String::new(),
             keys: Vec::new(),
+            ime_preedit: String::new(),
+            ime_preedit_selection: None,
+            ime_commit: String::new(),
             active_touch: None,
             touch_start: Pos2::ZERO,
             touch_last: Pos2::ZERO,
@@ -210,12 +282,15 @@ impl WinitInput {
                     self.on_key_pressed(&event.logical_key, event.text.as_deref(), event.repeat);
                 }
             }
+            WindowEvent::Ime(ime) => self.on_ime(ime),
             WindowEvent::Touch(touch) => self.on_touch(touch),
             WindowEvent::Focused(false) => {
                 self.primary_down = false;
                 self.primary_pressed = false;
                 self.primary_released = false;
                 self.active_touch = None;
+                self.ime_preedit.clear();
+                self.ime_preedit_selection = None;
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale_factor = sanitize_scale(*scale_factor as f32);
@@ -322,6 +397,29 @@ impl WinitInput {
         }
     }
 
+    /// Updates the composition state from one IME event.
+    ///
+    /// `Preedit` replaces the current composition. `Commit` ends it and queues the committed text
+    /// for the next [`Self::take`]; winit usually sends an empty preedit before a commit, but
+    /// platforms that do not are handled here as well.
+    fn on_ime(&mut self, ime: &Ime) {
+        match ime {
+            Ime::Enabled | Ime::Disabled => {
+                self.ime_preedit.clear();
+                self.ime_preedit_selection = None;
+            }
+            Ime::Preedit(text, cursor) => {
+                self.ime_preedit.clone_from(text);
+                self.ime_preedit_selection = cursor.map(|(start, end)| start..end);
+            }
+            Ime::Commit(text) => {
+                self.ime_preedit.clear();
+                self.ime_preedit_selection = None;
+                self.ime_commit.push_str(text);
+            }
+        }
+    }
+
     /// Takes this frame's input. Edges, scroll and text are cleared; pointer, held buttons and
     /// modifiers are kept.
     pub fn take(&mut self) -> RawInput {
@@ -338,6 +436,11 @@ impl WinitInput {
             scroll: std::mem::take(&mut self.scroll),
             modifiers: self.modifiers,
             text: std::mem::take(&mut self.text),
+            ime: ImeInput {
+                preedit: self.ime_preedit.clone(),
+                preedit_selection: self.ime_preedit_selection.clone(),
+                commit: std::mem::take(&mut self.ime_commit),
+            },
             keys: std::mem::take(&mut self.keys),
             pasted_text: None,
             scroll_dragging: std::mem::take(&mut self.scroll_dragging),
@@ -638,5 +741,65 @@ mod tests {
         let frame = input.take();
         assert_eq!(frame.keys, vec![Key::Backspace, Key::Character('a')]);
         assert!(frame.text.is_empty());
+    }
+
+    #[test]
+    fn ime_preedit_is_reported_until_it_changes() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&WindowEvent::Ime(Ime::Preedit(
+            "にほん".into(),
+            Some((3, 9)),
+        )));
+
+        let frame = input.take();
+        assert_eq!(frame.ime.preedit, "にほん");
+        assert_eq!(frame.ime.preedit_selection, Some(3..9));
+        assert!(frame.ime.commit.is_empty());
+
+        // Preedit state persists across frames until the IME updates or clears it.
+        let frame = input.take();
+        assert_eq!(frame.ime.preedit, "にほん");
+        assert_eq!(frame.ime.preedit_selection, Some(3..9));
+
+        input.on_window_event(&WindowEvent::Ime(Ime::Preedit("日本".into(), None)));
+        let frame = input.take();
+        assert_eq!(frame.ime.preedit, "日本");
+        assert_eq!(frame.ime.preedit_selection, None);
+    }
+
+    #[test]
+    fn ime_commit_clears_the_preedit_and_is_reported_once() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&WindowEvent::Ime(Ime::Preedit(
+            "にほん".into(),
+            Some((3, 9)),
+        )));
+        input.on_window_event(&WindowEvent::Ime(Ime::Commit("日本".into())));
+
+        let frame = input.take();
+        assert_eq!(frame.ime.preedit, "");
+        assert_eq!(frame.ime.preedit_selection, None);
+        assert_eq!(frame.ime.commit, "日本");
+
+        let frame = input.take();
+        assert_eq!(frame.ime.preedit, "");
+        assert!(
+            frame.ime.commit.is_empty(),
+            "a commit is delivered in one frame only"
+        );
+    }
+
+    #[test]
+    fn disabled_ime_and_window_blur_clear_the_preedit() {
+        let mut input = WinitInput::new(1.0);
+        input.on_window_event(&WindowEvent::Ime(Ime::Preedit("に".into(), Some((0, 3)))));
+        input.on_window_event(&WindowEvent::Ime(Ime::Disabled));
+        assert!(input.take().ime.preedit.is_empty());
+
+        input.on_window_event(&WindowEvent::Ime(Ime::Preedit("ほ".into(), Some((0, 3)))));
+        input.on_window_event(&WindowEvent::Focused(false));
+        let frame = input.take();
+        assert!(frame.ime.preedit.is_empty());
+        assert_eq!(frame.ime.preedit_selection, None);
     }
 }
