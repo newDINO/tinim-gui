@@ -16,12 +16,17 @@ winit.workspace = true
 # Native system clipboard access through copypasta. Applications that handle paste/copy
 # themselves can leave this disabled; the wasm demo does, because copypasta has no browser
 # backend.
+#
+# On Linux this needs a backend feature as well: `x11` enables copypasta's X11 backend.
+# Without one, `Clipboard` still exists but reads and writes are no-ops.
 clipboard = ["dep:copypasta"]
 # Enable winit's X11 backend on Linux. `winit` needs at least one platform backend to
 # compile, so this is on by default to keep `cargo check` and `cargo doc` working for this
 # crate without extra flags. Applications that depend on winit themselves (with its default
 # features) are unaffected. Disable this feature if you select winit's backend yourself.
 default = ["x11", "rwh_06"]
-x11 = ["winit/x11"]
+# Forwarding through `copypasta?/x11` keeps copypasta's Wayland backend out of X11-only
+# builds; copypasta's default features enable both.
+x11 = ["winit/x11", "copypasta?/x11"]
 # Let native applications create a wgpu surface from a winit window.
 rwh_06 = ["winit/rwh_06"]

@@ -60,4 +60,9 @@ Applications that depend on winit themselves (with its default features) are una
 feature. If you select winit's backend yourself, disable the default feature with
 `default-features = false`.
 
+`tinim-winit`'s optional `clipboard` feature uses `copypasta` with its default features
+disabled. The same `x11` feature enables copypasta's X11 backend, so X11-only builds do not pull
+in its Wayland dependencies. On Linux, enabling `clipboard` without `x11` compiles but leaves
+`Clipboard` as a no-op.
+
 Recheck whether this is still necessary when new version of rust or winit it released.

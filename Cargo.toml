@@ -24,7 +24,7 @@ bytemuck = { version = "1", features = ["derive"] }
 rustc-hash = "2"
 wgpu = "30"
 winit = { version = "0.30", default-features = false }
-copypasta = "0.10"
+copypasta = { version = "0.10", default-features = false }
 
 tinim-paint = { path = "crates/tinim-paint" }
 tinim-text = { path = "crates/tinim-text" }

@@ -8,6 +8,10 @@
 //! With the `clipboard` feature, the `Clipboard` type wraps a long-lived `copypasta` handle. The
 //! application reads it when it sees a paste shortcut and writes [`PlatformOutput::copy_text`]
 //! after building a frame.
+//!
+//! On Linux, the `x11` feature also enables copypasta's X11 backend, and copypasta's own default
+//! features stay disabled so X11-only builds do not pull in its Wayland dependencies. Without
+//! `x11`, `Clipboard` is a no-op.
 
 use tinim_gui::{CursorIcon, Key, Modifiers, PlatformOutput, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
