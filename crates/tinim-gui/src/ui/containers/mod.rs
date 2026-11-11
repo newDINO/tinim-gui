@@ -1,10 +1,25 @@
-//! Layout containers: stacks and placed regions.
+//! Layout containers: stacks, placed regions, panes and scrollable viewports.
+
+mod scroll;
+
+pub use scroll::{ScrollResponse, ScrollState};
 
 use tinim_paint::{Pos2, Rect, Vec2};
 
 use super::Ui;
 use super::layout::{FlowConfig, allocate_space};
-use super::response::PaneResponse;
+
+/// The result of building a [`Ui::pane`](crate::Ui::pane).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaneResponse {
+    /// The viewport rectangle allocated in the parent flow.
+    pub rect: Rect,
+    /// Extent of the in-flow content, independent of the pane's offset.
+    ///
+    /// Out-of-flow children such as [`Ui::place_at`](crate::Ui::place_at) and
+    /// [`Ui::place_relative`](crate::Ui::place_relative) are not included.
+    pub content_size: Vec2,
+}
 
 impl Ui<'_> {
     /// Stacks children vertically.

@@ -6,18 +6,15 @@
 mod containers;
 mod layout;
 mod response;
-mod scroll;
-mod text_edit;
 mod widgets;
 
 #[cfg(test)]
 mod test_util;
 
+pub use containers::{PaneResponse, ScrollResponse, ScrollState};
 pub use layout::{Align, FlowConfig};
-pub use response::{
-    NumberInputResponse, NumberInputState, PaneResponse, Response, ScrollResponse, ScrollState,
-    TextEditResponse, TextEditState,
-};
+pub use response::Response;
+pub use widgets::{NumberInputResponse, NumberInputState, TextEditResponse, TextEditState};
 
 use tinim_paint::{Pos2, Rect, Vec2};
 

@@ -1,10 +1,9 @@
 //! Scrollable content in a clipped viewport.
 
-use tinim_paint::Vec2;
+use tinim_paint::{Rect, Vec2};
 
-use super::Ui;
-use super::layout::{next_rect, pointer_over, sanitize_size};
-use super::response::{ScrollResponse, ScrollState};
+use super::super::Ui;
+use super::super::layout::{next_rect, pointer_over, sanitize_size};
 
 /// Velocity below which a fling stops, in logical points per second.
 const REST_SPEED: f32 = 10.0;
@@ -12,6 +11,47 @@ const REST_SPEED: f32 = 10.0;
 const MAX_SCROLL_SPEED: f32 = 4000.0;
 /// Inertia friction. Larger values stop a fling sooner.
 const SCROLL_FRICTION: f32 = 4.0;
+
+/// Caller-owned state for [`Ui::scrollable`](crate::Ui::scrollable).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollState {
+    /// Current scroll position, clamped to the content bounds. Zero shows the content origin.
+    pub offset: Vec2,
+    /// Content size measured on the previous frame, if any.
+    ///
+    /// When this is known, the scroll position is clamped before layout, so an out-of-range
+    /// position is corrected in the same frame. It is `None` on the first frame.
+    pub content_size: Option<Vec2>,
+    /// Scroll velocity in logical points per second, in the same axes as [`Self::offset`].
+    pub velocity: Vec2,
+    /// Whether a touch drag currently owns the scroll position.
+    pub dragging: bool,
+}
+
+impl ScrollState {
+    /// A scroll state at the content origin with no active animation.
+    pub const fn new() -> Self {
+        Self {
+            offset: Vec2::ZERO,
+            content_size: None,
+            velocity: Vec2::ZERO,
+            dragging: false,
+        }
+    }
+}
+
+/// The result of building a [`Ui::scrollable`](crate::Ui::scrollable).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollResponse {
+    /// The viewport rectangle allocated in the parent flow.
+    pub rect: Rect,
+    /// Extent of the in-flow content.
+    pub content_size: Vec2,
+    /// Largest valid scroll position: `(content_size - rect.size()).max(0)`.
+    pub max_offset: Vec2,
+    /// Whether the pointer was over the viewport when the scrollable was built.
+    pub hovered: bool,
+}
 
 impl Ui<'_> {
     /// Builds scrollable content in an in-flow viewport of a fixed `size`.
