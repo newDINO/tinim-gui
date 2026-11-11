@@ -26,6 +26,11 @@ wgpu = "30"
 winit = { version = "0.30", default-features = false }
 copypasta = { version = "0.10", default-features = false }
 
+# Logging facade shared by every crate. The demos pick a platform-specific backend.
+log = "0.4"
+env_logger = "0.11"
+console_log = "1.1"
+
 tinim-paint = { path = "crates/tinim-paint" }
 tinim-text = { path = "crates/tinim-text" }
 tinim-paint-text = { path = "crates/tinim-paint-text" }

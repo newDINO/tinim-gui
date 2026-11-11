@@ -28,6 +28,10 @@ Run the native demo:
 cargo run -p tinim-demo-native
 ```
 
+Both demos log through the `log` facade. The native demo initializes `env_logger` with an
+`info` default, so `RUST_LOG=debug cargo run -p tinim-demo-native` enables more detail. The web
+demo initializes `console_log` and writes to the browser console.
+
 Run the web demo with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
 
 ```sh

@@ -47,7 +47,7 @@ impl AppInner {
             .await
             .unwrap();
 
-        println!("{:?}", adapter.get_info());
+        log::info!("adapter: {:?}", adapter.get_info());
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
@@ -231,6 +231,7 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
     let event_loop = EventLoop::new().unwrap();
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();

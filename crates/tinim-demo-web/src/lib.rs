@@ -25,6 +25,7 @@ use winit::window::{Window, WindowId};
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+    console_log::init_with_level(log::Level::Info).expect("failed to initialize the logger");
     let event_loop = EventLoop::new().expect("failed to create the winit event loop");
     event_loop.spawn_app(App::default());
 }
@@ -229,7 +230,7 @@ impl ApplicationHandler for App {
         }
 
         let Some(canvas) = canvas_element() else {
-            log_error("failed to find the #tinim-canvas element");
+            log::error!("failed to find the #tinim-canvas element");
             return;
         };
         // The canvas is laid out by CSS to fill the page, so winit must not manage its size.
@@ -239,7 +240,7 @@ impl ApplicationHandler for App {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(error) => {
-                log_error(&format!("failed to create the browser window: {error}"));
+                log::error!("failed to create the browser window: {error}");
                 return;
             }
         };
@@ -257,7 +258,7 @@ impl ApplicationHandler for App {
                 }
                 Err(message) => {
                     initializing.set(false);
-                    log_error(&message);
+                    log::error!("{message}");
                 }
             }
         });
@@ -328,7 +329,7 @@ async fn read_clipboard() -> Option<String> {
     match JsFuture::from(clipboard.read_text()).await {
         Ok(value) => value.as_string(),
         Err(error) => {
-            log_error(&format!("failed to read the clipboard: {error:?}"));
+            log::error!("failed to read the clipboard: {error:?}");
             None
         }
     }
@@ -340,7 +341,7 @@ fn write_clipboard(text: String) {
     };
     wasm_bindgen_futures::spawn_local(async move {
         if let Err(error) = JsFuture::from(clipboard.write_text(&text)).await {
-            log_error(&format!("failed to write the clipboard: {error:?}"));
+            log::error!("failed to write the clipboard: {error:?}");
         }
     });
 }
@@ -361,8 +362,4 @@ fn canvas_physical_size(canvas: &web_sys::HtmlCanvasElement) -> PhysicalSize<u32
     let width = (canvas.client_width() as f64 * scale).round().max(1.0);
     let height = (canvas.client_height() as f64 * scale).round().max(1.0);
     PhysicalSize::new(width as u32, height as u32)
-}
-
-fn log_error(message: &str) {
-    web_sys::console::error_1(&JsValue::from_str(message));
 }
