@@ -271,54 +271,6 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Whether `event` is the start of a Ctrl/Cmd+V paste.
-fn is_paste_shortcut(event: &WindowEvent, modifiers: Modifiers) -> bool {
-    let WindowEvent::KeyboardInput { event, .. } = event else {
-        return false;
-    };
-    event.state == ElementState::Pressed
-        && !event.repeat
-        && modifiers.command()
-        && matches!(
-            &event.logical_key,
-            winit::keyboard::Key::Character(text) if text.eq_ignore_ascii_case("v")
-        )
-}
-
-/// The browser clipboard, or `None` when the API is unavailable (for example in an insecure
-/// context).
-fn clipboard() -> Option<web_sys::Clipboard> {
-    let navigator = web_sys::window()?.navigator();
-    let navigator: &JsValue = navigator.as_ref();
-    let value = js_sys::Reflect::get(navigator, &JsValue::from_str("clipboard")).ok()?;
-    if value.is_undefined() || value.is_null() {
-        return None;
-    }
-    value.dyn_into().ok()
-}
-
-async fn read_clipboard() -> Option<String> {
-    let clipboard = clipboard()?;
-    match JsFuture::from(clipboard.read_text()).await {
-        Ok(value) => value.as_string(),
-        Err(error) => {
-            log::error!("failed to read the clipboard: {error:?}");
-            None
-        }
-    }
-}
-
-fn write_clipboard(text: String) {
-    let Some(clipboard) = clipboard() else {
-        return;
-    };
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(error) = JsFuture::from(clipboard.write_text(&text)).await {
-            log::error!("failed to write the clipboard: {error:?}");
-        }
-    });
-}
-
 fn canvas_element() -> Option<web_sys::HtmlCanvasElement> {
     web_sys::window()?
         .document()?
