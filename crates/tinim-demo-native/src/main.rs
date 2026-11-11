@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use tinim_demo::Demo;
-use tinim_gui::vec2;
+use tinim_gui::{Key, vec2};
 use tinim_wgpu::wgpu;
-use tinim_winit::{WinitInput, WinitOutput, winit};
+use tinim_winit::{Clipboard, WinitInput, WinitOutput, winit};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -27,6 +27,7 @@ struct AppInner {
     demo: Demo,
     input: WinitInput,
     output: WinitOutput,
+    clipboard: Clipboard,
     renderer: tinim_wgpu::Renderer,
 }
 
@@ -89,6 +90,7 @@ impl AppInner {
             demo,
             input,
             output: WinitOutput::default(),
+            clipboard: Clipboard::new(),
             renderer,
         }
     }
@@ -132,8 +134,14 @@ impl AppInner {
             physical_size.height as f32 / pixels_per_point,
         );
 
-        let input = self.input.take();
+        let mut input = self.input.take();
+        if input.command() && input.keys.contains(&Key::Character('v')) {
+            input.pasted_text = self.clipboard.read();
+        }
         let frame = self.demo.run(viewport, pixels_per_point, input);
+        if let Some(text) = frame.platform.copy_text.as_deref() {
+            self.clipboard.write(text);
+        }
         self.output.apply(&self.window, &frame.platform);
 
         self.renderer

@@ -15,4 +15,4 @@ pollster.workspace = true
 tinim-demo.workspace = true
 tinim-gui.workspace = true
 tinim-wgpu.workspace = true
-tinim-winit.workspace = true
+tinim-winit = { workspace = true, features = ["clipboard"] }

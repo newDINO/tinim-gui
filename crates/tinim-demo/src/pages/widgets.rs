@@ -86,7 +86,9 @@ impl WidgetsPage {
             });
         });
 
-        ui.label("text_edit_singleline(): click to focus, drag to select, Enter submits:");
+        ui.label(
+            "text_edit_singleline(): click to focus, drag to select, Ctrl+C/X/V, Enter submits:",
+        );
         let edit = ui.text_edit_singleline(&mut self.text, &mut self.text_edit);
         ui.label(&format!(
             "text: {:?} | focused: {} | changed: {} | submitted: {}",

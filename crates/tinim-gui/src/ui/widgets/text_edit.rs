@@ -174,9 +174,7 @@ impl Ui<'_> {
         let mut submitted = false;
 
         if state.focused {
-            // AltGr commonly arrives as Ctrl+Alt. Treat it as text input, not a shortcut.
-            let command = (self.ctx.input.modifiers.ctrl || self.ctx.input.modifiers.logo)
-                && !self.ctx.input.modifiers.alt;
+            let command = self.ctx.input.command();
             let shift = self.ctx.input.modifiers.shift;
             let keys = std::mem::take(&mut self.ctx.input.keys);
 
@@ -192,6 +190,27 @@ impl Ui<'_> {
                         state.anchor = 0;
                         state.cursor = text.len();
                         state.blink = 0.0;
+                    }
+                    Key::Character('c') if command => {
+                        if let Some(copied) = copy_selection(text, state) {
+                            self.ctx.platform.copy_text = Some(copied);
+                        }
+                    }
+                    Key::Character('x') if command => {
+                        if let Some(copied) = copy_selection(text, state) {
+                            self.ctx.platform.copy_text = Some(copied);
+                            replace_selection(text, state, "");
+                            changed = true;
+                        }
+                    }
+                    Key::Character('v') if command => {
+                        if let Some(pasted) = self.ctx.input.pasted_text.take() {
+                            let pasted = sanitize_single_line(&pasted);
+                            if !pasted.is_empty() {
+                                replace_selection(text, state, &pasted);
+                                changed = true;
+                            }
+                        }
                     }
                     Key::Enter => submitted = true,
                     Key::Escape => {
@@ -334,6 +353,26 @@ fn replace_selection(text: &mut String, state: &mut TextEditState, inserted: &st
     state.cursor = selection.start + inserted.len();
     state.anchor = state.cursor;
     state.blink = 0.0;
+}
+
+fn copy_selection(text: &str, state: &TextEditState) -> Option<String> {
+    let selection = state.selection();
+    if selection.is_empty() {
+        None
+    } else {
+        Some(text[selection].to_owned())
+    }
+}
+
+/// Converts pasted text to a single line and drops control characters.
+fn sanitize_single_line(text: &str) -> String {
+    text.chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            ch => ch,
+        })
+        .filter(|ch| !ch.is_control())
+        .collect()
 }
 
 fn delete_previous(text: &mut String, state: &mut TextEditState) -> bool {
@@ -737,5 +776,182 @@ mod tests {
 
         assert_eq!(state.cursor(), text.len());
         assert!(state.scroll() > 0.0);
+    }
+
+    #[test]
+    fn ctrl_c_copies_the_selection_without_changing_the_text() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = 0;
+        state.anchor = 2;
+
+        let frame = context.run(
+            vec2(200.0, 100.0),
+            1.0,
+            keys(
+                vec![Key::Character('c')],
+                Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            ),
+            |ui| {
+                ui.text_edit_singleline(&mut text, &mut state);
+            },
+        );
+
+        assert_eq!(frame.platform.copy_text.as_deref(), Some("he"));
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn ctrl_c_does_not_copy_an_empty_selection() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        let frame = context.run(
+            vec2(200.0, 100.0),
+            1.0,
+            keys(
+                vec![Key::Character('c')],
+                Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            ),
+            |ui| {
+                ui.text_edit_singleline(&mut text, &mut state);
+            },
+        );
+
+        assert_eq!(frame.platform.copy_text, None);
+        assert_eq!(text, "hello");
+    }
+
+    #[test]
+    fn ctrl_x_copies_and_deletes_the_selection() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = 0;
+        state.anchor = 2;
+        let mut changed = false;
+
+        let frame = context.run(
+            vec2(200.0, 100.0),
+            1.0,
+            keys(
+                vec![Key::Character('x')],
+                Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            ),
+            |ui| {
+                changed = ui.text_edit_singleline(&mut text, &mut state).changed;
+            },
+        );
+
+        assert!(changed);
+        assert_eq!(text, "llo");
+        assert_eq!(state.cursor(), 0);
+        assert_eq!(frame.platform.copy_text.as_deref(), Some("he"));
+    }
+
+    #[test]
+    fn ctrl_v_pastes_at_the_caret() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = text.len();
+        state.anchor = text.len();
+        let mut changed = false;
+
+        let input = RawInput {
+            keys: vec![Key::Character('v')],
+            modifiers: Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+            pasted_text: Some(" world".to_owned()),
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            changed = ui.text_edit_singleline(&mut text, &mut state).changed;
+        });
+
+        assert!(changed);
+        assert_eq!(text, "hello world");
+        assert_eq!(state.cursor(), text.len());
+    }
+
+    #[test]
+    fn ctrl_v_replaces_the_selection_and_normalizes_the_line() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let _ = context.run(vec2(200.0, 100.0), 1.0, press(), |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+        state.cursor = 0;
+        state.anchor = 2;
+
+        let input = RawInput {
+            keys: vec![Key::Character('v')],
+            modifiers: Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+            pasted_text: Some("a\nb\tc".to_owned()),
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert_eq!(text, "a b cllo");
+        assert_eq!(state.cursor(), 5);
+    }
+
+    #[test]
+    fn clipboard_shortcuts_are_ignored_while_unfocused() {
+        let mut context = context();
+        let mut text = "hello".to_owned();
+        let mut state = TextEditState::new();
+
+        let input = RawInput {
+            keys: vec![Key::Character('v')],
+            modifiers: Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+            pasted_text: Some("world".to_owned()),
+            ..Default::default()
+        };
+        let frame = context.run(vec2(200.0, 100.0), 1.0, input, |ui| {
+            ui.text_edit_singleline(&mut text, &mut state);
+        });
+
+        assert_eq!(text, "hello");
+        assert_eq!(frame.platform.copy_text, None);
     }
 }

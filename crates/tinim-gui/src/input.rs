@@ -54,8 +54,23 @@ pub struct RawInput {
     pub text: String,
     /// Non-text key presses during this frame, in event order.
     pub keys: Vec<Key>,
+    /// Clipboard text supplied for a paste shortcut in this frame.
+    ///
+    /// The backend reads the system clipboard when it observes Ctrl+V or Cmd+V, so widgets can
+    /// consume the text from this field. `None` means no paste was requested or the clipboard was
+    /// unavailable.
+    pub pasted_text: Option<String>,
     /// Whether `scroll` came from dragging the pointer (a touch gesture) rather than a wheel.
     pub scroll_dragging: bool,
     /// Seconds since the previous frame. Used to animate scroll inertia; zero when unknown.
     pub dt: f32,
+}
+
+impl RawInput {
+    /// Whether a Ctrl/Cmd shortcut is active without Alt.
+    ///
+    /// AltGr commonly arrives as Ctrl+Alt, so Alt is excluded to keep it available for text input.
+    pub fn command(&self) -> bool {
+        (self.modifiers.ctrl || self.modifiers.logo) && !self.modifiers.alt
+    }
 }

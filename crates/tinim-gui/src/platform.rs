@@ -15,4 +15,9 @@ pub struct PlatformOutput {
     /// Interactable widgets request an icon while the pointer is over them. A backend should
     /// apply this to its window only when it differs from the icon it applied previously.
     pub cursor_icon: CursorIcon,
+    /// Text the focused widget wants copied to the system clipboard.
+    ///
+    /// A cut is reported the same way as a copy: the widget removes the text itself and asks the
+    /// backend to store what it copied.
+    pub copy_text: Option<String>,
 }

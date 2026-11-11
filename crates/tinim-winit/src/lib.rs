@@ -4,10 +4,20 @@
 //!
 //! This crate does not create a window, a wgpu surface or an event loop. The application owns
 //! those and forwards events here; see the `tinim-demo-native` and `tinim-demo-web` crates.
+//!
+//! With the `clipboard` feature, the `Clipboard` type wraps a long-lived `copypasta` handle. The
+//! application reads it when it sees a paste shortcut and writes [`PlatformOutput::copy_text`]
+//! after building a frame.
 
 use tinim_gui::{CursorIcon, Key, Modifiers, PlatformOutput, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::window::{CursorIcon as WinitCursorIcon, Window};
+
+#[cfg(feature = "clipboard")]
+mod clipboard;
+
+#[cfg(feature = "clipboard")]
+pub use clipboard::Clipboard;
 
 /// One wheel line is translated to this many logical points.
 const LINE_HEIGHT: f32 = 50.0;
@@ -317,6 +327,7 @@ impl WinitInput {
             modifiers: self.modifiers,
             text: std::mem::take(&mut self.text),
             keys: std::mem::take(&mut self.keys),
+            pasted_text: None,
             scroll_dragging: std::mem::take(&mut self.scroll_dragging),
             dt,
         }

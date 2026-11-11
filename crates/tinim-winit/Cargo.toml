@@ -7,11 +7,16 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+copypasta = { workspace = true, optional = true }
 tinim-gui.workspace = true
 web-time = "1"
 winit.workspace = true
 
 [features]
+# Native system clipboard access through copypasta. Applications that handle paste/copy
+# themselves can leave this disabled; the wasm demo does, because copypasta has no browser
+# backend.
+clipboard = ["dep:copypasta"]
 # Enable winit's X11 backend on Linux. `winit` needs at least one platform backend to
 # compile, so this is on by default to keep `cargo check` and `cargo doc` working for this
 # crate without extra flags. Applications that depend on winit themselves (with its default
