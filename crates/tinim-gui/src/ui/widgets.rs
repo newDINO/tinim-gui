@@ -291,10 +291,14 @@ impl Ui<'_> {
 
     /// Draws a numeric text input and updates `value` when the text parses as a finite number.
     ///
-    /// The field uses [`TextEditStyle`](crate::TextEditStyle). Clicking focuses it, Enter commits
-    /// the value, and clicking elsewhere commits a valid number or restores the text from `value`.
-    /// While the input is focused, external changes to `value` do not overwrite the text. The text
-    /// wins when the input is committed, so an external change made during editing is discarded.
+    /// The field shares [`TextEditStyle`](crate::TextEditStyle) with
+    /// [`Ui::text_edit_singleline`], but its size comes from
+    /// [`NumberInputStyle`](crate::NumberInputStyle). Clicking focuses it, Enter commits the value,
+    /// and clicking elsewhere commits a valid number or restores the text from `value`.
+    ///
+    /// While the input is focused, external changes to `value` do not overwrite the text. Blurring
+    /// commits the text only if the user edited it; otherwise the external value is formatted into
+    /// the field.
     ///
     /// `state` is caller-owned, like [`TextEditState`](crate::TextEditState) for
     /// [`Ui::text_edit_singleline`].
@@ -311,38 +315,56 @@ impl Ui<'_> {
             }
         }
 
-        let response = self.text_edit_singleline(&mut state.text, &mut state.edit);
+        // The numeric field is usually much narrower than a full text editor, so its size is
+        // independent even though the rest of the appearance is shared.
+        let min_size = self.ctx.style().number_input.min_size;
+        let response = self.with_style(
+            |style| style.text_edit.min_size = min_size,
+            |ui| ui.text_edit_singleline(&mut state.text, &mut state.edit),
+        );
+
+        if !was_focused && response.focused {
+            state.edited = false;
+        }
+
         let mut changed = false;
         let mut submitted = false;
 
-        if response.changed
-            && let Some(parsed) = parse_number(&state.text)
-            && parsed != *value
-        {
-            *value = parsed;
-            changed = true;
+        if response.changed {
+            state.edited = true;
+            if let Some(parsed) = parse_number(&state.text)
+                && parsed != *value
+            {
+                *value = parsed;
+                changed = true;
+            }
         }
 
         if response.submitted {
             submitted = true;
-            if let Some(parsed) = parse_number(&state.text)
+            if state.edited
+                && let Some(parsed) = parse_number(&state.text)
                 && parsed != *value
             {
                 *value = parsed;
                 changed = true;
             }
             state.text = format_number(*value);
+            state.edited = false;
         }
 
-        // A click outside blurs the editor. Commit a valid number, otherwise discard the edit.
+        // A click outside blurs the editor. Commit an edited number, otherwise leave an external
+        // value change intact and simply refresh the text from it.
         if was_focused && !response.focused {
-            if let Some(parsed) = parse_number(&state.text)
+            if state.edited
+                && let Some(parsed) = parse_number(&state.text)
                 && parsed != *value
             {
                 *value = parsed;
                 changed = true;
             }
             state.text = format_number(*value);
+            state.edited = false;
         }
 
         NumberInputResponse {
@@ -876,6 +898,23 @@ mod tests {
     }
 
     #[test]
+    fn number_input_uses_a_compact_width_independent_of_the_text_editor() {
+        let mut context = context();
+        context.style_mut().text_edit.min_size.x = 400.0;
+        let expected = context.style().number_input.min_size.x;
+        let mut value = 0.0;
+        let mut state = NumberInputState::new();
+        let mut rect = Rect::NOTHING;
+
+        let _ = context.run(vec2(500.0, 100.0), 1.0, RawInput::default(), |ui| {
+            rect = ui.number_input(&mut value, &mut state).rect;
+        });
+
+        assert_eq!(rect.width(), expected);
+        assert!(rect.width() < 400.0);
+    }
+
+    #[test]
     fn number_input_commits_a_typed_value() {
         let mut context = context();
         let mut value = 0.0;
@@ -950,6 +989,46 @@ mod tests {
 
         assert_eq!(value, 7.0);
         assert_eq!(state.text(), "7");
+    }
+
+    #[test]
+    fn number_input_blur_keeps_an_external_value_when_nothing_was_typed() {
+        let mut context = context();
+        let mut value = 1.0;
+        let mut state = NumberInputState::new();
+        let mut rect = Rect::NOTHING;
+
+        let _ = context.run(vec2(300.0, 100.0), 1.0, RawInput::default(), |ui| {
+            rect = ui.number_input(&mut value, &mut state).rect;
+        });
+        let press = RawInput {
+            pointer: Some(rect.min + vec2(1.0, 1.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(300.0, 100.0), 1.0, press, |ui| {
+            ui.number_input(&mut value, &mut state);
+        });
+
+        value = 9.0;
+        let _ = context.run(vec2(300.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.number_input(&mut value, &mut state);
+        });
+        assert_eq!(state.text(), "1");
+
+        let outside = RawInput {
+            pointer: Some(pos2(500.0, 500.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(300.0, 100.0), 1.0, outside, |ui| {
+            ui.number_input(&mut value, &mut state);
+        });
+
+        assert_eq!(value, 9.0);
+        assert_eq!(state.text(), "9");
     }
 
     #[test]

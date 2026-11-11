@@ -102,6 +102,8 @@ pub struct TextEditResponse {
 pub struct NumberInputState {
     pub(crate) text: String,
     pub(crate) edit: TextEditState,
+    /// Whether the user changed the text since it gained focus.
+    pub(crate) edited: bool,
 }
 
 impl NumberInputState {
@@ -110,6 +112,7 @@ impl NumberInputState {
         Self {
             text: String::new(),
             edit: TextEditState::new(),
+            edited: false,
         }
     }
 

@@ -16,6 +16,7 @@ pub struct Style {
     pub checkbox: CheckboxStyle,
     pub radio: RadioStyle,
     pub slider: SliderStyle,
+    pub number_input: NumberInputStyle,
     pub text_edit: TextEditStyle,
 }
 
@@ -29,6 +30,7 @@ impl Default for Style {
             checkbox: CheckboxStyle::default(),
             radio: RadioStyle::default(),
             slider: SliderStyle::default(),
+            number_input: NumberInputStyle::default(),
             text_edit: TextEditStyle::default(),
         }
     }
@@ -168,6 +170,24 @@ impl Default for SliderStyle {
             track_height: 6.0,
             handle_radius: 9.0,
             min_size: vec2(180.0, 24.0),
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::number_input`].
+///
+/// Colors, padding and the caret come from [`Style::text_edit`]. Only the desired size is kept
+/// separate so a compact numeric field does not inherit the wider text editor.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NumberInputStyle {
+    /// Desired size. The width is also capped by the available space.
+    pub min_size: Vec2,
+}
+
+impl Default for NumberInputStyle {
+    fn default() -> Self {
+        Self {
+            min_size: vec2(96.0, 28.0),
         }
     }
 }
