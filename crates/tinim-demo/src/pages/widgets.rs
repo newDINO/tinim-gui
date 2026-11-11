@@ -69,6 +69,14 @@ impl WidgetsPage {
         }
         ui.label(&format!("Value: {}", self.counter));
 
+        ui.label("separator() follows the flow direction:");
+        ui.separator();
+        ui.sized_horizontal(|ui| {
+            ui.label("left");
+            ui.separator();
+            ui.label("right");
+        });
+
         ui.sized_horizontal(|ui| {
             ui.checkbox(&mut self.checked);
             ui.label(if self.checked {

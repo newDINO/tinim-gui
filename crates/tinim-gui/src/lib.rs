@@ -56,7 +56,8 @@ pub use cursor::CursorIcon;
 pub use input::{Key, Modifiers, RawInput};
 pub use platform::PlatformOutput;
 pub use style::{
-    ButtonStyle, CheckboxStyle, NumberInputStyle, RadioStyle, SliderStyle, Style, TextEditStyle,
+    ButtonStyle, CheckboxStyle, NumberInputStyle, RadioStyle, SeparatorStyle, SliderStyle, Style,
+    TextEditStyle,
 };
 pub use ui::{
     Align, FlowConfig, NumberInputResponse, NumberInputState, PaneResponse, Response,

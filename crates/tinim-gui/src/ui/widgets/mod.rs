@@ -1,4 +1,4 @@
-//! Leaf widgets: labels, buttons, toggles, sliders, number inputs and text editing.
+//! Leaf widgets: labels, separators, buttons, toggles, sliders, number inputs and text editing.
 
 use tinim_paint::{Color32, Painter, Pos2, Rect};
 use tinim_paint_text::TextSystem;
@@ -10,6 +10,7 @@ use crate::input::RawInput;
 
 mod button;
 mod number_input;
+mod separator;
 mod slider;
 mod text_edit;
 mod toggle;

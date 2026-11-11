@@ -12,6 +12,7 @@ pub struct Style {
     pub text_color: Color32,
     /// Space between children in a vertical or horizontal stack.
     pub spacing: f32,
+    pub separator: SeparatorStyle,
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
     pub radio: RadioStyle,
@@ -26,12 +27,30 @@ impl Default for Style {
             font: TextStyle::default(),
             text_color: Color32::BLACK,
             spacing: 8.0,
+            separator: SeparatorStyle::default(),
             button: ButtonStyle::default(),
             checkbox: CheckboxStyle::default(),
             radio: RadioStyle::default(),
             slider: SliderStyle::default(),
             number_input: NumberInputStyle::default(),
             text_edit: TextEditStyle::default(),
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::separator`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeparatorStyle {
+    pub color: Color32,
+    /// Line thickness in logical points.
+    pub thickness: f32,
+}
+
+impl Default for SeparatorStyle {
+    fn default() -> Self {
+        Self {
+            color: Color32::from_rgb(100, 100, 108),
+            thickness: 1.0,
         }
     }
 }

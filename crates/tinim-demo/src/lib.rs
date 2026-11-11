@@ -111,6 +111,7 @@ impl Demo {
                 ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
                 ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
             });
+            ui.separator();
             match self.page {
                 DemoPage::Widgets => self.widgets_page.draw(ui),
                 DemoPage::Placed => draw_placed_page(ui),
