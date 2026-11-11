@@ -68,8 +68,28 @@ feature. If you select winit's backend yourself, disable the default feature wit
 `default-features = false`.
 
 `tinim-winit`'s optional `clipboard` feature uses `copypasta` with its default features
-disabled. The same `x11` feature enables copypasta's X11 backend, so X11-only builds do not pull
-in its Wayland dependencies. On Linux, enabling `clipboard` without `x11` compiles but leaves
-`Clipboard` as a no-op.
+disabled. On Linux, `x11` enables copypasta's X11 backend and `wayland` enables its Wayland
+backend, so X11-only builds do not pull in copypasta's Wayland dependencies and Wayland-only
+builds do not pull in X11. The `wayland` feature also enables winit's Wayland backend and uses
+the window's raw display handle to create the Wayland clipboard. The backend is selected at
+runtime from that display handle, so enabling both features works on X11 and Wayland sessions.
+
+For a Wayland-only application, disable the default features and select `wayland` explicitly.
+Use `wayland-dlopen` instead of `wayland` to load libwayland at runtime rather than linking it
+at build time:
+
+```toml
+tinim-winit = { version = "0.1.0-alpha.1", default-features = false, features = ["clipboard", "wayland-dlopen"] }
+```
+
+On Linux, enabling `clipboard` without either backend feature compiles but leaves `Clipboard`
+as a no-op.
+
+To try the native demo with the Wayland clipboard, enable the feature on its `tinim-winit`
+dependency:
+
+```sh
+cargo run -p tinim-demo-native --features tinim-winit/wayland-dlopen
+```
 
 Recheck whether this is still necessary when new version of rust or winit it released.

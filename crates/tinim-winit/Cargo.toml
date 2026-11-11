@@ -29,8 +29,9 @@ web-sys = { version = "0.3", features = [
 # System clipboard access: copypasta on native targets, the browser Clipboard API on wasm.
 # Applications that handle copy/paste themselves can leave this disabled.
 #
-# On Linux this needs a backend feature as well: `x11` enables copypasta's X11 backend.
-# Without one, `Clipboard` still exists but reads and writes are no-ops.
+# On Linux this needs a backend feature as well: `x11` enables copypasta's X11 backend and
+# `wayland` enables its Wayland backend. Without one, `Clipboard` still exists but reads and
+# writes are no-ops.
 clipboard = [
     "dep:copypasta",
     "dep:js-sys",
@@ -46,5 +47,10 @@ default = ["x11", "rwh_06"]
 # Forwarding through `copypasta?/x11` keeps copypasta's Wayland backend out of X11-only
 # builds; copypasta's default features enable both.
 x11 = ["winit/x11", "copypasta?/x11"]
+# Enable winit's Wayland backend and copypasta's Wayland clipboard. `rwh_06` supplies the
+# window's raw display handle, which the Wayland clipboard needs.
+wayland = ["winit/wayland", "copypasta?/wayland", "rwh_06"]
+# Load Wayland libraries at runtime instead of linking them. Implies `wayland`.
+wayland-dlopen = ["wayland", "winit/wayland-dlopen", "copypasta?/wayland-dlopen"]
 # Let native applications create a wgpu surface from a winit window.
 rwh_06 = ["winit/rwh_06"]

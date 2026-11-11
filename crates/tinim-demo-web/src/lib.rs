@@ -103,7 +103,7 @@ impl AppInner {
         surface.configure(&device, &surface_config);
 
         let demo = Demo::new();
-        let platform = WinitPlatform::new(window.scale_factor() as f32);
+        let platform = WinitPlatform::new(&window);
         let renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
 
         Ok(Self {

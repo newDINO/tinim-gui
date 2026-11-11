@@ -10,9 +10,11 @@
 //! [`PlatformOutput::text_input_focused`], and writes [`PlatformOutput::copy_text`] after building
 //! a frame. Native targets use `copypasta`; wasm targets use the browser Clipboard API.
 //!
-//! On Linux, the `x11` feature also enables copypasta's X11 backend, and copypasta's own default
-//! features stay disabled so X11-only builds do not pull in its Wayland dependencies. Without
-//! `x11`, `Clipboard` is a no-op.
+//! On Linux, the `x11` feature enables copypasta's X11 backend and the `wayland` feature enables
+//! its Wayland backend. Copypasta's own default features stay disabled so X11-only builds do not
+//! pull in its Wayland dependencies, and Wayland-only builds do not pull in X11. The backend is
+//! selected at runtime from the window's display handle. Without either feature, `Clipboard` is a
+//! no-op.
 
 use tinim_gui::{CursorIcon, Key, Modifiers, PlatformOutput, Pos2, RawInput, Vec2, pos2, vec2};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
@@ -365,13 +367,14 @@ pub struct WinitPlatform {
 }
 
 impl WinitPlatform {
-    /// `scale_factor` is physical pixels per logical point, usually `window.scale_factor()`.
-    pub fn new(scale_factor: f32) -> Self {
+    /// `window` supplies the scale factor and, with the `clipboard` and `wayland` features, the
+    /// display handle used to create the system clipboard.
+    pub fn new(window: &std::sync::Arc<Window>) -> Self {
         Self {
-            input: WinitInput::new(scale_factor),
+            input: WinitInput::new(window.scale_factor() as f32),
             output: WinitOutput::default(),
             #[cfg(feature = "clipboard")]
-            clipboard: Clipboard::new(),
+            clipboard: Clipboard::new(window),
             #[cfg(feature = "clipboard")]
             text_input_focused: false,
         }
@@ -397,7 +400,11 @@ impl WinitPlatform {
     /// The returned [`RawInput::pasted_text`] contains clipboard text requested by an earlier
     /// frame, if any. Browser reads may complete after this call and arrive next frame.
     pub fn take_input(&mut self) -> RawInput {
+        #[cfg(feature = "clipboard")]
         let mut input = self.input.take();
+        #[cfg(not(feature = "clipboard"))]
+        let input = self.input.take();
+
         #[cfg(feature = "clipboard")]
         {
             input.pasted_text = self.clipboard.take_read();
