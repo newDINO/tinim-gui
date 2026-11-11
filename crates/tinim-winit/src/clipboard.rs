@@ -150,6 +150,9 @@ mod imp {
     }
 
     enum Backend {
+        /// Boxed because `copypasta::ClipboardContext` is much larger than the Wayland backend.
+        /// This value is created once per application, but boxing also keeps the enum small and
+        /// avoids clippy's `large_enum_variant` lint.
         #[cfg(feature = "x11")]
         X11(Box<copypasta::ClipboardContext>),
         #[cfg(feature = "wayland")]
