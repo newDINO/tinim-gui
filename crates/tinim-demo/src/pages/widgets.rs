@@ -2,7 +2,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use tinim_gui::{Align, FlowConfig, TextEditState, Ui, vec2};
+use tinim_gui::{Align, FlowConfig, NumberInputState, TextEditState, Ui, vec2};
 
 pub(crate) struct WidgetsPage {
     counter: usize,
@@ -11,6 +11,9 @@ pub(crate) struct WidgetsPage {
     radio_value: usize,
     text: String,
     text_edit: TextEditState,
+    slider: f32,
+    number: f32,
+    number_input: NumberInputState,
 }
 
 /// A custom wrapper of Ui with [`Self::sized_horizontal`] to
@@ -49,6 +52,9 @@ impl WidgetsPage {
             radio_value: 0,
             text: "editable text".to_owned(),
             text_edit: TextEditState::new(),
+            slider: 0.35,
+            number: 42.0,
+            number_input: NumberInputState::new(),
         }
     }
 
@@ -102,6 +108,20 @@ impl WidgetsPage {
         ui.label(&format!(
             "radio: {}, radio_value: {}",
             self.radio, self.radio_value
+        ));
+
+        ui.label("slider(&mut value, range) - click or drag the track:");
+        let slider = ui.slider(&mut self.slider, 0.0..=1.0);
+        ui.label(&format!(
+            "slider: {:.2} | hovered: {} | down: {}",
+            self.slider, slider.hovered, slider.down
+        ));
+
+        ui.label("number_input(&mut value, &mut state) - type a number, Enter commits:");
+        let number = ui.number_input(&mut self.number, &mut self.number_input);
+        ui.label(&format!(
+            "number: {} | focused: {} | changed: {} | submitted: {}",
+            self.number, number.focused, number.changed, number.submitted
         ));
     }
 }

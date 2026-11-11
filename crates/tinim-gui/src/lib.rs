@@ -55,8 +55,8 @@ pub use context::{Context, FullOutput};
 pub use cursor::CursorIcon;
 pub use input::{Key, Modifiers, RawInput};
 pub use platform::PlatformOutput;
-pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, Style, TextEditStyle};
+pub use style::{ButtonStyle, CheckboxStyle, RadioStyle, SliderStyle, Style, TextEditStyle};
 pub use ui::{
-    Align, FlowConfig, PaneResponse, Response, ScrollResponse, ScrollState, TextEditResponse,
-    TextEditState, Ui,
+    Align, FlowConfig, NumberInputResponse, NumberInputState, PaneResponse, Response,
+    ScrollResponse, ScrollState, TextEditResponse, TextEditState, Ui,
 };

@@ -94,6 +94,55 @@ pub struct TextEditResponse {
     pub submitted: bool,
 }
 
+/// Caller-owned state for [`Ui::number_input`](crate::Ui::number_input).
+///
+/// The widget keeps the text being edited here so partially typed values such as `-` or `1.`
+/// survive between frames. The value itself is passed separately as `&mut f32`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NumberInputState {
+    pub(crate) text: String,
+    pub(crate) edit: TextEditState,
+}
+
+impl NumberInputState {
+    /// A blurred input that will format the value on the next frame.
+    pub const fn new() -> Self {
+        Self {
+            text: String::new(),
+            edit: TextEditState::new(),
+        }
+    }
+
+    /// Whether the input currently owns keyboard input.
+    pub fn is_focused(&self) -> bool {
+        self.edit.is_focused()
+    }
+
+    /// The text currently shown in the input.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Focuses or blurs the input.
+    ///
+    /// Blurring collapses the text selection. The next frame formats the text from the value.
+    pub fn set_focused(&mut self, focused: bool) {
+        self.edit.set_focused(focused);
+    }
+}
+
+/// The result of building a [`Ui::number_input`](crate::Ui::number_input).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NumberInputResponse {
+    pub rect: Rect,
+    pub hovered: bool,
+    pub focused: bool,
+    /// The numeric value changed during this frame.
+    pub changed: bool,
+    /// Enter was pressed while the input was focused.
+    pub submitted: bool,
+}
+
 /// The result of building a [`Ui::pane`](crate::Ui::pane).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PaneResponse {

@@ -15,6 +15,7 @@ pub struct Style {
     pub button: ButtonStyle,
     pub checkbox: CheckboxStyle,
     pub radio: RadioStyle,
+    pub slider: SliderStyle,
     pub text_edit: TextEditStyle,
 }
 
@@ -27,6 +28,7 @@ impl Default for Style {
             button: ButtonStyle::default(),
             checkbox: CheckboxStyle::default(),
             radio: RadioStyle::default(),
+            slider: SliderStyle::default(),
             text_edit: TextEditStyle::default(),
         }
     }
@@ -130,6 +132,42 @@ impl Default for RadioStyle {
             radius: 10.0,
             border_width: 1.5,
             dot_radius: 4.0,
+        }
+    }
+}
+
+/// Appearance of a [`crate::Ui::slider`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct SliderStyle {
+    /// Fill of the unfilled part of the track.
+    pub track: Color32,
+    /// Fill of the track up to the handle.
+    pub filled: Color32,
+    /// Fill of the handle when it is neither hovered nor held.
+    pub handle: Color32,
+    /// Fill of the handle while the pointer is over the slider.
+    pub handle_hovered: Color32,
+    /// Fill of the handle while the pointer is held on the slider.
+    pub handle_active: Color32,
+    /// Height of the track.
+    pub track_height: f32,
+    /// Radius of the handle.
+    pub handle_radius: f32,
+    /// Minimum size. The width is also capped by the available space.
+    pub min_size: Vec2,
+}
+
+impl Default for SliderStyle {
+    fn default() -> Self {
+        Self {
+            track: Color32::from_rgb(38, 38, 42),
+            filled: Color32::from_rgb(52, 88, 145),
+            handle: Color32::from_rgb(200, 200, 208),
+            handle_hovered: Color32::WHITE,
+            handle_active: Color32::from_rgb(180, 210, 255),
+            track_height: 6.0,
+            handle_radius: 9.0,
+            min_size: vec2(180.0, 24.0),
         }
     }
 }

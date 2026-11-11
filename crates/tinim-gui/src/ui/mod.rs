@@ -15,7 +15,8 @@ mod test_util;
 
 pub use layout::{Align, FlowConfig};
 pub use response::{
-    PaneResponse, Response, ScrollResponse, ScrollState, TextEditResponse, TextEditState,
+    NumberInputResponse, NumberInputState, PaneResponse, Response, ScrollResponse, ScrollState,
+    TextEditResponse, TextEditState,
 };
 
 use tinim_paint::{Pos2, Rect, Vec2};
