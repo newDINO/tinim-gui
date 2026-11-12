@@ -2,7 +2,7 @@
 
 use tinim_gui::{Align, FlowConfig, Ui, vec2};
 
-use super::panel_frame;
+use super::FRAME_STYLE1;
 
 pub(crate) struct LayoutPage {
     align: Align,
@@ -36,7 +36,7 @@ impl LayoutPage {
         });
 
         ui.horizontal(|ui| {
-            ui.frame(panel_frame(), |ui| {
+            ui.frame(FRAME_STYLE1, |ui| {
                 ui.sized_flow(
                     vec2(220.0, 130.0),
                     FlowConfig::vertical().align(self.align),
@@ -47,7 +47,7 @@ impl LayoutPage {
                     },
                 );
             });
-            ui.frame(panel_frame(), |ui| {
+            ui.frame(FRAME_STYLE1, |ui| {
                 ui.sized_flow(vec2(220.0, 130.0), FlowConfig::bottom_to_top(), |ui| {
                     ui.label("bottom_to_top");
                     ui.button("first");
@@ -56,7 +56,7 @@ impl LayoutPage {
             });
         });
 
-        ui.frame(panel_frame(), |ui| {
+        ui.frame(FRAME_STYLE1, |ui| {
             ui.sized_flow(vec2(460.0, 70.0), FlowConfig::right_to_left(), |ui| {
                 ui.button("right");
                 ui.button("middle");

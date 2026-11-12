@@ -16,12 +16,15 @@ pub(crate) use scroll::ScrollPage;
 pub(crate) use style::StylePage;
 pub(crate) use widgets::WidgetsPage;
 
-/// The subdued card used to show frames around demo sub-regions.
-pub(crate) fn panel_frame() -> FrameStyle {
-    FrameStyle {
-        background: Color32::from_rgb(38, 38, 44),
-        border: Stroke::new(1.0, Color32::from_rgb(82, 82, 94)),
-        padding: Edges::all(8.0),
-        corner_radius: 4,
-    }
-}
+const FRAME_STYLE1: FrameStyle = FrameStyle {
+    background: Color32::from_rgb(38, 38, 44),
+    border: Stroke::new(1.0, Color32::from_rgb(82, 82, 94)),
+    padding: Edges::all(8.0),
+    corner_radius: 4,
+};
+
+const FRMAE_STYLE2: FrameStyle = const {
+    let mut style = FRAME_STYLE1;
+    style.background = Color32::from_rgb(53, 53, 61);
+    style
+};

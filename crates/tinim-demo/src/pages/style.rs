@@ -2,7 +2,7 @@
 
 use tinim_gui::{Color32, Ui};
 
-use super::panel_frame;
+use super::FRAME_STYLE1;
 use crate::{COOL_TEXT, DEFAULT_TEXT, WARM_TEXT};
 
 pub(crate) struct StylePage {
@@ -42,7 +42,7 @@ impl StylePage {
             self.compact = !self.compact;
         }
 
-        ui.frame(panel_frame(), |ui| {
+        ui.frame(FRAME_STYLE1, |ui| {
             ui.label("Nested scopes restore in order:");
             ui.with_style(
                 |style| style.button.normal = Color32::from_rgb(160, 48, 48),

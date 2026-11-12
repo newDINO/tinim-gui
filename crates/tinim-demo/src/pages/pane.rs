@@ -2,7 +2,7 @@
 
 use tinim_gui::{Ui, Vec2, vec2};
 
-use super::panel_frame;
+use super::FRAME_STYLE1;
 
 pub(crate) struct PanePage {
     action: Option<String>,
@@ -41,7 +41,7 @@ impl PanePage {
             self.pane_offset.x, self.pane_offset.y
         ));
 
-        let (pane, _) = ui.frame(panel_frame(), |ui| {
+        let (pane, _) = ui.frame(FRAME_STYLE1, |ui| {
             let (_, pane) = ui.pane(vec2(300.0, 150.0), self.pane_offset, |ui| {
                 ui.label("This content is clipped to a 300 x 150 viewport.");
                 for index in 0..12 {
