@@ -11,6 +11,8 @@ pub(crate) struct WidgetsPage {
     radio_value: usize,
     text: String,
     text_edit: TextEditState,
+    multiline_text: String,
+    multiline_edit: TextEditState,
     value: f32,
     number_input: NumberInputState,
 }
@@ -51,6 +53,8 @@ impl WidgetsPage {
             radio_value: 0,
             text: "editable text".to_owned(),
             text_edit: TextEditState::new(),
+            multiline_text: "multi-line text\nwith wrapping\nand Enter".to_owned(),
+            multiline_edit: TextEditState::new(),
             value: 42.0,
             number_input: NumberInputState::new(),
         }
@@ -93,6 +97,18 @@ impl WidgetsPage {
         ui.label(&format!(
             "text: {:?} | focused: {} | changed: {} | submitted: {}",
             self.text, edit.focused, edit.changed, edit.submitted
+        ));
+
+        ui.label(
+            "text_edit_multiline(): wraps at the editor width, Enter inserts a newline, Up/Down and Home/End move by line:",
+        );
+        let edit = ui.text_edit_multiline(&mut self.multiline_text, &mut self.multiline_edit);
+        ui.label(&format!(
+            "multiline: {:?} | focused: {} | changed: {} | scroll_y: {:.1}",
+            self.multiline_text,
+            edit.focused,
+            edit.changed,
+            self.multiline_edit.scroll_y()
         ));
 
         ui.label("radio(selected) is the label-free counterpart of selectable_label:");

@@ -226,11 +226,21 @@ pub struct TextLine {
     glyphs: Vec<PositionedGlyph>,
     width: f32,
     baseline: f32,
+    start: usize,
+    end: usize,
 }
 
 impl TextLine {
     pub fn glyphs(&self) -> &[PositionedGlyph] {
         &self.glyphs
+    }
+
+    /// Byte range of the source text covered by this line.
+    ///
+    /// Line terminators and, for wrapped lines, trailing spaces are excluded from the range. An
+    /// empty line has an empty range at its position in the text.
+    pub fn range(&self) -> Range<usize> {
+        self.start..self.end
     }
 
     /// Width of the line in logical points.
@@ -451,12 +461,14 @@ pub(crate) fn layout(
     let mut width: f32 = 0.0;
     for (index, range) in ranges.into_iter().enumerate() {
         let paragraph = paragraph_for(&bidi, range.start);
-        let (glyphs, line_width) = shaped.line(&bidi, paragraph, range, &style);
+        let (glyphs, line_width) = shaped.line(&bidi, paragraph, range.clone(), &style);
         width = width.max(line_width);
         result.lines.push(TextLine {
             glyphs,
             width: line_width,
             baseline: first_baseline + index as f32 * line_height,
+            start: range.start,
+            end: range.end,
         });
     }
 

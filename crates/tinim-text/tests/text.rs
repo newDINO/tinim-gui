@@ -168,6 +168,15 @@ fn explicit_newlines_create_empty_lines() {
 }
 
 #[test]
+fn lines_report_their_source_ranges() {
+    let text = context(AHEM);
+
+    let layout = text.layout("a\n\nb", &style(16.0), None);
+    let ranges: Vec<_> = layout.lines().iter().map(|line| line.range()).collect();
+    assert_eq!(ranges, [0..1, 2..2, 3..4]);
+}
+
+#[test]
 fn default_line_height_includes_the_descent() {
     let text = context(AHEM);
 

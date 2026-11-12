@@ -1,9 +1,10 @@
-//! Single-line text editing.
+//! Single-line and multi-line text editing.
 
 use std::borrow::Cow;
 use std::ops::Range;
 
 use tinim_paint::{Rect, RectShape, Shape, Stroke, Vec2, pos2, vec2};
+use tinim_text::{TextLayout, TextStyle};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::super::Ui;
@@ -12,7 +13,8 @@ use crate::cursor::CursorIcon;
 use crate::input::Key;
 use crate::platform::ImeOutput;
 
-/// Caller-owned state for [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline).
+/// Caller-owned state for [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline) and
+/// [`Ui::text_edit_multiline`](crate::Ui::text_edit_multiline).
 ///
 /// The caret and selection are byte indices into the edited string and are kept on character
 /// boundaries. Use [`TextEditState::new`] or [`Default`].
@@ -29,6 +31,12 @@ pub struct TextEditState {
     pub(crate) anchor: usize,
     /// Horizontal scroll offset in logical points.
     pub(crate) scroll: f32,
+    /// Vertical scroll offset in logical points. Only multi-line editors use it.
+    pub(crate) scroll_y: f32,
+    /// Horizontal caret position remembered while moving between lines with the arrow keys.
+    pub(crate) desired_x: Option<f32>,
+    /// Caret position seen on the previous frame, used to reveal it after it moves.
+    pub(crate) last_cursor: usize,
     /// Seconds since the caret last moved, used for blinking.
     pub(crate) blink: f32,
     /// Whether a pointer drag is extending the selection.
@@ -43,6 +51,9 @@ impl TextEditState {
             cursor: 0,
             anchor: 0,
             scroll: 0.0,
+            scroll_y: 0.0,
+            desired_x: None,
+            last_cursor: 0,
             blink: 0.0,
             dragging: false,
         }
@@ -63,6 +74,14 @@ impl TextEditState {
         self.scroll
     }
 
+    /// Current vertical scroll offset in logical points.
+    ///
+    /// This is always zero for single-line editors. Multi-line editors change it when the caret
+    /// moves outside the visible area or when the pointer wheel scrolls over them.
+    pub fn scroll_y(&self) -> f32 {
+        self.scroll_y
+    }
+
     /// Whether the editor currently owns keyboard input.
     pub fn is_focused(&self) -> bool {
         self.focused
@@ -72,6 +91,7 @@ impl TextEditState {
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
         self.blink = 0.0;
+        self.desired_x = None;
         if !focused {
             self.anchor = self.cursor;
             self.dragging = false;
@@ -79,7 +99,7 @@ impl TextEditState {
     }
 }
 
-/// The result of building a [`Ui::text_edit_singleline`](crate::Ui::text_edit_singleline).
+/// The result of building a text editor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextEditResponse {
     pub rect: Rect,
@@ -88,7 +108,16 @@ pub struct TextEditResponse {
     /// The text changed during this frame.
     pub changed: bool,
     /// Enter was pressed while the editor was focused.
+    ///
+    /// Single-line editors report Enter here instead of inserting a newline. Multi-line editors
+    /// insert a newline and never report a submission, so this is always false for them.
     pub submitted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextEditKind {
+    SingleLine,
+    Multiline,
 }
 
 impl Ui<'_> {
@@ -99,7 +128,8 @@ impl Ui<'_> {
     /// same frame behave as one focus group without widget ids.
     ///
     /// Enter does not insert a newline; it reports [`TextEditResponse::submitted`] instead. The
-    /// caller should keep `text` free of line breaks.
+    /// caller should keep `text` free of line breaks. Use [`Ui::text_edit_multiline`] for editable
+    /// text that may contain them.
     ///
     /// IME composition is supported through [`RawInput::ime`](crate::RawInput::ime). The preedit
     /// is drawn inline and underlined without modifying `text`; committed text is inserted at the
@@ -114,15 +144,54 @@ impl Ui<'_> {
         text: &mut String,
         state: &mut TextEditState,
     ) -> TextEditResponse {
+        self.text_edit(text, state, TextEditKind::SingleLine)
+    }
+
+    /// Draws a multi-line text editor.
+    ///
+    /// The editor wraps text at its inner width, starts at the top of its rectangle and scrolls
+    /// vertically. Its rectangle comes from [`TextEditStyle::multiline_min_size`](crate::TextEditStyle::multiline_min_size)
+    /// and is capped horizontally by the available space.
+    ///
+    /// Enter inserts a newline and never reports [`TextEditResponse::submitted`]. Up and Down move
+    /// the caret between visual lines, and Home and End move it to the start or end of the current
+    /// visual line. Holding Shift extends the selection. Pasting text keeps line breaks and
+    /// normalizes CRLF and lone CR to `\n`.
+    ///
+    /// Clicking inside focuses the editor, clicking outside blurs it, and IME composition works
+    /// like it does for [`Ui::text_edit_singleline`].
+    pub fn text_edit_multiline(
+        &mut self,
+        text: &mut String,
+        state: &mut TextEditState,
+    ) -> TextEditResponse {
+        self.text_edit(text, state, TextEditKind::Multiline)
+    }
+
+    fn text_edit(
+        &mut self,
+        text: &mut String,
+        state: &mut TextEditState,
+        kind: TextEditKind,
+    ) -> TextEditResponse {
+        let multiline = kind == TextEditKind::Multiline;
         let edit_style = self.ctx.style().text_edit.clone();
         let font = self.ctx.style().font.clone();
         let line_height = self.ctx.text_system.line_height(&font);
         let spacing = self.spacing();
         let available = available_size(&self.layout, spacing);
-        let size = Vec2::new(
-            available.x.min(edit_style.min_size.x).max(0.0),
-            (line_height + edit_style.padding.y * 2.0).max(edit_style.min_size.y),
-        );
+        let min_size = if multiline {
+            edit_style.multiline_min_size
+        } else {
+            edit_style.min_size
+        };
+        let mut size = Vec2::new(available.x.min(min_size.x).max(0.0), min_size.y.max(0.0));
+        let minimum_height = line_height + edit_style.padding.y * 2.0;
+        size.y = if multiline {
+            size.y.max(minimum_height)
+        } else {
+            minimum_height.max(min_size.y)
+        };
         let rect = allocate_space(&mut self.layout, size, spacing);
         let inner = Rect::from_min_size(
             rect.min + edit_style.padding,
@@ -140,23 +209,39 @@ impl Ui<'_> {
 
         // Hit testing needs the current layout. Editing below invalidates it, so this layout is
         // only used to resolve the pointer position.
+        let wrap_width = multiline.then_some(inner.width());
         let pointer_cursor =
             if pressed_inside || (state.focused && state.dragging && self.ctx.input.primary_down) {
-                let layout = self
-                    .ctx
-                    .text_cache
-                    .layout(&self.ctx.text_system, text, &font, None);
-                let x = self
+                let layout =
+                    self.ctx
+                        .text_cache
+                        .layout(&self.ctx.text_system, text, &font, wrap_width);
+                let (x, y) = self
                     .ctx
                     .input
                     .pointer
-                    .map(|pointer| pointer.x - inner.min.x + state.scroll)
-                    .unwrap_or(0.0);
-                layout
-                    .lines()
-                    .first()
-                    .map(|line| line.byte_index_at_x(x))
-                    .unwrap_or(0)
+                    .map(|pointer| {
+                        (
+                            pointer.x - inner.min.x + state.scroll,
+                            pointer.y - inner.min.y + state.scroll_y,
+                        )
+                    })
+                    .unwrap_or((0.0, 0.0));
+                if multiline {
+                    let line = if line_height > 0.0 {
+                        (y / line_height).floor().max(0.0) as usize
+                    } else {
+                        0
+                    };
+                    let line = line.min(visual_line_count(layout, text).saturating_sub(1));
+                    line_byte_index_at_x(layout, text, line, x)
+                } else {
+                    layout
+                        .lines()
+                        .first()
+                        .map(|line| line.byte_index_at_x(x))
+                        .unwrap_or(0)
+                }
             } else {
                 0
             };
@@ -165,6 +250,7 @@ impl Ui<'_> {
             state.focused = true;
             state.dragging = true;
             state.blink = 0.0;
+            state.desired_x = None;
             state.cursor = pointer_cursor;
             state.anchor = pointer_cursor;
         } else if pointer_pressed {
@@ -173,6 +259,7 @@ impl Ui<'_> {
                 state.anchor = state.cursor;
             }
             state.dragging = false;
+            state.desired_x = None;
         } else if state.focused && state.dragging && self.ctx.input.primary_down {
             state.cursor = pointer_cursor;
             state.blink = 0.0;
@@ -196,11 +283,34 @@ impl Ui<'_> {
                     Key::Delete => changed |= delete_next(text, state),
                     Key::ArrowLeft => move_left(text, state, shift),
                     Key::ArrowRight => move_right(text, state, shift),
-                    Key::Home => move_home(state, shift),
-                    Key::End => move_end(text, state, shift),
+                    Key::ArrowUp => {
+                        if multiline {
+                            self.move_vertical(text, state, &font, wrap_width, false, shift);
+                        }
+                    }
+                    Key::ArrowDown => {
+                        if multiline {
+                            self.move_vertical(text, state, &font, wrap_width, true, shift);
+                        }
+                    }
+                    Key::Home => {
+                        if multiline {
+                            self.move_to_visual_edge(text, state, &font, wrap_width, false, shift);
+                        } else {
+                            move_home(state, shift);
+                        }
+                    }
+                    Key::End => {
+                        if multiline {
+                            self.move_to_visual_edge(text, state, &font, wrap_width, true, shift);
+                        } else {
+                            move_end(text, state, shift);
+                        }
+                    }
                     Key::Character('a') if command => {
                         state.anchor = 0;
                         state.cursor = text.len();
+                        state.desired_x = None;
                         state.blink = 0.0;
                     }
                     Key::Character('c') if command => {
@@ -216,13 +326,26 @@ impl Ui<'_> {
                         }
                     }
                     Key::Character('v') if command => {
-                        changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text);
+                        changed |= paste_clipboard(
+                            text,
+                            state,
+                            &mut self.ctx.input.pasted_text,
+                            multiline,
+                        );
                     }
-                    Key::Enter => submitted = true,
+                    Key::Enter => {
+                        if multiline {
+                            replace_selection(text, state, "\n");
+                            changed = true;
+                        } else {
+                            submitted = true;
+                        }
+                    }
                     Key::Escape => {
                         state.focused = false;
                         state.anchor = state.cursor;
                         state.dragging = false;
+                        state.desired_x = None;
                     }
                     Key::Tab | Key::Character(_) => {}
                 }
@@ -231,12 +354,12 @@ impl Ui<'_> {
             // Browsers read the clipboard asynchronously, so paste text may arrive after the
             // Ctrl/Cmd+V key was already consumed. Apply it even without the key in this frame.
             if state.focused {
-                changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text);
+                changed |= paste_clipboard(text, state, &mut self.ctx.input.pasted_text, multiline);
             }
 
             // Insert text committed by an IME. It replaces the selection just like typed text.
             if state.focused {
-                let committed = sanitize_single_line(&self.ctx.input.ime.commit);
+                let committed = sanitize_input(&self.ctx.input.ime.commit, multiline);
                 if !committed.is_empty() {
                     replace_selection(text, state, &committed);
                     changed = true;
@@ -247,7 +370,11 @@ impl Ui<'_> {
             // inserts characters.
             if state.focused && !command {
                 let typed = std::mem::take(&mut self.ctx.input.text);
-                let typed: String = typed.chars().filter(|ch| !ch.is_control()).collect();
+                let typed = if multiline {
+                    sanitize_input(&typed, true)
+                } else {
+                    typed.chars().filter(|ch| !ch.is_control()).collect()
+                };
                 if !typed.is_empty() {
                     replace_selection(text, state, &typed);
                     changed = true;
@@ -285,41 +412,98 @@ impl Ui<'_> {
             (Cow::Borrowed(text.as_str()), selection, None, state.cursor)
         };
 
-        let layout = self
-            .ctx
-            .text_cache
-            .layout(&self.ctx.text_system, &display_text, &font, None);
-        let text_height = if layout.lines().is_empty() {
+        let layout =
+            self.ctx
+                .text_cache
+                .layout(&self.ctx.text_system, &display_text, &font, wrap_width);
+        let line_count = visual_line_count(layout, &display_text);
+        let content_height = line_count as f32 * line_height;
+        let caret_line = if multiline {
+            visual_line_index(layout, &display_text, caret)
+        } else {
+            0
+        };
+        let cursor_x = if multiline {
+            visual_cursor_x(layout, caret_line, caret)
+        } else {
+            layout
+                .lines()
+                .first()
+                .map(|line| line.cursor_x(caret))
+                .unwrap_or(0.0)
+        };
+
+        if multiline {
+            state.scroll = 0.0;
+            let max_scroll = (content_height - inner.height()).max(0.0);
+            state.scroll_y = state.scroll_y.clamp(0.0, max_scroll);
+
+            // Wheel input is applied here so the editor can consume what it needs and leave the
+            // rest for an enclosing scrollable. It intentionally ignores touch drags, which
+            // extend the text selection instead.
+            if hovered && !self.ctx.input.scroll_dragging && self.scroll_remaining.y != 0.0 {
+                let desired = state.scroll_y - self.scroll_remaining.y;
+                state.scroll_y = desired.clamp(0.0, max_scroll);
+                let unused = desired - state.scroll_y;
+                self.scroll_remaining.y = -unused;
+            }
+
+            // Reveal the caret when it moves without fighting the user's wheel scrolling.
+            if state.focused && state.cursor != state.last_cursor {
+                let caret_top = caret_line as f32 * line_height;
+                if caret_top < state.scroll_y {
+                    state.scroll_y = caret_top;
+                } else if caret_top + line_height > state.scroll_y + inner.height() {
+                    state.scroll_y = caret_top + line_height - inner.height();
+                }
+                state.scroll_y = state.scroll_y.clamp(0.0, max_scroll);
+            }
+        } else {
+            let max_scroll = (layout.width() - inner.width()).max(0.0);
+            state.scroll = state.scroll.clamp(0.0, max_scroll);
+            if state.focused {
+                if cursor_x < state.scroll {
+                    state.scroll = cursor_x;
+                } else if cursor_x > state.scroll + inner.width() {
+                    state.scroll = cursor_x - inner.width();
+                }
+                state.scroll = state.scroll.clamp(0.0, max_scroll);
+            }
+            state.scroll_y = 0.0;
+        }
+        state.last_cursor = state.cursor;
+        if state.focused {
+            state.blink = (state.blink + self.ctx.input.dt.max(0.0)) % 1.0;
+        }
+
+        let raw_text_height = if multiline || layout.lines().is_empty() {
             line_height
         } else {
             layout.height()
         };
-        let cursor_x = layout
-            .lines()
-            .first()
-            .map(|line| line.cursor_x(caret))
-            .unwrap_or(0.0);
         // `inner` can be taller than the text (for example when `min_size.y` exceeds the line
-        // height plus padding). Center the line box the same way `button` centers its text.
-        let text_top = inner.min.y + (inner.height() - text_height).max(0.0) * 0.5;
-        let text_height = text_height.min(inner.height());
-
-        let max_scroll = (layout.width() - inner.width()).max(0.0);
-        state.scroll = state.scroll.clamp(0.0, max_scroll);
-        if state.focused {
-            if cursor_x < state.scroll {
-                state.scroll = cursor_x;
-            } else if cursor_x > state.scroll + inner.width() {
-                state.scroll = cursor_x - inner.width();
-            }
-            state.scroll = state.scroll.clamp(0.0, max_scroll);
-            state.blink = (state.blink + self.ctx.input.dt.max(0.0)) % 1.0;
-        }
+        // height plus padding). A single-line editor centers the line box like `button` centers
+        // its text. A multi-line editor starts at the top and scrolls.
+        let text_top = if multiline {
+            inner.min.y - state.scroll_y
+        } else {
+            inner.min.y + (inner.height() - raw_text_height).max(0.0) * 0.5
+        };
+        let text_height = if multiline {
+            line_height
+        } else {
+            raw_text_height.min(inner.height())
+        };
+        let caret_top = if multiline {
+            text_top + caret_line as f32 * line_height
+        } else {
+            text_top
+        };
 
         // The platform places the IME candidate window at the caret. Report the same rectangle
-        // that the caret is drawn at, including the current scroll offset.
+        // that the caret is drawn at, including the current scroll offsets.
         let ime_cursor_rect = Rect::from_min_size(
-            pos2(inner.min.x + cursor_x - state.scroll, text_top),
+            pos2(inner.min.x + cursor_x - state.scroll, caret_top),
             vec2(edit_style.cursor_width.max(1.0), text_height),
         );
 
@@ -342,21 +526,32 @@ impl Ui<'_> {
             if inner_clip.is_positive() {
                 self.ctx.painter.set_clip_rect(inner_clip);
 
-                if !visible_selection.is_empty()
-                    && let Some(line) = layout.lines().first()
-                {
-                    for glyph in line.glyphs() {
-                        let cluster = glyph.cluster();
-                        if cluster.end <= visible_selection.start
-                            || cluster.start >= visible_selection.end
+                if !visible_selection.is_empty() {
+                    for (index, line) in layout.lines().iter().enumerate() {
+                        let range = line.range();
+                        if visible_selection.end <= range.start
+                            || visible_selection.start >= range.end
                         {
                             continue;
                         }
-                        let selection_rect = Rect::from_min_size(
-                            pos2(inner.min.x + glyph.x() - state.scroll, text_top),
-                            vec2(glyph.advance(), text_height),
-                        );
-                        self.ctx.painter.rect(selection_rect, edit_style.selection);
+                        let top = if multiline {
+                            text_top + index as f32 * line_height
+                        } else {
+                            text_top
+                        };
+                        for glyph in line.glyphs() {
+                            let cluster = glyph.cluster();
+                            if cluster.end <= visible_selection.start
+                                || cluster.start >= visible_selection.end
+                            {
+                                continue;
+                            }
+                            let selection_rect = Rect::from_min_size(
+                                pos2(inner.min.x + glyph.x() - state.scroll, top),
+                                vec2(glyph.advance(), text_height),
+                            );
+                            self.ctx.painter.rect(selection_rect, edit_style.selection);
+                        }
                     }
                 }
 
@@ -372,18 +567,28 @@ impl Ui<'_> {
                 }
 
                 // Underline the composition string so it is distinguishable from committed text.
-                if let (Some(preedit), Some(line)) = (preedit.as_ref(), layout.lines().first()) {
-                    let start_x = line.cursor_x(preedit.start);
-                    let end_x = line.cursor_x(preedit.end);
-                    if end_x > start_x {
-                        let underline = Rect::from_min_size(
-                            pos2(
-                                inner.min.x + start_x - state.scroll,
-                                text_top + text_height - 1.0,
-                            ),
-                            vec2(end_x - start_x, 1.0),
-                        );
-                        self.ctx.painter.rect(underline, edit_style.text);
+                if let Some(preedit) = preedit.as_ref() {
+                    for (index, line) in layout.lines().iter().enumerate() {
+                        let range = line.range();
+                        let start = preedit.start.max(range.start);
+                        let end = preedit.end.min(range.end);
+                        if start >= end {
+                            continue;
+                        }
+                        let start_x = line.cursor_x(start);
+                        let end_x = line.cursor_x(end);
+                        if end_x > start_x {
+                            let bottom = if multiline {
+                                text_top + (index as f32 + 1.0) * line_height - 1.0
+                            } else {
+                                text_top + text_height - 1.0
+                            };
+                            let underline = Rect::from_min_size(
+                                pos2(inner.min.x + start_x - state.scroll, bottom),
+                                vec2(end_x - start_x, 1.0),
+                            );
+                            self.ctx.painter.rect(underline, edit_style.text);
+                        }
                     }
                 }
 
@@ -409,6 +614,62 @@ impl Ui<'_> {
             submitted,
         }
     }
+
+    /// Moves the caret to the start or end of the visual line that contains it.
+    fn move_to_visual_edge(
+        &mut self,
+        text: &str,
+        state: &mut TextEditState,
+        font: &TextStyle,
+        max_width: Option<f32>,
+        end: bool,
+        extend: bool,
+    ) {
+        let layout = self
+            .ctx
+            .text_cache
+            .layout(&self.ctx.text_system, text, font, max_width);
+        let index = visual_line_index(layout, text, state.cursor);
+        let range = visual_line_range(layout, text, index);
+        set_cursor(state, if end { range.end } else { range.start }, extend);
+    }
+
+    /// Moves the caret one visual line up or down, preserving its horizontal position.
+    fn move_vertical(
+        &mut self,
+        text: &str,
+        state: &mut TextEditState,
+        font: &TextStyle,
+        max_width: Option<f32>,
+        down: bool,
+        extend: bool,
+    ) {
+        let layout = self
+            .ctx
+            .text_cache
+            .layout(&self.ctx.text_system, text, font, max_width);
+        let count = visual_line_count(layout, text);
+        let index = visual_line_index(layout, text, state.cursor);
+        let target_index = if down {
+            (index + 1).min(count.saturating_sub(1))
+        } else {
+            index.saturating_sub(1)
+        };
+        if target_index == index {
+            return;
+        }
+
+        let x = state
+            .desired_x
+            .unwrap_or_else(|| visual_cursor_x(layout, index, state.cursor));
+        let target = line_byte_index_at_x(layout, text, target_index, x);
+        state.cursor = target;
+        if !extend {
+            state.anchor = target;
+        }
+        state.desired_x = Some(x);
+        state.blink = 0.0;
+    }
 }
 
 fn clamp_state(text: &str, state: &mut TextEditState) {
@@ -429,6 +690,7 @@ fn replace_selection(text: &mut String, state: &mut TextEditState, inserted: &st
     text.replace_range(selection.clone(), inserted);
     state.cursor = selection.start + inserted.len();
     state.anchor = state.cursor;
+    state.desired_x = None;
     state.blink = 0.0;
 }
 
@@ -446,16 +708,26 @@ fn paste_clipboard(
     text: &mut String,
     state: &mut TextEditState,
     pasted: &mut Option<String>,
+    multiline: bool,
 ) -> bool {
     let Some(pasted) = pasted.take() else {
         return false;
     };
-    let pasted = sanitize_single_line(&pasted);
+    let pasted = sanitize_input(&pasted, multiline);
     if pasted.is_empty() {
         return false;
     }
     replace_selection(text, state, &pasted);
     true
+}
+
+/// Sanitizes input for an editor, dropping control characters it cannot display.
+fn sanitize_input(text: &str, multiline: bool) -> String {
+    if multiline {
+        sanitize_multiline(text)
+    } else {
+        sanitize_single_line(text)
+    }
 }
 
 /// Converts pasted text to a single line and drops control characters.
@@ -469,12 +741,34 @@ fn sanitize_single_line(text: &str) -> String {
         .collect()
 }
 
+/// Normalizes line endings and drops control characters that are not line breaks or tabs.
+fn sanitize_multiline(text: &str) -> String {
+    let mut sanitized = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                sanitized.push('\n');
+            }
+            '\u{2028}' | '\u{2029}' => sanitized.push('\n'),
+            '\n' | '\t' => sanitized.push(ch),
+            ch if ch.is_control() => {}
+            ch => sanitized.push(ch),
+        }
+    }
+    sanitized
+}
+
 fn delete_previous(text: &mut String, state: &mut TextEditState) -> bool {
     let selection = state.selection();
     if !selection.is_empty() {
         text.replace_range(selection.clone(), "");
         state.cursor = selection.start;
         state.anchor = selection.start;
+        state.desired_x = None;
         state.blink = 0.0;
         return true;
     }
@@ -485,6 +779,7 @@ fn delete_previous(text: &mut String, state: &mut TextEditState) -> bool {
     text.replace_range(start..state.cursor, "");
     state.cursor = start;
     state.anchor = start;
+    state.desired_x = None;
     state.blink = 0.0;
     true
 }
@@ -495,6 +790,7 @@ fn delete_next(text: &mut String, state: &mut TextEditState) -> bool {
         text.replace_range(selection.clone(), "");
         state.cursor = selection.start;
         state.anchor = selection.start;
+        state.desired_x = None;
         state.blink = 0.0;
         return true;
     }
@@ -504,6 +800,7 @@ fn delete_next(text: &mut String, state: &mut TextEditState) -> bool {
     let end = next_grapheme_boundary(text, state.cursor);
     text.replace_range(state.cursor..end, "");
     state.anchor = state.cursor;
+    state.desired_x = None;
     state.blink = 0.0;
     true
 }
@@ -542,6 +839,7 @@ fn set_cursor(state: &mut TextEditState, target: usize, extend: bool) {
     if !extend {
         state.anchor = target;
     }
+    state.desired_x = None;
     state.blink = 0.0;
 }
 
@@ -559,6 +857,66 @@ fn next_grapheme_boundary(text: &str, index: usize) -> usize {
         .next()
         .map(|grapheme| index + grapheme.len())
         .unwrap_or(text.len())
+}
+
+/// Number of visual lines, including the empty line after a trailing line break.
+fn visual_line_count(layout: &TextLayout, text: &str) -> usize {
+    layout.line_count() + usize::from(has_trailing_empty_line(text))
+}
+
+/// Index of the visual line that contains `byte`.
+///
+/// A caret at the boundary between soft-wrapped lines belongs to the following line, while a
+/// caret before an explicit line break belongs to the current one. A position after a trailing
+/// line break belongs to the appended empty line.
+fn visual_line_index(layout: &TextLayout, text: &str, byte: usize) -> usize {
+    let mut index = 0;
+    for (line_index, line) in layout.lines().iter().enumerate() {
+        if line.range().start <= byte {
+            index = line_index;
+        } else {
+            break;
+        }
+    }
+    if has_trailing_empty_line(text) && byte >= text.len() {
+        index = layout.line_count();
+    }
+    index
+}
+
+/// Byte range of a visual line. The appended empty line after a trailing break is `text.len()..text.len()`.
+fn visual_line_range(layout: &TextLayout, text: &str, index: usize) -> Range<usize> {
+    layout
+        .lines()
+        .get(index)
+        .map(|line| line.range())
+        .unwrap_or(text.len()..text.len())
+}
+
+fn visual_cursor_x(layout: &TextLayout, index: usize, byte: usize) -> f32 {
+    match layout.lines().get(index) {
+        // Wrapped layouts trim trailing spaces from the line, so positions after the range are at
+        // the visible end of the line instead of inside its last glyph.
+        Some(line) if byte > line.range().end => line.width(),
+        Some(line) => line.cursor_x(byte),
+        None => 0.0,
+    }
+}
+
+/// Converts an x position on a visual line to a byte index.
+///
+/// `TextLine::byte_index_at_x` returns zero for an empty line because it has no glyphs; the line's
+/// own byte position is the correct answer there.
+fn line_byte_index_at_x(layout: &TextLayout, text: &str, index: usize, x: f32) -> usize {
+    match layout.lines().get(index) {
+        Some(line) if !line.glyphs().is_empty() => line.byte_index_at_x(x),
+        Some(line) => line.range().start,
+        None => text.len(),
+    }
+}
+
+fn has_trailing_empty_line(text: &str) -> bool {
+    text.ends_with(['\n', '\r', '\u{000B}', '\u{000C}'])
 }
 
 #[cfg(test)]
@@ -1257,5 +1615,329 @@ mod tests {
 
         assert_eq!(text, "hello");
         assert_eq!(frame.platform.copy_text, None);
+    }
+
+    fn run_multiline(
+        context: &mut crate::Context,
+        text: &mut String,
+        state: &mut TextEditState,
+        min_size: Option<Vec2>,
+        input: RawInput,
+    ) -> (crate::TextEditResponse, crate::PlatformOutput) {
+        let mut response = None;
+        let frame = context.run(vec2(300.0, 300.0), 1.0, input, |ui| {
+            if let Some(min_size) = min_size {
+                ui.with_style(
+                    |style| style.text_edit.multiline_min_size = min_size,
+                    |ui| {
+                        response = Some(ui.text_edit_multiline(text, state));
+                    },
+                );
+            } else {
+                response = Some(ui.text_edit_multiline(text, state));
+            }
+        });
+        (response.expect("the editor was built"), frame.platform)
+    }
+
+    fn focus_multiline(context: &mut crate::Context, text: &mut String, state: &mut TextEditState) {
+        run_multiline(context, text, state, None, press());
+        assert!(state.is_focused());
+    }
+
+    #[test]
+    fn multiline_enter_inserts_a_newline() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        let (response, _) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(vec![Key::Enter], Modifiers::default()),
+        );
+
+        assert!(response.changed);
+        assert!(!response.submitted);
+        assert_eq!(text, "\n");
+        assert_eq!(state.cursor(), 1);
+    }
+
+    #[test]
+    fn multiline_arrow_keys_follow_lines_and_keep_the_column() {
+        let mut context = context();
+        let mut text = "abc\ndef".to_owned();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+        state.cursor = text.len();
+        state.anchor = text.len();
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(vec![Key::ArrowUp], Modifiers::default()),
+        );
+        assert_eq!(state.cursor(), 3);
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(vec![Key::ArrowDown], Modifiers::default()),
+        );
+        assert_eq!(state.cursor(), 7);
+    }
+
+    #[test]
+    fn multiline_shift_arrow_down_extends_the_selection() {
+        let mut context = context();
+        let mut text = "abc\ndef".to_owned();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(
+                vec![Key::ArrowDown],
+                Modifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            ),
+        );
+
+        assert_eq!(state.cursor(), 4);
+        assert_eq!(state.selection(), 0..4);
+    }
+
+    #[test]
+    fn multiline_home_and_end_use_the_current_line() {
+        let mut context = context();
+        let mut text = "abc\ndef".to_owned();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+        state.cursor = 5;
+        state.anchor = 5;
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(vec![Key::Home], Modifiers::default()),
+        );
+        assert_eq!(state.cursor(), 4);
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            keys(vec![Key::End], Modifiers::default()),
+        );
+        assert_eq!(state.cursor(), 7);
+    }
+
+    #[test]
+    fn multiline_click_positions_the_caret_on_the_clicked_line() {
+        let mut context = context();
+        let mut text = "abc\ndef".to_owned();
+        let mut state = TextEditState::new();
+
+        // Padding is (8, 4) and Ahem advances one em (14 points) per glyph, so 30 points into the
+        // second line, whose top is 4 + 14, is inside the third glyph.
+        let input = RawInput {
+            pointer: Some(pos2(8.0 + 30.0, 4.0 + 14.0 + 7.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        run_multiline(&mut context, &mut text, &mut state, None, input);
+
+        assert!(state.is_focused());
+        assert_eq!(state.cursor(), 6);
+    }
+
+    #[test]
+    fn multiline_paste_keeps_line_breaks_and_normalizes_crlf() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        let input = RawInput {
+            pasted_text: Some("a\r\nb\tc".to_owned()),
+            ..Default::default()
+        };
+        let (response, _) = run_multiline(&mut context, &mut text, &mut state, None, input);
+
+        assert!(response.changed);
+        assert_eq!(text, "a\nb\tc");
+        assert_eq!(state.cursor(), text.len());
+    }
+
+    #[test]
+    fn multiline_ime_commit_keeps_line_breaks() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            ime("", None, "a\nb"),
+        );
+
+        assert_eq!(text, "a\nb");
+        assert_eq!(state.cursor(), 3);
+    }
+
+    #[test]
+    fn multiline_vertical_arrows_follow_wrapped_lines() {
+        let mut context = context();
+        let mut text = "abcd".to_owned();
+        let mut state = TextEditState::new();
+        let size = Some(vec2(48.0, 60.0));
+
+        run_multiline(&mut context, &mut text, &mut state, size, press());
+        state.cursor = text.len();
+        state.anchor = text.len();
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            size,
+            keys(vec![Key::ArrowUp], Modifiers::default()),
+        );
+
+        // The inner width is 32 points, so "ab" and "cd" are separate visual lines.
+        assert_eq!(state.cursor(), 2);
+    }
+
+    #[test]
+    fn multiline_scrolls_to_reveal_the_caret() {
+        let mut context = context();
+        let mut text = "a\nb\nc".to_owned();
+        let mut state = TextEditState::new();
+        let size = Some(vec2(240.0, 22.0));
+
+        run_multiline(&mut context, &mut text, &mut state, size, press());
+        state.cursor = text.len();
+        state.anchor = text.len();
+
+        run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            size,
+            RawInput::default(),
+        );
+
+        // The viewport shows one line, so revealing the third line scrolls by two lines.
+        assert!((state.scroll_y() - 28.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn multiline_trailing_newline_caret_uses_an_appended_line() {
+        let mut context = context();
+        let mut text = "a\n".to_owned();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        state.cursor = 1;
+        state.anchor = 1;
+        let (_, platform) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            RawInput::default(),
+        );
+        let first = platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .y;
+
+        state.cursor = 2;
+        state.anchor = 2;
+        let (_, platform) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            RawInput::default(),
+        );
+        let appended = platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .y;
+
+        assert_eq!(state.cursor(), 2);
+        assert!(
+            appended > first,
+            "the caret after a trailing newline is on the next line"
+        );
+    }
+
+    #[test]
+    fn multiline_caret_after_trailing_spaces_stays_at_the_line_end() {
+        let mut context = context();
+        let mut text = "ab   \ncd".to_owned();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+        state.cursor = 5;
+        state.anchor = 5;
+
+        let (_, platform) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            RawInput::default(),
+        );
+        let caret_x = platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+
+        // Wrapping trims the spaces from the line, so the caret sits after "ab", not before it.
+        assert!((caret_x - (8.0 + 28.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn multiline_wheel_scrolls_the_text() {
+        let mut context = context();
+        let mut text = "a\nb\nc\nd".to_owned();
+        let mut state = TextEditState::new();
+        let size = Some(vec2(240.0, 36.0));
+
+        run_multiline(&mut context, &mut text, &mut state, size, press());
+        let wheel = RawInput {
+            pointer: Some(pos2(10.0, 10.0)),
+            scroll: vec2(0.0, -28.0),
+            ..Default::default()
+        };
+        run_multiline(&mut context, &mut text, &mut state, size, wheel);
+
+        assert_eq!(state.scroll_y(), 28.0);
     }
 }

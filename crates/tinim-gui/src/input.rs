@@ -38,6 +38,8 @@ pub enum Key {
     Tab,
     ArrowLeft,
     ArrowRight,
+    ArrowUp,
+    ArrowDown,
     Home,
     End,
     /// A character key, normalized to lowercase, for shortcuts such as Ctrl+A.

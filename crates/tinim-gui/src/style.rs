@@ -326,7 +326,7 @@ impl Default for NumberInputStyle {
     }
 }
 
-/// Appearance of a [`crate::Ui::text_edit_singleline`].
+/// Appearance shared by [`crate::Ui::text_edit_singleline`] and [`crate::Ui::text_edit_multiline`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextEditStyle {
     /// Fill when the editor is neither hovered nor focused.
@@ -346,8 +346,10 @@ pub struct TextEditStyle {
     pub selection: Color32,
     pub cursor: Color32,
     pub cursor_width: f32,
-    /// Desired size. The width is also capped by the available space.
+    /// Desired size of a single-line editor. The width is also capped by the available space.
     pub min_size: Vec2,
+    /// Desired size of a multi-line editor. The width is also capped by the available space.
+    pub multiline_min_size: Vec2,
 }
 
 impl Default for TextEditStyle {
@@ -365,6 +367,7 @@ impl Default for TextEditStyle {
             cursor: Color32::WHITE,
             cursor_width: 1.5,
             min_size: vec2(240.0, 28.0),
+            multiline_min_size: vec2(240.0, 96.0),
         }
     }
 }

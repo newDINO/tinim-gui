@@ -564,6 +564,8 @@ fn translate_key(key: &winit::keyboard::Key) -> Option<Key> {
         WinitKey::Named(NamedKey::Tab) => Some(Key::Tab),
         WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::ArrowLeft),
         WinitKey::Named(NamedKey::ArrowRight) => Some(Key::ArrowRight),
+        WinitKey::Named(NamedKey::ArrowUp) => Some(Key::ArrowUp),
+        WinitKey::Named(NamedKey::ArrowDown) => Some(Key::ArrowDown),
         WinitKey::Named(NamedKey::Home) => Some(Key::Home),
         WinitKey::Named(NamedKey::End) => Some(Key::End),
         WinitKey::Character(text) => text
@@ -730,12 +732,20 @@ mod tests {
         let mut input = WinitInput::new(1.0);
         input.on_key_pressed(&WinitKey::Named(NamedKey::Backspace), Some("\u{8}"), false);
         input.on_key_pressed(&WinitKey::Named(NamedKey::ArrowLeft), None, false);
+        input.on_key_pressed(&WinitKey::Named(NamedKey::ArrowUp), None, false);
+        input.on_key_pressed(&WinitKey::Named(NamedKey::ArrowDown), None, false);
         input.on_key_pressed(&WinitKey::Character("A".into()), Some("A"), false);
 
         let frame = input.take();
         assert_eq!(
             frame.keys,
-            vec![Key::Backspace, Key::ArrowLeft, Key::Character('a')]
+            vec![
+                Key::Backspace,
+                Key::ArrowLeft,
+                Key::ArrowUp,
+                Key::ArrowDown,
+                Key::Character('a')
+            ]
         );
         assert_eq!(frame.text, "A", "control characters are not text");
     }
