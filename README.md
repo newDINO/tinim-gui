@@ -6,11 +6,11 @@ A tiny immediate-mode GUI.
 
 | crate | what it does |
 |---|---|
+| `tinim-gui` | immediate-mode `Context`/`Ui` |
 | `tinim-paint` | math, colors, `Painter`, `PaintList`, tessellation |
 | `tinim-text` | shaping, bidi, line breaking and glyph rasterization (harfrust + skrifa) |
 | `tinim-paint-text` | glyph atlas and mesh generation for `tinim-text` on top of `tinim-paint` |
 | `tinim-wgpu` | one wgpu pipeline that draws a `PaintList` |
-| `tinim-gui` | immediate-mode `Context`/`Ui`, vertical/horizontal layout, rectangular frames with background/border/padding, labels, separators, checkboxes, radios, sliders, press-only buttons, single-line and wrapping multi-line text editing with clipboard shortcuts and IME composition, and numeric inputs |
 | `tinim-winit` | `WindowEvent` → `RawInput` input adapter, including clipboard and native IME state |
 | `tinim-demo` | shared demo UI, application loop and the embedded Comic Mono font |
 | `tinim-demo-native` | native winit + wgpu demo binary |
@@ -110,5 +110,3 @@ forwards to `tinim-demo` and then to `tinim-winit`:
 ```sh
 cargo run -p tinim-demo-native --features wayland-dlopen
 ```
-
-Recheck whether this is still necessary when new version of rust or winit it released.
