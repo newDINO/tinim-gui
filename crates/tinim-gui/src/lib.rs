@@ -47,7 +47,9 @@ mod style;
 mod text_cache;
 mod ui;
 
-pub use tinim_paint::{Color32, PaintList, Pos2, Rect, TextureId, TexturesDelta, Vec2, pos2, vec2};
+pub use tinim_paint::{
+    Color32, PaintList, Pos2, Rect, Stroke, TextureId, TexturesDelta, Vec2, pos2, vec2,
+};
 pub use tinim_paint_text;
 pub use tinim_text;
 
@@ -56,10 +58,10 @@ pub use cursor::CursorIcon;
 pub use input::{ImeInput, Key, Modifiers, RawInput};
 pub use platform::{ImeOutput, PlatformOutput};
 pub use style::{
-    ButtonStyle, CheckboxStyle, NumberInputStyle, RadioStyle, SeparatorStyle, SliderStyle, Style,
-    TextEditStyle,
+    ButtonStyle, CheckboxStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle, SeparatorStyle,
+    SliderStyle, Style, TextEditStyle,
 };
 pub use ui::{
-    Align, FlowConfig, NumberInputResponse, NumberInputState, PaneResponse, Response,
-    ScrollResponse, ScrollState, TextEditResponse, TextEditState, Ui,
+    Align, FlowConfig, FrameResponse, NumberInputResponse, NumberInputState, PaneResponse,
+    Response, ScrollResponse, ScrollState, TextEditResponse, TextEditState, Ui,
 };

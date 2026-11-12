@@ -41,14 +41,19 @@ pub(crate) fn add_rect(list: &mut PaintList, shape: &RectShape, ppp: f32) {
     if shape.stroke.is_visible() {
         let width = (shape.stroke.width * ppp).max(0.0);
         let inner = rect.shrink(width);
-        if inner.is_positive() {
-            let inner_path = if rounded {
+        // Keep the ring geometry even when the border is wider than the rectangle. Collapsing the
+        // inner path onto the outer one produces zero-area triangles and keeps the vertex and index
+        // counts stable, which `Painter::reserve_rect` relies on.
+        let inner_path = if inner.is_positive() {
+            if rounded {
                 rounded_rect_path(inner, (radius - width).max(0.0), CORNER_SEGMENTS)
             } else {
                 rect_corners(inner).to_vec()
-            };
-            add_ring(list, &outer, &inner_path, shape.stroke.color);
-        }
+            }
+        } else {
+            outer.clone()
+        };
+        add_ring(list, &outer, &inner_path, shape.stroke.color);
     }
 }
 
@@ -292,6 +297,23 @@ mod tests {
         );
         check_geometry(&list);
         // 2 triangles for the fill, 4 quads (8 triangles) for the border.
+        assert_eq!(list.indices.len(), 6 + 24);
+    }
+
+    #[test]
+    fn oversized_stroke_keeps_the_ring_geometry() {
+        let mut list = PaintList::new();
+        add_rect(
+            &mut list,
+            &RectShape::new(
+                Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+                Color32::WHITE,
+            )
+            .with_stroke(Stroke::new(20.0, Color32::BLACK)),
+            1.0,
+        );
+        check_geometry(&list);
+        // The fill quad plus a zero-area (but count-stable) border ring.
         assert_eq!(list.indices.len(), 6 + 24);
     }
 

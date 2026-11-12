@@ -1,7 +1,9 @@
 //! Layout containers: stacks, placed regions, panes and scrollable viewports.
 
+mod frame;
 mod scroll;
 
+pub use frame::FrameResponse;
 pub use scroll::{ScrollResponse, ScrollState};
 
 use tinim_paint::{Pos2, Rect, Vec2};

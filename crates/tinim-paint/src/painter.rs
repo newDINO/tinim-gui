@@ -1,9 +1,11 @@
 //! A stateful shape builder that emits geometry into a shared draw list.
 
+use std::ops::Range;
+
 use crate::tessellate::{add_circle, add_line, add_rect};
 use crate::{
     CircleShape, Color32, DrawCommand, Mesh, MeshSpace, PaintList, Pos2, Rect, RectShape, Shape,
-    TextureId, Vec2,
+    TextureId, Vec2, Vertex,
 };
 
 /// Builds a frame's geometry while tracking the current clip rectangle.
@@ -32,6 +34,21 @@ pub struct Painter {
     solid_texture: TextureId,
     run_start: u32,
     list: PaintList,
+}
+
+/// A reserved slot for a rectangle in the painter's shared vertex/index arena.
+///
+/// Create one with [`Painter::reserve_rect`] and fill it later with [`Painter::set_rect`]. Both
+/// shapes must have the same geometry topology: the same fill visibility, stroke visibility and
+/// corner rounding. The slot captures the painter's clip and texture at reservation time, so
+/// filling it does not change draw-command ordering or start a new draw call by itself.
+///
+/// A slot is only valid for the [`Painter`] that created it and before the next
+/// [`Painter::clear`] or [`Painter::finish`] call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RectPaintSlot {
+    vertex_range: Range<usize>,
+    index_range: Range<usize>,
 }
 
 impl Painter {
@@ -234,6 +251,96 @@ impl Painter {
         self.list.append_geometry(&mesh.vertices, &mesh.indices);
     }
 
+    /// Reserve space for a rectangle and record its position in the draw order.
+    ///
+    /// The geometry is written immediately but made invisible, so it can be filled later with
+    /// [`Painter::set_rect`] without changing the draw order. This is useful for backgrounds whose
+    /// final rectangle is only known after their children have been built.
+    ///
+    /// `template` supplies the geometry topology: fill visibility, stroke visibility and corner
+    /// radius. Its rectangle is only used to choose the rectangle path; pass any positive rectangle
+    /// when the final size is unknown. Returns `None` when the template would not produce any
+    /// geometry.
+    ///
+    /// The slot must be filled before the next [`Painter::clear`] or [`Painter::finish`], and the
+    /// final shape must have the same vertex and index counts as the template. Use a degenerate
+    /// rectangle for an empty final shape; [`Painter::set_rect`] handles that case.
+    pub fn reserve_rect(&mut self, template: RectShape) -> Option<RectPaintSlot> {
+        if template.fill.is_invisible() && !template.stroke.is_visible() {
+            return None;
+        }
+
+        let template = if template.rect.is_positive() {
+            template
+        } else {
+            RectShape {
+                rect: Rect::from_min_size(Pos2::ZERO, Vec2::splat(1.0)),
+                ..template
+            }
+        };
+
+        let texture = self.solid_texture;
+        self.use_texture(texture);
+
+        let vertex_start = self.list.vertices.len();
+        let index_start = self.list.indices.len();
+        add_rect(&mut self.list, &template, self.pixels_per_point);
+
+        let slot = RectPaintSlot {
+            vertex_range: vertex_start..self.list.vertices.len(),
+            index_range: index_start..self.list.indices.len(),
+        };
+
+        // Keep an unfilled slot invisible. All vertices are degenerate and transparent; the indices
+        // still form the same number of (zero-area) triangles.
+        let placeholder = Vertex::new(Pos2::ZERO, Vertex::WHITE_UV, Color32::TRANSPARENT);
+        self.list.vertices[slot.vertex_range.clone()].fill(placeholder);
+
+        Some(slot)
+    }
+
+    /// Fill a rectangle slot created by [`Painter::reserve_rect`].
+    ///
+    /// The final shape must have the same geometry topology as the reservation template. If the
+    /// counts differ (for example because the caller changed fill visibility), the slot is made
+    /// invisible and a debug assertion fires. An empty `shape.rect` is supported and also leaves
+    /// the slot invisible without changing the draw list.
+    pub fn set_rect(&mut self, slot: RectPaintSlot, shape: RectShape) {
+        if !shape.rect.is_positive() {
+            let placeholder = Vertex::new(Pos2::ZERO, Vertex::WHITE_UV, Color32::TRANSPARENT);
+            self.list.vertices[slot.vertex_range].fill(placeholder);
+            return;
+        }
+
+        let mut replacement = PaintList::new();
+        add_rect(&mut replacement, &shape, self.pixels_per_point);
+
+        let same_topology = replacement.vertices.len() == slot.vertex_range.len()
+            && replacement.indices.len() == slot.index_range.len();
+
+        if same_topology {
+            let vertex_base = slot.vertex_range.start as u32;
+            self.list.vertices[slot.vertex_range.clone()].copy_from_slice(&replacement.vertices);
+            for (destination, index) in self.list.indices[slot.index_range.clone()]
+                .iter_mut()
+                .zip(replacement.indices)
+            {
+                *destination = vertex_base + index;
+            }
+        } else {
+            debug_assert!(
+                false,
+                "reserved rectangle topology changed: expected {} vertices and {} indices, got {} and {}",
+                slot.vertex_range.len(),
+                slot.index_range.len(),
+                replacement.vertices.len(),
+                replacement.indices.len()
+            );
+            let placeholder = Vertex::new(Pos2::ZERO, Vertex::WHITE_UV, Color32::TRANSPARENT);
+            self.list.vertices[slot.vertex_range].fill(placeholder);
+        }
+    }
+
     /// Flush the current run and return the completed draw list.
     pub fn finish(&mut self) -> &PaintList {
         self.flush();
@@ -288,7 +395,7 @@ fn sanitize_ppp(pixels_per_point: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Mesh, pos2, vec2};
+    use crate::{Mesh, Stroke, pos2, vec2};
 
     fn check_draws(painter: &mut Painter) -> PaintList {
         painter.finish().clone()
@@ -593,6 +700,82 @@ mod tests {
 
         let list = check_draws(&mut painter);
         assert_eq!(list.vertices[0].pos, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn reserved_rect_is_overwritten_without_adding_a_draw() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let template = RectShape::new(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(1.0, 1.0)),
+            Color32::WHITE,
+        )
+        .with_stroke(Stroke::new(1.0, Color32::BLACK));
+        let slot = painter.reserve_rect(template).unwrap();
+
+        painter.rect(
+            Rect::from_min_size(pos2(50.0, 50.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+
+        let final_shape = RectShape::new(
+            Rect::from_min_size(pos2(10.0, 10.0), vec2(20.0, 10.0)),
+            Color32::from_rgb(255, 0, 0),
+        )
+        .with_stroke(Stroke::new(1.0, Color32::BLACK));
+        painter.set_rect(slot, final_shape);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(
+            list.draws[0].index_range,
+            0..list.indices.len() as u32,
+            "the reserved rectangle and the later shape share a run"
+        );
+        assert_eq!(list.vertices[0].pos, [10.0, 10.0]);
+        assert_eq!(
+            list.vertices[0].color,
+            Color32::from_rgb(255, 0, 0).to_array()
+        );
+        assert!(
+            list.vertices
+                .iter()
+                .any(|vertex| vertex.color == Color32::BLACK.to_array())
+        );
+    }
+
+    #[test]
+    fn setting_a_reserved_rect_to_an_empty_rect_keeps_the_geometry() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let template = RectShape::new(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::WHITE,
+        );
+        let slot = painter.reserve_rect(template).unwrap();
+        let vertex_count = painter.list.vertices.len();
+        let index_count = painter.list.indices.len();
+
+        painter.set_rect(slot, RectShape::new(Rect::NOTHING, Color32::WHITE));
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.vertices.len(), vertex_count);
+        assert_eq!(list.indices.len(), index_count);
+        assert!(
+            list.vertices
+                .iter()
+                .all(|vertex| vertex.color == Color32::TRANSPARENT.to_array()),
+            "an empty final rectangle must not show the template"
+        );
+    }
+
+    #[test]
+    fn invisible_rect_templates_do_not_reserve_a_slot() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let template = RectShape::new(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            Color32::TRANSPARENT,
+        );
+        assert!(painter.reserve_rect(template).is_none());
+        assert!(check_draws(&mut painter).draws.is_empty());
     }
 
     #[test]

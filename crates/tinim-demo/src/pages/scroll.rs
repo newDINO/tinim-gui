@@ -2,6 +2,8 @@
 
 use tinim_gui::{Ui, vec2};
 
+use super::panel_frame;
+
 pub(crate) struct ScrollPage {
     action: Option<String>,
 }
@@ -17,23 +19,26 @@ impl ScrollPage {
                      and clamps the caller-owned scroll position.",
         );
 
-        let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
-            ui.label(
-                "Wheel or drag over this area to scroll; the inner area scrolls independently.",
-            );
-            for index in 0..6 {
-                if ui.button(&format!("Scroll item {index}")).pressed {
-                    self.action = Some(format!("pressed \"Scroll item {index}\""));
+        let (scroll, _) = ui.frame(panel_frame(), |ui| {
+            let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
+                ui.label(
+                    "Wheel or drag over this area to scroll; the inner area scrolls independently.",
+                );
+                for index in 0..6 {
+                    if ui.button(&format!("Scroll item {index}")).pressed {
+                        self.action = Some(format!("pressed \"Scroll item {index}\""));
+                    }
                 }
-            }
-            tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
-                for _ in 0..10 {
-                    ui.label("inner scrollable");
+                tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
+                    for _ in 0..10 {
+                        ui.label("inner scrollable");
+                    }
+                });
+                for _ in 0..6 {
+                    ui.label("test");
                 }
             });
-            for _ in 0..6 {
-                ui.label("test");
-            }
+            scroll
         });
 
         ui.label(&format!(

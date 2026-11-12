@@ -11,7 +11,7 @@ mod widgets;
 #[cfg(test)]
 mod test_util;
 
-pub use containers::{PaneResponse, ScrollResponse, ScrollState};
+pub use containers::{FrameResponse, PaneResponse, ScrollResponse, ScrollState};
 pub use layout::{Align, FlowConfig};
 pub use response::Response;
 pub use widgets::{NumberInputResponse, NumberInputState, TextEditResponse, TextEditState};

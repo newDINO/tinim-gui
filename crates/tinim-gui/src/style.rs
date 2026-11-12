@@ -1,7 +1,122 @@
 //! Small default style shared by the built-in widgets.
 
-use tinim_paint::{Color32, Vec2, vec2};
+use tinim_paint::{Color32, Rect, Stroke, Vec2, vec2};
 use tinim_text::TextStyle;
+
+/// Insets for the four sides of a rectangle, in logical points.
+///
+/// Used for [`FrameStyle::padding`]. Values are clamped to zero when a frame computes its content
+/// rectangle; negative insets are not supported.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Edges {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl Edges {
+    pub const ZERO: Self = Self {
+        left: 0.0,
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+    };
+
+    /// The same inset on every side.
+    pub const fn all(amount: f32) -> Self {
+        Self {
+            left: amount,
+            top: amount,
+            right: amount,
+            bottom: amount,
+        }
+    }
+
+    /// `horizontal` on the left and right, `vertical` on the top and bottom.
+    pub const fn symmetric(horizontal: f32, vertical: f32) -> Self {
+        Self {
+            left: horizontal,
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+        }
+    }
+
+    /// Insets on the left and right only.
+    pub const fn horizontal(amount: f32) -> Self {
+        Self {
+            left: amount,
+            top: 0.0,
+            right: amount,
+            bottom: 0.0,
+        }
+    }
+
+    /// Insets on the top and bottom only.
+    pub const fn vertical(amount: f32) -> Self {
+        Self {
+            left: 0.0,
+            top: amount,
+            right: 0.0,
+            bottom: amount,
+        }
+    }
+
+    /// Combined horizontal and vertical extent.
+    pub fn size(self) -> Vec2 {
+        vec2(self.left + self.right, self.top + self.bottom)
+    }
+}
+
+/// Background, border and padding of a rectangular frame.
+///
+/// The border is drawn inside the rectangle, matching [`Stroke`]. Padding is inside the border.
+/// The content rectangle is therefore `rect` shrunk by `border.width` and then by `padding`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameStyle {
+    pub background: Color32,
+    pub border: Stroke,
+    pub padding: Edges,
+    /// Corner radius in logical points; rounded after scaling to physical pixels.
+    pub corner_radius: u8,
+}
+
+impl Default for FrameStyle {
+    fn default() -> Self {
+        Self {
+            background: Color32::TRANSPARENT,
+            border: Stroke::NONE,
+            padding: Edges::ZERO,
+            corner_radius: 0,
+        }
+    }
+}
+
+impl FrameStyle {
+    /// Space between the outer rectangle and the content, with the border included.
+    pub fn inset(self) -> Edges {
+        let border = self.border.width.max(0.0);
+        Edges {
+            left: self.padding.left.max(0.0) + border,
+            top: self.padding.top.max(0.0) + border,
+            right: self.padding.right.max(0.0) + border,
+            bottom: self.padding.bottom.max(0.0) + border,
+        }
+    }
+
+    /// The content rectangle after removing the border and padding.
+    pub fn content_rect(self, rect: Rect) -> Rect {
+        let inset = self.inset();
+        let size = (rect.size() - inset.size()).max(Vec2::ZERO);
+        Rect::from_min_size(rect.min + vec2(inset.left, inset.top), size)
+    }
+
+    /// Whether this style draws anything.
+    pub fn is_visible(self) -> bool {
+        !self.background.is_invisible() || self.border.is_visible()
+    }
+}
 
 /// Layout and widget styling.
 #[derive(Clone, Debug, PartialEq)]
@@ -251,5 +366,46 @@ impl Default for TextEditStyle {
             cursor_width: 1.5,
             min_size: vec2(240.0, 28.0),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tinim_paint::{pos2, vec2};
+
+    #[test]
+    fn frame_content_rect_removes_border_and_padding() {
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(100.0, 50.0));
+        let style = FrameStyle {
+            border: Stroke::new(2.0, Color32::BLACK),
+            padding: Edges::symmetric(8.0, 4.0),
+            ..FrameStyle::default()
+        };
+
+        assert_eq!(
+            style.content_rect(rect),
+            Rect::from_min_size(pos2(20.0, 26.0), vec2(80.0, 38.0))
+        );
+    }
+
+    #[test]
+    fn frame_content_rect_does_not_become_negative() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0));
+        let style = FrameStyle {
+            border: Stroke::new(4.0, Color32::BLACK),
+            padding: Edges::all(10.0),
+            ..FrameStyle::default()
+        };
+
+        let content = style.content_rect(rect);
+        assert_eq!(content.size(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn edges_constructors_are_symmetric() {
+        assert_eq!(Edges::all(3.0), Edges::symmetric(3.0, 3.0));
+        assert_eq!(Edges::horizontal(2.0), Edges::symmetric(2.0, 0.0));
+        assert_eq!(Edges::vertical(2.0), Edges::symmetric(0.0, 2.0));
     }
 }

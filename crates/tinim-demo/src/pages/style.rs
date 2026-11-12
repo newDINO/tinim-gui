@@ -2,6 +2,7 @@
 
 use tinim_gui::{Color32, Ui};
 
+use super::panel_frame;
 use crate::{COOL_TEXT, DEFAULT_TEXT, WARM_TEXT};
 
 pub(crate) struct StylePage {
@@ -41,20 +42,22 @@ impl StylePage {
             self.compact = !self.compact;
         }
 
-        ui.label("Nested scopes restore in order:");
-        ui.with_style(
-            |style| style.button.normal = Color32::from_rgb(160, 48, 48),
-            |ui| {
-                ui.button("Outer scope: red");
-                ui.with_style(
-                    |style| style.button.normal = Color32::from_rgb(48, 96, 160),
-                    |ui| {
-                        ui.button("Inner scope: blue");
-                    },
-                );
-                ui.button("Outer scope: red again");
-            },
-        );
+        ui.frame(panel_frame(), |ui| {
+            ui.label("Nested scopes restore in order:");
+            ui.with_style(
+                |style| style.button.normal = Color32::from_rgb(160, 48, 48),
+                |ui| {
+                    ui.button("Outer scope: red");
+                    ui.with_style(
+                        |style| style.button.normal = Color32::from_rgb(48, 96, 160),
+                        |ui| {
+                            ui.button("Inner scope: blue");
+                        },
+                    );
+                    ui.button("Outer scope: red again");
+                },
+            );
+        });
 
         ui.label("style_mut() changes the style persistently, including future frames:");
         ui.horizontal(|ui| {

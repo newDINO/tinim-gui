@@ -2,6 +2,8 @@
 
 use tinim_gui::{Align, FlowConfig, Ui, vec2};
 
+use super::panel_frame;
+
 pub(crate) struct LayoutPage {
     align: Align,
 }
@@ -34,26 +36,32 @@ impl LayoutPage {
         });
 
         ui.horizontal(|ui| {
-            ui.sized_flow(
-                vec2(220.0, 130.0),
-                FlowConfig::vertical().align(self.align),
-                |ui| {
-                    ui.label("flow(vertical)");
-                    ui.button("one");
-                    ui.button("two");
-                },
-            );
-            ui.sized_flow(vec2(220.0, 130.0), FlowConfig::bottom_to_top(), |ui| {
-                ui.label("bottom_to_top");
-                ui.button("first");
-                ui.button("second");
+            ui.frame(panel_frame(), |ui| {
+                ui.sized_flow(
+                    vec2(220.0, 130.0),
+                    FlowConfig::vertical().align(self.align),
+                    |ui| {
+                        ui.label("flow(vertical)");
+                        ui.button("one");
+                        ui.button("two");
+                    },
+                );
+            });
+            ui.frame(panel_frame(), |ui| {
+                ui.sized_flow(vec2(220.0, 130.0), FlowConfig::bottom_to_top(), |ui| {
+                    ui.label("bottom_to_top");
+                    ui.button("first");
+                    ui.button("second");
+                });
             });
         });
 
-        ui.sized_flow(vec2(460.0, 70.0), FlowConfig::right_to_left(), |ui| {
-            ui.button("right");
-            ui.button("middle");
-            ui.button("left");
+        ui.frame(panel_frame(), |ui| {
+            ui.sized_flow(vec2(460.0, 70.0), FlowConfig::right_to_left(), |ui| {
+                ui.button("right");
+                ui.button("middle");
+                ui.button("left");
+            });
         });
 
         ui.label("The parent flow continues after the fixed-size boxes.");
