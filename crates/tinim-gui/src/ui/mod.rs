@@ -16,13 +16,13 @@ pub use layout::{Align, FlowConfig};
 pub use response::Response;
 pub use widgets::{NumberInputResponse, NumberInputState, TextEditResponse, TextEditState};
 
-use tinim_paint::{Pos2, Rect, Vec2};
+use tinim_paint::{Pos2, Rect, Vec2, vec2};
 
 use crate::context::Context;
 use crate::cursor::CursorIcon;
-use crate::style::Style;
+use crate::style::{Edges, Style};
 
-use layout::{Direction, Layout, allocate_space, available_size, next_pos};
+use layout::{Axis, Direction, Layout, allocate_space, available_size, next_pos, sanitize_extent};
 
 /// Builds one frame's widgets.
 ///
@@ -133,47 +133,91 @@ impl<'a> Ui<'a> {
         available_size(&self.layout, self.spacing())
     }
 
-    /// Builds a content-sized flow region. This changes layout only; the clip is inherited
-    /// unchanged.
+    /// Builds a content-sized region, inset by `inset` and optionally fixed on the cross axis.
     ///
-    /// Only forward directions are supported. A reverse flow needs a known extent; use
-    /// [`Ui::sized_flow`] for those.
-    fn with_layout<R>(&mut self, config: FlowConfig, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        debug_assert!(
-            config.direction.is_forward(),
-            "content-sized flow requires a forward direction; use sized_flow for reverse directions"
-        );
-        debug_assert!(
-            self.layout.direction.is_forward(),
-            "content-sized flow inside a reverse flow is unsupported; wrap it in sized_flow"
-        );
-
+    /// `cross_size` fixes the cross-axis extent of the child region: the width of a vertical flow
+    /// or the height of a horizontal flow. `None` inherits the enclosing region's cross-axis
+    /// extent. This changes layout only; the clip is inherited unchanged.
+    ///
+    /// The parent flow advances by the rectangle used by the children, expanded by `inset`. When
+    /// `cross_size` is set, the cross-axis part of the region is included even if the children are
+    /// narrower, so a fixed-width column or a fixed-height row reserves its space. The second
+    /// return value is that outer rectangle, or a zero-size rectangle at the region start when
+    /// nothing was placed.
+    ///
+    /// Only forward directions are supported; callers must check that the current region and
+    /// `config` are forward flows before calling this.
+    fn content_region<R>(
+        &mut self,
+        inset: Edges,
+        cross_size: Option<f32>,
+        config: FlowConfig,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> (R, Rect) {
         let start = next_pos(&self.layout, self.spacing());
-        let rect = Rect::from_min_max(start, self.layout.rect.max);
-        let (result, used) = self.layout_at(rect, start, config, build);
+        let origin = start + vec2(inset.left, inset.top);
 
-        if used.is_positive() {
+        let axis = config.direction.axis();
+        let cross_extent = cross_size.map(sanitize_extent);
+        let parent_max = self.layout.rect.max - vec2(inset.right, inset.bottom);
+        let max = match cross_extent {
+            Some(cross_extent) => match axis {
+                Axis::Vertical => Pos2::new(origin.x + cross_extent, parent_max.y),
+                Axis::Horizontal => Pos2::new(parent_max.x, origin.y + cross_extent),
+            },
+            None => parent_max,
+        };
+        let rect = Rect::from_min_max(origin, max.max(origin));
+
+        let (result, used) = self.layout_at(rect, origin, config, build);
+
+        let mut used = if used.is_positive() {
+            used
+        } else {
+            Rect::from_min_size(origin, Vec2::ZERO)
+        };
+        if let Some(cross_extent) = cross_extent {
+            let cross_region = match axis {
+                Axis::Vertical => Rect::from_min_max(
+                    Pos2::new(origin.x, used.min.y),
+                    Pos2::new(origin.x + cross_extent, used.max.y),
+                ),
+                Axis::Horizontal => Rect::from_min_max(
+                    Pos2::new(used.min.x, origin.y),
+                    Pos2::new(used.max.x, origin.y + cross_extent),
+                ),
+            };
+            used = used.union(cross_region);
+        }
+        let outer = Rect::from_min_max(
+            used.min - vec2(inset.left, inset.top),
+            used.max + vec2(inset.right, inset.bottom),
+        );
+
+        if outer.is_positive() {
             match self.layout.direction {
-                Direction::Vertical => self.layout.cursor.y = self.layout.cursor.y.max(used.max.y),
+                Direction::Vertical => {
+                    self.layout.cursor.y = self.layout.cursor.y.max(outer.max.y);
+                }
                 Direction::VerticalReverse => {
-                    self.layout.cursor.y = self.layout.cursor.y.min(used.min.y);
+                    self.layout.cursor.y = self.layout.cursor.y.min(outer.min.y);
                 }
                 Direction::Horizontal => {
-                    self.layout.cursor.x = self.layout.cursor.x.max(used.max.x);
+                    self.layout.cursor.x = self.layout.cursor.x.max(outer.max.x);
                 }
                 Direction::HorizontalReverse => {
-                    self.layout.cursor.x = self.layout.cursor.x.min(used.min.x);
+                    self.layout.cursor.x = self.layout.cursor.x.min(outer.min.x);
                 }
             }
             self.layout.has_children = true;
             self.layout.used = if self.layout.used.is_positive() {
-                self.layout.used.union(used)
+                self.layout.used.union(outer)
             } else {
-                used
+                outer
             };
         }
 
-        result
+        (result, outer)
     }
 
     /// Builds a child layout covering `rect`, with relative coordinates measured from `origin`.

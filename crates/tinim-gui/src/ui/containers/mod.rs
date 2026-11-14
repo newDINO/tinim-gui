@@ -10,6 +10,7 @@ use tinim_paint::{Pos2, Rect, Vec2};
 
 use super::Ui;
 use super::layout::{FlowConfig, allocate_space};
+use crate::style::Edges;
 
 /// The result of building a [`Ui::pane`](crate::Ui::pane).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,19 +29,33 @@ impl Ui<'_> {
     ///
     /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
     /// if any; the stack itself is not a clipping region.
+    ///
+    /// The stack inherits the enclosing region's width. Use [`Ui::flow`] with a `cross_size` to
+    /// constrain it.
     pub fn vertical<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.flow(FlowConfig::vertical(), build)
+        self.flow(FlowConfig::vertical(), None, build)
     }
 
     /// Stacks children horizontally.
     ///
     /// This changes layout only. Painting and hit testing stay clipped to the enclosing viewport,
     /// if any; the stack itself is not a clipping region.
+    ///
+    /// The stack inherits the enclosing region's height. Use [`Ui::flow`] with a `cross_size` to
+    /// constrain it.
     pub fn horizontal<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.flow(FlowConfig::horizontal(), build)
+        self.flow(FlowConfig::horizontal(), None, build)
     }
 
     /// Builds a content-sized flow with an explicit direction and cross-axis alignment.
+    ///
+    /// `cross_size` fixes the extent of the cross axis: the width of a vertical flow or the height
+    /// of a horizontal flow. `None` inherits the enclosing region's cross-axis extent. Children see
+    /// the extent through `Ui::size` and `Ui::available_size`, and cross-axis alignment uses it.
+    /// The parent flow reserves the cross-axis extent even when the children are narrower, so a
+    /// vertical flow with `Some(width)` acts as a fixed-width column and a horizontal flow with
+    /// `Some(height)` acts as a fixed-height row. Children are not clipped and may still overflow
+    /// the extent. Non-finite values are treated as zero.
     ///
     /// Only forward directions ([`FlowConfig::vertical`] and [`FlowConfig::horizontal`]) are
     /// supported. Reverse flows need a known extent; use [`Ui::sized_flow`] for those.
@@ -49,8 +64,23 @@ impl Ui<'_> {
     /// [`Ui::sized_flow`], wrap it in another `sized_flow`.
     ///
     /// Like [`Ui::vertical`] and [`Ui::horizontal`], this changes layout only and does not clip.
-    pub fn flow<R>(&mut self, config: FlowConfig, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
-        self.with_layout(config, build)
+    pub fn flow<R>(
+        &mut self,
+        config: FlowConfig,
+        cross_size: Option<f32>,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> R {
+        debug_assert!(
+            config.direction.is_forward(),
+            "content-sized flow requires a forward direction; use sized_flow for reverse directions"
+        );
+        debug_assert!(
+            self.layout.direction.is_forward(),
+            "content-sized flow inside a reverse flow is unsupported; wrap it in sized_flow"
+        );
+
+        self.content_region(Edges::ZERO, cross_size, config, build)
+            .0
     }
 
     /// Builds content in a fixed-size layout box.
@@ -267,7 +297,7 @@ mod tests {
         let mut rect = Rect::NOTHING;
 
         let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
-            ui.flow(FlowConfig::vertical().align(Align::Center), |ui| {
+            ui.flow(FlowConfig::vertical().align(Align::Center), None, |ui| {
                 rect = ui.allocate_space(vec2(10.0, 10.0));
             });
         });
@@ -282,7 +312,7 @@ mod tests {
         let mut rect = Rect::NOTHING;
 
         let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
-            ui.flow(FlowConfig::horizontal().align(Align::Center), |ui| {
+            ui.flow(FlowConfig::horizontal().align(Align::Center), None, |ui| {
                 rect = ui.allocate_space(vec2(10.0, 10.0));
             });
         });
@@ -298,10 +328,10 @@ mod tests {
         let mut stretched = Rect::NOTHING;
 
         let _ = context.run(vec2(100.0, 100.0), 1.0, RawInput::default(), |ui| {
-            ui.flow(FlowConfig::vertical().align(Align::End), |ui| {
+            ui.flow(FlowConfig::vertical().align(Align::End), None, |ui| {
                 end = ui.allocate_space(vec2(10.0, 10.0));
             });
-            ui.flow(FlowConfig::vertical().align(Align::Stretch), |ui| {
+            ui.flow(FlowConfig::vertical().align(Align::Stretch), None, |ui| {
                 stretched = ui.allocate_space(vec2(10.0, 10.0));
             });
         });
@@ -309,6 +339,90 @@ mod tests {
         assert_eq!(end.max.x, 100.0);
         assert_eq!(stretched.min.x, 0.0);
         assert_eq!(stretched.width(), 100.0);
+    }
+
+    #[test]
+    fn flow_cross_size_constrains_the_width_of_a_vertical_flow() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut region = Vec2::ZERO;
+        let mut stretched = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.flow(
+                FlowConfig::vertical().align(Align::Stretch),
+                Some(60.0),
+                |ui| {
+                    region = ui.size();
+                    stretched = ui.allocate_space(vec2(10.0, 10.0));
+                },
+            );
+            after = ui.allocate_space(vec2(10.0, 10.0));
+        });
+
+        assert_eq!(region, vec2(60.0, 200.0));
+        assert_eq!(stretched.width(), 60.0);
+        // The parent still advances by the used height, not by the cross-axis width.
+        assert_eq!(after.min.y, stretched.max.y + spacing);
+        assert_eq!(after.min.x, 0.0);
+    }
+
+    #[test]
+    fn flow_cross_size_constrains_the_height_of_a_horizontal_flow() {
+        let mut context = context();
+        let mut region = Vec2::ZERO;
+        let mut first = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.flow(FlowConfig::horizontal(), Some(50.0), |ui| {
+                region = ui.size();
+                first = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(region, vec2(200.0, 50.0));
+        assert_eq!(first.min, pos2(0.0, 0.0));
+    }
+
+    #[test]
+    fn flow_cross_size_reserves_a_fixed_width_column() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut next = Rect::NOTHING;
+
+        let _ = context.run(vec2(400.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.horizontal(|ui| {
+                ui.flow(FlowConfig::vertical(), Some(120.0), |ui| {
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                next = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(first.min.x, 0.0);
+        assert_eq!(next.min.x, first.min.x + 120.0 + spacing);
+    }
+
+    #[test]
+    fn flow_cross_size_reserves_a_fixed_height_row() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut next = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 400.0), 1.0, RawInput::default(), |ui| {
+            ui.vertical(|ui| {
+                ui.flow(FlowConfig::horizontal(), Some(40.0), |ui| {
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                next = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(first.min.y, 0.0);
+        assert_eq!(next.min.y, first.min.y + 40.0 + spacing);
     }
 
     #[test]

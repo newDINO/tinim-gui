@@ -3,7 +3,7 @@
 use tinim_paint::{Pos2, Rect, RectShape, Shape, Vec2, vec2};
 
 use super::super::Ui;
-use super::super::layout::{Direction, FlowConfig, next_pos};
+use super::super::layout::FlowConfig;
 use crate::style::FrameStyle;
 
 /// The result of building a frame.
@@ -71,56 +71,16 @@ impl Ui<'_> {
             "content-sized frame requires a forward flow; use sized_frame for reverse directions"
         );
 
-        let start = next_pos(&self.layout, self.spacing());
-        let inset = style.inset();
-        let content_start = start + vec2(inset.left, inset.top);
-        let content_max =
-            (self.layout.rect.max - vec2(inset.right, inset.bottom)).max(content_start);
-        let content_rect = Rect::from_min_max(content_start, content_max);
-
         let slot = style
             .is_visible()
             .then(|| reserved_frame_shape(style))
             .and_then(|shape| self.ctx.painter.reserve_rect(shape));
 
-        let (result, used) =
-            self.layout_at(content_rect, content_start, FlowConfig::vertical(), build);
-
-        let used = if used.is_positive() {
-            used
-        } else {
-            Rect::from_min_size(content_start, Vec2::ZERO)
-        };
-        let rect = Rect::from_min_max(
-            used.min - vec2(inset.left, inset.top),
-            used.max + vec2(inset.right, inset.bottom),
-        );
+        let (result, rect) =
+            self.content_region(style.inset(), None, FlowConfig::vertical(), build);
 
         if let Some(slot) = slot {
             self.ctx.painter.set_rect(slot, frame_shape(rect, style));
-        }
-
-        if rect.is_positive() {
-            match self.layout.direction {
-                Direction::Vertical => {
-                    self.layout.cursor.y = self.layout.cursor.y.max(rect.max.y);
-                }
-                Direction::VerticalReverse => {
-                    self.layout.cursor.y = self.layout.cursor.y.min(rect.min.y);
-                }
-                Direction::Horizontal => {
-                    self.layout.cursor.x = self.layout.cursor.x.max(rect.max.x);
-                }
-                Direction::HorizontalReverse => {
-                    self.layout.cursor.x = self.layout.cursor.x.min(rect.min.x);
-                }
-            }
-            self.layout.has_children = true;
-            self.layout.used = if self.layout.used.is_positive() {
-                self.layout.used.union(rect)
-            } else {
-                rect
-            };
         }
 
         let content_rect = style.content_rect(rect);

@@ -162,6 +162,15 @@ pub(super) fn sanitize_size(size: Vec2) -> Vec2 {
     }
 }
 
+/// Clamps a single extent to a finite, non-negative value.
+pub(super) fn sanitize_extent(extent: f32) -> f32 {
+    if extent.is_finite() {
+        extent.max(0.0)
+    } else {
+        0.0
+    }
+}
+
 /// Start of the next child region, including the gap from the previous child if there is one.
 pub(super) fn next_pos(layout: &Layout, spacing: f32) -> Pos2 {
     let gap = if layout.has_children {
