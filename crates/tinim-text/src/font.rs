@@ -1,11 +1,16 @@
 //! Font storage, coverage checks and fallback selection.
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use skrifa::{
     FontRef, GlyphId, MetadataProvider,
+    attribute::Style as SkrifaStyle,
     instance::{LocationRef, Size},
     raw::TableProvider,
+    string::StringId,
 };
 
 use crate::error::FontError;
@@ -21,6 +26,182 @@ impl FontId {
     /// mainly useful for caches and tests that need a stable key without a font stack at hand.
     pub const fn from_index(index: u32) -> Self {
         Self(index)
+    }
+}
+
+/// A font weight on the CSS 1–1000 scale.
+///
+/// The default is [`FontWeight::NORMAL`] (400). Values passed to [`FontWeight::new`] are clamped
+/// to the valid range; zero is treated as normal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontWeight(u16);
+
+impl FontWeight {
+    pub const THIN: Self = Self(100);
+    pub const EXTRA_LIGHT: Self = Self(200);
+    pub const LIGHT: Self = Self(300);
+    pub const NORMAL: Self = Self(400);
+    pub const MEDIUM: Self = Self(500);
+    pub const SEMI_BOLD: Self = Self(600);
+    pub const BOLD: Self = Self(700);
+    pub const EXTRA_BOLD: Self = Self(800);
+    pub const BLACK: Self = Self(900);
+
+    /// Creates a weight, clamping it to the CSS range of 1–1000.
+    ///
+    /// Zero is treated as [`FontWeight::NORMAL`] because it usually means "unset".
+    pub const fn new(weight: u16) -> Self {
+        Self(if weight == 0 {
+            400
+        } else if weight > 1000 {
+            1000
+        } else {
+            weight
+        })
+    }
+
+    /// The weight value.
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl Default for FontWeight {
+    fn default() -> Self {
+        Self::NORMAL
+    }
+}
+
+/// The slope of a face.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FontStyle {
+    /// An upright face.
+    #[default]
+    Normal,
+    /// A cursive slanted face.
+    Italic,
+    /// A slanted face that keeps the upright letterforms.
+    Oblique,
+}
+
+/// A font width on the CSS scale, expressed as a percentage.
+///
+/// The default is 100% ([`FontStretch::NORMAL`]). Values passed to [`FontStretch::new`] are
+/// clamped to 1–1000; zero is treated as normal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontStretch(u16);
+
+impl FontStretch {
+    pub const ULTRA_CONDENSED: Self = Self(50);
+    pub const EXTRA_CONDENSED: Self = Self(63);
+    pub const CONDENSED: Self = Self(75);
+    pub const SEMI_CONDENSED: Self = Self(88);
+    pub const NORMAL: Self = Self(100);
+    pub const SEMI_EXPANDED: Self = Self(113);
+    pub const EXPANDED: Self = Self(125);
+    pub const EXTRA_EXPANDED: Self = Self(150);
+    pub const ULTRA_EXPANDED: Self = Self(200);
+
+    /// Creates a stretch from a percentage, clamping it to 1–1000.
+    ///
+    /// Zero is treated as [`FontStretch::NORMAL`] because it usually means "unset".
+    pub const fn new(percentage: u16) -> Self {
+        Self(if percentage == 0 {
+            100
+        } else if percentage > 1000 {
+            1000
+        } else {
+            percentage
+        })
+    }
+
+    /// The stretch percentage.
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl Default for FontStretch {
+    fn default() -> Self {
+        Self::NORMAL
+    }
+}
+
+/// An ordered list of user-preferred font families, like CSS `font-family`.
+///
+/// Names are matched case-insensitively against the family names declared by loaded faces,
+/// including localized names. A name that does not match any loaded face is ignored, and generic
+/// CSS names such as `sans-serif` are not interpreted; use a concrete family name instead. When
+/// the list is empty, the font stack's load order is used.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct FontFamilies(Arc<[Box<str>]>);
+
+impl FontFamilies {
+    /// Creates a family list from names.
+    ///
+    /// ```
+    /// use tinim_text::FontFamilies;
+    /// let families = FontFamilies::new(["Inter", "Noto Sans", "sans-serif"]);
+    /// assert_eq!(families.len(), 3);
+    /// ```
+    pub fn new<I, S>(families: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        Self(
+            families
+                .into_iter()
+                .map(|family| family.as_ref().into())
+                .collect(),
+        )
+    }
+
+    /// The family names, in preference order.
+    pub fn as_slice(&self) -> &[Box<str>] {
+        &self.0
+    }
+
+    /// The number of preferred families.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether no preferred families are set.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Iterates over the family names in preference order.
+    pub fn iter(&self) -> std::slice::Iter<'_, Box<str>> {
+        self.0.iter()
+    }
+}
+
+impl From<&str> for FontFamilies {
+    fn from(family: &str) -> Self {
+        Self::new([family])
+    }
+}
+
+impl From<String> for FontFamilies {
+    fn from(family: String) -> Self {
+        Self::new([family])
+    }
+}
+
+impl From<Vec<String>> for FontFamilies {
+    fn from(families: Vec<String>) -> Self {
+        Self::new(families)
+    }
+}
+
+impl<'a> IntoIterator for &'a FontFamilies {
+    type Item = &'a Box<str>;
+    type IntoIter = std::slice::Iter<'a, Box<str>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
@@ -56,11 +237,22 @@ pub struct FontFace {
     units_per_em: u16,
     has_color_tables: bool,
     shaper_data: Arc<harfrust::ShaperData>,
+    family: Box<str>,
+    family_key: Box<str>,
+    family_names: Box<[Box<str>]>,
+    full_name: Box<str>,
+    weight: FontWeight,
+    style: FontStyle,
+    stretch: FontStretch,
 }
 
 impl std::fmt::Debug for FontFace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FontFace")
+            .field("family", &self.family)
+            .field("weight", &self.weight)
+            .field("style", &self.style)
+            .field("stretch", &self.stretch)
             .field("index", &self.index)
             .field("units_per_em", &self.units_per_em)
             .finish_non_exhaustive()
@@ -101,13 +293,71 @@ impl FontFace {
             || font.table_data(tag(b"EBLC")).is_some()
             || font.table_data(tag(b"sbix")).is_some();
         let shaper_data = Arc::new(harfrust::ShaperData::new(&font));
+        let (family, family_names, full_name) = read_font_names(&font);
+        let attributes = font.attributes();
+        let weight = FontWeight::new(normalize_weight(attributes.weight.value()));
+        let style = match attributes.style {
+            SkrifaStyle::Normal => FontStyle::Normal,
+            SkrifaStyle::Italic => FontStyle::Italic,
+            SkrifaStyle::Oblique(_) => FontStyle::Oblique,
+        };
+        let stretch = FontStretch::new(normalize_stretch(attributes.stretch.ratio()));
+        let family_key = normalize_family(&family).into_boxed_str();
         Ok(Self {
             data,
             index,
             units_per_em,
             has_color_tables,
             shaper_data,
+            family,
+            family_key,
+            family_names,
+            full_name,
+            weight,
+            style,
+            stretch,
         })
+    }
+
+    /// The preferred family name, or an empty string when the font has no name table.
+    ///
+    /// The typographic family name (name ID 16) is used when present, otherwise the legacy
+    /// family name (name ID 1). The result prefers an English entry, like CSS family matching.
+    pub fn family_name(&self) -> &str {
+        &self.family
+    }
+
+    /// All localized family names declared by the font.
+    ///
+    /// This is what family matching searches, so callers can refer to a font by its localized
+    /// name (for example "思源黑体") as well as its English name.
+    pub fn family_names(&self) -> impl Iterator<Item = &str> + '_ {
+        self.family_names.iter().map(|name| name.as_ref())
+    }
+
+    /// The full name (name ID 4), or an empty string when the font has none.
+    pub fn full_name(&self) -> &str {
+        &self.full_name
+    }
+
+    /// The face's weight.
+    pub fn weight(&self) -> FontWeight {
+        self.weight
+    }
+
+    /// The face's style.
+    pub fn style(&self) -> FontStyle {
+        self.style
+    }
+
+    /// The face's stretch.
+    pub fn stretch(&self) -> FontStretch {
+        self.stretch
+    }
+
+    /// The preferred family name, normalized for case-insensitive grouping.
+    pub(crate) fn family_key(&self) -> &str {
+        &self.family_key
     }
 
     /// Parses this face again. Cheap: the table directory is validated, no glyph data is read.
@@ -174,6 +424,72 @@ impl FontFace {
     }
 }
 
+/// Reads the family and full names used for matching.
+fn read_font_names(font: &FontRef<'_>) -> (Box<str>, Box<[Box<str>]>, Box<str>) {
+    let typographic = collect_names(font, StringId::TYPOGRAPHIC_FAMILY_NAME);
+    let (id, mut names) = if typographic.is_empty() {
+        (
+            StringId::FAMILY_NAME,
+            collect_names(font, StringId::FAMILY_NAME),
+        )
+    } else {
+        (StringId::TYPOGRAPHIC_FAMILY_NAME, typographic)
+    };
+    let family = preferred_name(font, id)
+        .or_else(|| names.first().cloned())
+        .unwrap_or_default();
+    if names.is_empty() && !family.is_empty() {
+        names.push(family.clone());
+    }
+    let full_name = preferred_name(font, StringId::FULL_NAME).unwrap_or_default();
+    (family, names.into_boxed_slice(), full_name)
+}
+
+/// Collects and de-duplicates all names with the given id.
+fn collect_names(font: &FontRef<'_>, id: StringId) -> Vec<Box<str>> {
+    let mut names: Vec<Box<str>> = Vec::new();
+    for name in font.localized_strings(id) {
+        let value = name.to_string();
+        let value = value.trim();
+        if value.is_empty() || names.iter().any(|existing| existing.as_ref() == value) {
+            continue;
+        }
+        names.push(value.into());
+    }
+    names
+}
+
+/// The best English (or first) name with the given id.
+fn preferred_name(font: &FontRef<'_>, id: StringId) -> Option<Box<str>> {
+    font.localized_strings(id)
+        .english_or_first()
+        .map(|name| name.to_string())
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .map(Into::into)
+}
+
+fn normalize_weight(weight: f32) -> u16 {
+    if weight.is_finite() && weight > 0.0 {
+        weight.round().clamp(1.0, 1000.0) as u16
+    } else {
+        FontWeight::NORMAL.value()
+    }
+}
+
+fn normalize_stretch(ratio: f32) -> u16 {
+    if ratio.is_finite() && ratio > 0.0 {
+        (ratio * 100.0).round().clamp(1.0, 1000.0) as u16
+    } else {
+        FontStretch::NORMAL.value()
+    }
+}
+
+/// Normalizes a family name for case-insensitive lookup.
+fn normalize_family(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
 /// Vertical metrics of a face at a specific size, in the same units as the requested size.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FontMetrics {
@@ -199,10 +515,14 @@ impl FontMetrics {
     }
 }
 
-/// An ordered list of faces. The first face is the primary font.
+/// An ordered list of faces, in load order.
+///
+/// The first face is the primary font. Faces are also indexed by their declared family names so
+/// that a [`crate::TextStyle`] can prefer a specific family order regardless of load order.
 #[derive(Clone, Debug, Default)]
 pub struct FontStack {
     faces: Vec<FontFace>,
+    by_family: HashMap<Box<str>, Vec<FontId>>,
 }
 
 impl FontStack {
@@ -225,24 +545,124 @@ impl FontStack {
             .map(|(index, face)| (FontId(index as u32), face))
     }
 
+    /// Whether any loaded face declares `family` (case-insensitive, including localized names).
+    pub fn has_family(&self, family: &str) -> bool {
+        let key = normalize_family(family);
+        !key.is_empty() && self.by_family.contains_key(key.as_str())
+    }
+
     pub(crate) fn push(&mut self, face: FontFace) -> FontId {
         let id = FontId(self.faces.len() as u32);
+        for name in face.family_names() {
+            let key = normalize_family(name);
+            if key.is_empty() {
+                continue;
+            }
+            let ids = self.by_family.entry(key.into()).or_default();
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
         self.faces.push(face);
         id
     }
 
-    pub(crate) fn primary(&self) -> Option<(FontId, &FontFace)> {
-        self.faces.first().map(|face| (FontId(0), face))
+    /// Resolves a style's preferred families and attributes into an ordered candidate list.
+    pub(crate) fn resolve(
+        &self,
+        families: &FontFamilies,
+        weight: FontWeight,
+        style: FontStyle,
+        stretch: FontStretch,
+    ) -> FontSelection {
+        let mut selection = FontSelection {
+            order: Vec::with_capacity(self.faces.len()),
+            preferred: 0,
+        };
+        let mut used = vec![false; self.faces.len()];
+
+        if !families.is_empty() {
+            for family in families {
+                let key = normalize_family(family);
+                if key.is_empty() {
+                    continue;
+                }
+                let Some(ids) = self.by_family.get(key.as_str()) else {
+                    continue;
+                };
+                let Some(best) = self.best_match(ids, weight, style, stretch) else {
+                    continue;
+                };
+                if push_unique(&mut selection.order, &mut used, best) {
+                    selection.preferred += 1;
+                }
+            }
+        } else {
+            // No explicit families: preserve load order, but pick the face that best matches the
+            // requested attributes within each family.
+            let mut seen: HashSet<&str> = HashSet::new();
+            for (index, face) in self.faces.iter().enumerate() {
+                let key = face.family_key();
+                if key.is_empty() {
+                    push_unique(&mut selection.order, &mut used, FontId(index as u32));
+                    continue;
+                }
+                if !seen.insert(key) {
+                    continue;
+                }
+                let Some(ids) = self.by_family.get(key) else {
+                    continue;
+                };
+                if let Some(best) = self.best_match(ids, weight, style, stretch) {
+                    push_unique(&mut selection.order, &mut used, best);
+                }
+            }
+            // Only the first family is preferred when the style does not name families; the rest
+            // are fallback faces, exactly like the old flat stack order.
+            selection.preferred = usize::from(!selection.order.is_empty());
+        }
+
+        // Faces outside the preferred families stay available for glyph fallback.
+        for index in 0..self.faces.len() {
+            push_unique(&mut selection.order, &mut used, FontId(index as u32));
+        }
+
+        selection
+    }
+
+    /// The face in `ids` that best matches the requested attributes (CSS font matching).
+    fn best_match(
+        &self,
+        ids: &[FontId],
+        weight: FontWeight,
+        style: FontStyle,
+        stretch: FontStretch,
+    ) -> Option<FontId> {
+        best_candidate(
+            ids.iter().map(|&id| {
+                let face = &self.faces[id.0 as usize];
+                (id, face.weight, face.style, face.stretch)
+            }),
+            weight,
+            style,
+            stretch,
+        )
     }
 
     /// Picks a face for one grapheme cluster.
     ///
-    /// The primary face wins whenever it covers the cluster. With the `fallback` feature (on by
-    /// default) later faces are tried when it does not. Emoji clusters prefer the first face that
-    /// has a color representation for them.
-    pub(crate) fn select(&self, cluster: &str, allow_fallback: bool) -> Option<FontId> {
-        let (primary_id, _) = self.primary()?;
-        if !allow_fallback || self.faces.len() == 1 {
+    /// The first preferred candidate wins whenever it covers the cluster. With the `fallback`
+    /// feature (on by default) later candidates are tried when it does not. Emoji clusters prefer
+    /// the first candidate that has a color representation for them.
+    pub(crate) fn select(
+        &self,
+        selection: &FontSelection,
+        cluster: &str,
+        allow_fallback: bool,
+    ) -> Option<FontId> {
+        let candidates = selection.candidates(allow_fallback);
+        let primary_id = *candidates.first()?;
+        if candidates.len() == 1 {
             return Some(primary_id);
         }
 
@@ -253,14 +673,16 @@ impl FontStack {
 
         let prefer_color = cluster_prefers_color(cluster);
         let mut first_cover = None;
-        for (index, face) in self.faces.iter().enumerate() {
+        for &id in candidates {
+            let Some(face) = self.get(id) else {
+                continue;
+            };
             let covers_all = chars.iter().all(|&ch| face.has_char(ch));
             if !covers_all {
                 continue;
             }
-            let id = FontId(index as u32);
             if !prefer_color {
-                // The stack is searched in fallback order, so the first covering face wins.
+                // Candidates are in fallback order, so the first covering face wins.
                 return Some(id);
             }
             let is_color = face
@@ -293,6 +715,128 @@ impl FontStack {
         }
         // All-ignorable clusters still need a face that maps them.
         meaningful || cluster.chars().all(|ch| face.has_char(ch))
+    }
+}
+
+/// The resolved candidate order for one layout.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FontSelection {
+    order: Vec<FontId>,
+    /// The number of leading candidates that come from explicitly requested families (or the
+    /// first family when none are requested). These are tried even without the `fallback`
+    /// feature; the rest of the order is implicit fallback.
+    preferred: usize,
+}
+
+impl FontSelection {
+    /// The face whose metrics define the layout.
+    pub(crate) fn primary(&self) -> Option<FontId> {
+        self.order.first().copied()
+    }
+
+    /// The faces that may be used for a cluster.
+    pub(crate) fn candidates(&self, allow_fallback: bool) -> &[FontId] {
+        let len = if allow_fallback {
+            self.order.len()
+        } else {
+            self.preferred.max(1).min(self.order.len())
+        };
+        &self.order[..len]
+    }
+}
+
+fn push_unique(order: &mut Vec<FontId>, used: &mut [bool], id: FontId) -> bool {
+    let index = id.0 as usize;
+    if used[index] {
+        return false;
+    }
+    used[index] = true;
+    order.push(id);
+    true
+}
+
+/// Picks the first candidate under the CSS ordering of style, stretch and weight.
+fn best_candidate<I>(
+    candidates: I,
+    weight: FontWeight,
+    style: FontStyle,
+    stretch: FontStretch,
+) -> Option<FontId>
+where
+    I: IntoIterator<Item = (FontId, FontWeight, FontStyle, FontStretch)>,
+{
+    candidates
+        .into_iter()
+        .min_by_key(|&(_, face_weight, face_style, face_stretch)| {
+            (
+                style_rank(face_style, style),
+                stretch_rank(face_stretch, stretch),
+                weight_rank(face_weight, weight),
+            )
+        })
+        .map(|(id, ..)| id)
+}
+
+/// CSS style matching: exact first, then the nearest slope.
+fn style_rank(available: FontStyle, requested: FontStyle) -> u8 {
+    if available == requested {
+        return 0;
+    }
+    match (requested, available) {
+        // Normal prefers oblique before italic.
+        (FontStyle::Normal, FontStyle::Oblique) => 1,
+        (FontStyle::Normal, FontStyle::Italic) => 2,
+        // Italic prefers oblique before normal.
+        (FontStyle::Italic, FontStyle::Oblique) => 1,
+        (FontStyle::Italic, FontStyle::Normal) => 2,
+        // Oblique prefers italic before normal.
+        (FontStyle::Oblique, FontStyle::Italic) => 1,
+        (FontStyle::Oblique, FontStyle::Normal) => 2,
+        _ => 0,
+    }
+}
+
+/// CSS stretch matching: exact, then narrower, then wider (or wider first above 100%).
+fn stretch_rank(available: FontStretch, requested: FontStretch) -> (u8, u16) {
+    let available = available.value() as i32;
+    let requested = requested.value() as i32;
+    if available == requested {
+        (0, 0)
+    } else if requested <= 100 {
+        if available < requested {
+            (1, (requested - available) as u16)
+        } else {
+            (2, (available - requested) as u16)
+        }
+    } else if available > requested {
+        (1, (available - requested) as u16)
+    } else {
+        (2, (requested - available) as u16)
+    }
+}
+
+/// CSS weight matching.
+fn weight_rank(available: FontWeight, requested: FontWeight) -> (u8, u16) {
+    let available = available.value() as i32;
+    let requested = requested.value() as i32;
+    if requested < 400 {
+        if available <= requested {
+            (0, (requested - available) as u16)
+        } else {
+            (1, (available - requested) as u16)
+        }
+    } else if requested <= 500 {
+        if available >= requested && available <= 500 {
+            (0, (available - requested) as u16)
+        } else if available < requested {
+            (1, (requested - available) as u16)
+        } else {
+            (2, (available - 500) as u16)
+        }
+    } else if available >= requested {
+        (0, (available - requested) as u16)
+    } else {
+        (1, (requested - available) as u16)
     }
 }
 
@@ -336,4 +880,170 @@ pub(crate) fn is_emoji_char(ch: char) -> bool {
         ch as u32,
         0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0x231A..=0x23FF
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(
+        id: u32,
+        weight: u16,
+        style: FontStyle,
+        stretch: u16,
+    ) -> (FontId, FontWeight, FontStyle, FontStretch) {
+        (
+            FontId::from_index(id),
+            FontWeight::new(weight),
+            style,
+            FontStretch::new(stretch),
+        )
+    }
+
+    fn pick(
+        candidates: impl IntoIterator<Item = (FontId, FontWeight, FontStyle, FontStretch)>,
+        weight: u16,
+        style: FontStyle,
+        stretch: u16,
+    ) -> Option<FontId> {
+        best_candidate(
+            candidates,
+            FontWeight::new(weight),
+            style,
+            FontStretch::new(stretch),
+        )
+    }
+
+    #[test]
+    fn weight_matching_follows_css_preferences() {
+        // 400 takes the nearest lighter weight when 500 is not available.
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 300, FontStyle::Normal, 100),
+                    candidate(1, 700, FontStyle::Normal, 100),
+                ],
+                400,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(0))
+        );
+        // Between 400 and 500, a heavier face wins before a lighter one.
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 300, FontStyle::Normal, 100),
+                    candidate(1, 500, FontStyle::Normal, 100),
+                ],
+                400,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+        // Above 500, a heavier face wins.
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 500, FontStyle::Normal, 100),
+                    candidate(1, 700, FontStyle::Normal, 100),
+                ],
+                600,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+    }
+
+    #[test]
+    fn style_matching_prefers_the_nearest_slope() {
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 400, FontStyle::Normal, 100),
+                    candidate(1, 400, FontStyle::Oblique, 100),
+                ],
+                400,
+                FontStyle::Italic,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 400, FontStyle::Normal, 100),
+                    candidate(1, 400, FontStyle::Italic, 100),
+                ],
+                400,
+                FontStyle::Oblique,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 400, FontStyle::Italic, 100),
+                    candidate(1, 400, FontStyle::Oblique, 100),
+                ],
+                400,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+    }
+
+    #[test]
+    fn stretch_matching_prefers_narrower_before_wider() {
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 400, FontStyle::Normal, 125),
+                    candidate(1, 400, FontStyle::Normal, 75),
+                ],
+                400,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(1))
+        );
+        // Above normal, wider faces are preferred first.
+        assert_eq!(
+            pick(
+                [
+                    candidate(0, 400, FontStyle::Normal, 125),
+                    candidate(1, 400, FontStyle::Normal, 200),
+                ],
+                400,
+                FontStyle::Normal,
+                150,
+            ),
+            Some(FontId::from_index(1))
+        );
+    }
+
+    #[test]
+    fn ties_keep_stack_order() {
+        assert_eq!(
+            pick(
+                [
+                    candidate(3, 400, FontStyle::Normal, 100),
+                    candidate(1, 400, FontStyle::Normal, 100),
+                ],
+                400,
+                FontStyle::Normal,
+                100,
+            ),
+            Some(FontId::from_index(3))
+        );
+    }
+
+    #[test]
+    fn family_names_are_case_insensitive() {
+        assert_eq!(normalize_family("  Noto Sans  "), "noto sans");
+    }
 }

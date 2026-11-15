@@ -8,7 +8,7 @@ use unicode_linebreak::{BreakOpportunity, linebreaks};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    font::{FontId, FontMetrics, FontStack},
+    font::{FontFamilies, FontId, FontMetrics, FontStack, FontStretch, FontStyle, FontWeight},
     shape,
 };
 
@@ -30,6 +30,18 @@ pub enum TextDirection {
 /// resulting glyphs are drawn. Pass the color to the paint layer when building a mesh.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
+    /// Preferred font families, in order, like CSS `font-family`.
+    ///
+    /// Names are matched against the family names declared by loaded faces, including localized
+    /// names. Families that do not match are ignored. When the list is empty, the font stack's
+    /// load order decides.
+    pub font_families: FontFamilies,
+    /// Desired font weight. Faces within a family are matched using the CSS rules.
+    pub font_weight: FontWeight,
+    /// Desired font style (normal, italic or oblique).
+    pub font_style: FontStyle,
+    /// Desired font width as a percentage; 100 is normal.
+    pub font_stretch: FontStretch,
     /// Font size in logical points.
     pub font_size: f32,
     /// Distance between baselines in logical points. Defaults to the font's metrics.
@@ -43,6 +55,10 @@ pub struct TextStyle {
 impl Default for TextStyle {
     fn default() -> Self {
         Self {
+            font_families: FontFamilies::default(),
+            font_weight: FontWeight::default(),
+            font_style: FontStyle::default(),
+            font_stretch: FontStretch::default(),
             font_size: 14.0,
             line_height: None,
             letter_spacing: 0.0,
@@ -55,8 +71,12 @@ impl Default for TextStyle {
 ///
 /// This is used for comparison and hashing. Paint-only inputs are not part of [`TextStyle`] at
 /// all, so two layouts can always be reused regardless of the color they are drawn with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LayoutStyle {
+    font_families: FontFamilies,
+    font_weight: FontWeight,
+    font_style: FontStyle,
+    font_stretch: FontStretch,
     font_size: u32,
     line_height: Option<u32>,
     letter_spacing: u32,
@@ -83,11 +103,35 @@ impl LayoutStyle {
             0.0
         };
         Self {
+            font_families: style.font_families.clone(),
+            font_weight: style.font_weight,
+            font_style: style.font_style,
+            font_stretch: style.font_stretch,
             font_size: canonical_bits(font_size),
             line_height: line_height.map(canonical_bits),
             letter_spacing: canonical_bits(letter_spacing),
             direction: style.direction,
         }
+    }
+
+    /// Preferred font families, in order.
+    pub fn font_families(&self) -> &FontFamilies {
+        &self.font_families
+    }
+
+    /// Desired font weight.
+    pub fn font_weight(&self) -> FontWeight {
+        self.font_weight
+    }
+
+    /// Desired font style.
+    pub fn font_style(&self) -> FontStyle {
+        self.font_style
+    }
+
+    /// Desired font width as a percentage.
+    pub fn font_stretch(&self) -> FontStretch {
+        self.font_stretch
     }
 
     /// Font size in logical points.
@@ -114,7 +158,7 @@ impl LayoutStyle {
 /// Canonical inputs that fully determine a line layout: style plus wrap width.
 ///
 /// Use this as a cache key component so the cache and the layout code agree on normalization.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LayoutKey {
     style: LayoutStyle,
     /// Normalized wrap width in bits. `None` means unlimited.
@@ -381,7 +425,7 @@ pub struct TextLayout {
 impl TextLayout {
     /// The normalized inputs used for layout.
     pub fn layout_key(&self) -> LayoutKey {
-        self.key
+        self.key.clone()
     }
 
     /// The layout-affecting style. Paint-only fields such as color are not part of a layout.
@@ -424,7 +468,7 @@ pub(crate) fn layout(
     allow_fallback: bool,
 ) -> TextLayout {
     let key = LayoutKey::new(style, max_width);
-    let style = *key.style();
+    let style = key.style().clone();
     let max_width = key.max_width();
     let mut result = TextLayout {
         key,
@@ -443,13 +487,27 @@ pub(crate) fn layout(
     let bidi = BidiInfo::new(text, base_level);
     // Unbounded layouts never measure prefixes for wrapping; line widths come from the glyphs.
     let measure_widths = max_width.is_some_and(|width| width != f32::INFINITY);
-    let mut shaped =
-        shape::ShapedText::shape(fonts, text, &bidi, &style, allow_fallback, measure_widths);
+    let selection = fonts.resolve(
+        style.font_families(),
+        style.font_weight(),
+        style.font_style(),
+        style.font_stretch(),
+    );
+    let mut shaped = shape::ShapedText::shape(
+        fonts,
+        &selection,
+        text,
+        &bidi,
+        &style,
+        allow_fallback,
+        measure_widths,
+    );
     let ranges = wrap_lines(text, max_width, &shaped);
 
-    let metrics = fonts
+    let metrics = selection
         .primary()
-        .map(|(_, face)| face.metrics(style.font_size()))
+        .and_then(|id| fonts.get(id))
+        .map(|face| face.metrics(style.font_size()))
         .unwrap_or_else(|| FontMetrics::fallback(style.font_size()));
     let line_height = style
         .line_height()

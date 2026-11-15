@@ -6,7 +6,10 @@
 use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1, VAZIRMATN_VAR};
 use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
-use tinim_text::{TextContext, TextDirection, TextStyle, rasterize};
+use tinim_text::{
+    FontFamilies, FontStretch, FontStyle, FontWeight, LayoutKey, TextContext, TextDirection,
+    TextStyle, rasterize,
+};
 
 fn style(size: f32) -> TextStyle {
     TextStyle {
@@ -19,6 +22,142 @@ fn context(font: &[u8]) -> TextContext {
     let mut text = TextContext::new();
     text.add_font(font.to_vec()).unwrap();
     text
+}
+
+#[test]
+fn family_and_attributes_are_loaded() {
+    let text = context(AHEM);
+    let (_, face) = text.fonts().iter().next().unwrap();
+
+    assert!(!face.family_name().is_empty());
+    assert!(
+        face.family_names().any(|name| name == face.family_name()),
+        "the preferred family is one of the localized names"
+    );
+    assert!(face.weight().value() > 0);
+    assert!(face.stretch().value() > 0);
+    assert!(text.has_family(&face.family_name().to_uppercase()));
+    assert!(!text.has_family("No Such Font"));
+}
+
+#[test]
+fn explicit_family_overrides_stack_order() {
+    let mut text = TextContext::new();
+    let primary = text.add_font(AHEM.to_vec()).unwrap();
+    let fallback = text.add_font(VAZIRMATN_VAR.to_vec()).unwrap();
+    let primary_family = text.font(primary).unwrap().family_name().to_owned();
+    let fallback_family = text.font(fallback).unwrap().family_name().to_owned();
+    if fallback_family.is_empty() || primary_family == fallback_family {
+        return;
+    }
+
+    // Both faces cover the text, but the explicitly requested family must win over the stack's
+    // primary face. Family matching is case-insensitive, so the uppercase spelling works too.
+    let requested = fallback_family.to_uppercase();
+    let layout = text.layout(
+        "A",
+        &TextStyle {
+            font_families: FontFamilies::from(requested.as_str()),
+            ..style(24.0)
+        },
+        None,
+    );
+
+    let glyphs = layout.lines()[0].glyphs();
+    assert_eq!(glyphs.len(), 1);
+    assert_eq!(glyphs[0].font(), fallback);
+}
+
+#[test]
+fn unknown_families_are_ignored() {
+    let text = context(AHEM);
+    let (primary, _) = text.fonts().iter().next().unwrap();
+
+    let layout = text.layout(
+        "A",
+        &TextStyle {
+            font_families: FontFamilies::new(["No Such Font", ""]),
+            ..style(20.0)
+        },
+        None,
+    );
+
+    assert_eq!(layout.lines()[0].glyphs()[0].font(), primary);
+}
+
+#[test]
+fn named_families_fall_back_in_order() {
+    let mut text = TextContext::new();
+    let primary = text.add_font(AHEM.to_vec()).unwrap();
+    let fallback = text.add_font(VAZIRMATN_VAR.to_vec()).unwrap();
+    let primary_face = text.font(primary).unwrap();
+    let fallback_face = text.font(fallback).unwrap();
+    let primary_family = primary_face.family_name().to_owned();
+    let fallback_family = fallback_face.family_name().to_owned();
+    let Some(ch) = "À"
+        .chars()
+        .find(|&ch| !primary_face.has_char(ch) && fallback_face.has_char(ch))
+    else {
+        return;
+    };
+    if primary_family.is_empty() || fallback_family.is_empty() || primary_family == fallback_family
+    {
+        return;
+    }
+
+    // The first named family does not cover the cluster, so the second one is used before the
+    // implicit rest of the stack.
+    let sample = format!("A{ch}");
+    let layout = text.layout(
+        &sample,
+        &TextStyle {
+            font_families: FontFamilies::new([primary_family.as_str(), fallback_family.as_str()]),
+            ..style(24.0)
+        },
+        None,
+    );
+
+    let fonts: Vec<_> = layout.lines()[0]
+        .glyphs()
+        .iter()
+        .map(|glyph| glyph.font())
+        .collect();
+    assert!(
+        fonts.contains(&primary),
+        "the Latin char used the first family"
+    );
+    assert!(
+        fonts.contains(&fallback),
+        "the uncovered char used the second family"
+    );
+}
+
+#[test]
+fn layout_key_includes_font_selection() {
+    let base = TextStyle::default();
+    let base_key = LayoutKey::new(&base, None);
+
+    let families = TextStyle {
+        font_families: FontFamilies::new(["Inter", "Noto Sans"]),
+        ..base.clone()
+    };
+    let weight = TextStyle {
+        font_weight: FontWeight::BOLD,
+        ..base.clone()
+    };
+    let font_style = TextStyle {
+        font_style: FontStyle::Italic,
+        ..base.clone()
+    };
+    let stretch = TextStyle {
+        font_stretch: FontStretch::CONDENSED,
+        ..base.clone()
+    };
+
+    assert_ne!(base_key, LayoutKey::new(&families, None));
+    assert_ne!(base_key, LayoutKey::new(&weight, None));
+    assert_ne!(base_key, LayoutKey::new(&font_style, None));
+    assert_ne!(base_key, LayoutKey::new(&stretch, None));
 }
 
 #[test]

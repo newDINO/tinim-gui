@@ -32,6 +32,13 @@
 //! fonts are used for characters the primary font doesn't cover. Emoji clusters prefer a face with
 //! a color representation.
 //!
+//! [`TextStyle::font_families`] lets a style prefer specific families independently of load order,
+//! like CSS `font-family`. Names are matched case-insensitively against all localized family names
+//! declared by loaded faces. Within each family, [`TextStyle::font_weight`],
+//! [`TextStyle::font_style`] and [`TextStyle::font_stretch`] select the best face using the CSS
+//! matching rules. Families that are not loaded are skipped, and the rest of the stack remains
+//! available for fallback.
+//!
 //! There is no bundled font. Use [`TextContext::add_font`] with your own bytes, or enable the
 //! `system-fonts` feature and call `TextContext::load_system_fonts`. System font files are
 //! memory-mapped instead of read into the heap, so the OS can page them in on demand.
@@ -57,7 +64,9 @@ pub use glam::{Vec2, vec2};
 use skrifa::raw::CollectionRef;
 
 pub use error::FontError;
-pub use font::{FontFace, FontId, FontMetrics, FontStack};
+pub use font::{
+    FontFace, FontFamilies, FontId, FontMetrics, FontStack, FontStretch, FontStyle, FontWeight,
+};
 pub use layout::{
     LayoutKey, LayoutStyle, PositionedGlyph, TextDirection, TextLayout, TextLine, TextStyle,
 };
@@ -100,7 +109,7 @@ impl TextContext {
         self.add_font(data)
     }
 
-    /// All currently loaded faces, in fallback order.
+    /// All currently loaded faces, in load order.
     pub fn fonts(&self) -> &FontStack {
         &self.fonts
     }
@@ -109,13 +118,18 @@ impl TextContext {
         self.fonts.get(id)
     }
 
+    /// Whether any loaded face declares `family` (case-insensitive, including localized names).
+    pub fn has_family(&self, family: &str) -> bool {
+        self.fonts.has_family(family)
+    }
+
     /// Scans the usual system font directories and adds every face found.
     ///
     /// Returns the number of faces added. This is a no-op without the `system-fonts` feature.
     ///
     /// The first face added becomes the primary font, but filesystem discovery order is not
-    /// meaningful. If the choice of primary face matters, add a preferred font first and use the
-    /// system faces only for fallback.
+    /// meaningful. If the choice of primary face matters, add a preferred font first, or set
+    /// [`TextStyle::font_families`] to choose families independently of load order.
     #[cfg(feature = "system-fonts")]
     pub fn load_system_fonts(&mut self) -> usize {
         let mut added = 0;
@@ -195,10 +209,16 @@ impl TextContext {
     /// explicitly configured line height. It is useful for sizing empty text.
     pub fn line_height(&self, style: &TextStyle) -> f32 {
         let style = LayoutStyle::new(style);
-        let metrics = self
-            .fonts
+        let selection = self.fonts.resolve(
+            style.font_families(),
+            style.font_weight(),
+            style.font_style(),
+            style.font_stretch(),
+        );
+        let metrics = selection
             .primary()
-            .map(|(_, face)| face.metrics(style.font_size()))
+            .and_then(|id| self.fonts.get(id))
+            .map(|face| face.metrics(style.font_size()))
             .unwrap_or_else(|| FontMetrics::fallback(style.font_size()));
         style
             .line_height()

@@ -119,13 +119,18 @@ impl TextSystem {
         self.text.add_font_file(path)
     }
 
-    /// All currently loaded faces, in fallback order.
+    /// All currently loaded faces, in load order.
     pub fn fonts(&self) -> &FontStack {
         self.text.fonts()
     }
 
     pub fn font(&self, id: FontId) -> Option<&FontFace> {
         self.text.font(id)
+    }
+
+    /// Whether any loaded face declares `family` (case-insensitive, including localized names).
+    pub fn has_family(&self, family: &str) -> bool {
+        self.text.has_family(family)
     }
 
     /// Scans the usual system font directories and adds every face found.

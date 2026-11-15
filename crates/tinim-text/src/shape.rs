@@ -13,7 +13,7 @@ use unicode_script::Script as UnicodeScript;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    font::{FontId, FontStack},
+    font::{FontId, FontSelection, FontStack},
     layout::{LayoutStyle, PositionedGlyph},
 };
 
@@ -41,6 +41,7 @@ impl ShapedText {
     /// text cannot wrap; line widths are still available from [`ShapedText::line`].
     pub(crate) fn shape(
         fonts: &FontStack,
+        selection: &FontSelection,
         text: &str,
         bidi: &BidiInfo<'_>,
         style: &LayoutStyle,
@@ -58,7 +59,7 @@ impl ShapedText {
             }
             let paragraph_range = paragraph.range.start..end;
             if !has_rtl {
-                for item in itemize(fonts, text, paragraph_range, allow_fallback) {
+                for item in itemize(fonts, selection, text, paragraph_range, allow_fallback) {
                     if let Some(shaped) =
                         shape_item(fonts, text, item, Direction::LeftToRight, style)
                     {
@@ -77,7 +78,7 @@ impl ShapedText {
                 } else {
                     Direction::LeftToRight
                 };
-                for item in itemize(fonts, text, run, allow_fallback) {
+                for item in itemize(fonts, selection, text, run, allow_fallback) {
                     if let Some(shaped) = shape_item(fonts, text, item, direction, style) {
                         items.push(shaped);
                     }
@@ -312,22 +313,28 @@ fn paragraph_content_end(text: &str, end: usize) -> usize {
 }
 
 /// Splits a bidi run into items that share a font and script.
-fn itemize(fonts: &FontStack, text: &str, run: Range<usize>, allow_fallback: bool) -> Vec<Item> {
+fn itemize(
+    fonts: &FontStack,
+    selection: &FontSelection,
+    text: &str,
+    run: Range<usize>,
+    allow_fallback: bool,
+) -> Vec<Item> {
     let run_text = &text[run.clone()];
     let mut items = Vec::new();
     let mut item_start = run.start;
     let mut item_font: Option<FontId> = None;
     let mut item_script = harfrust::script::COMMON;
-    // With a single face there is no fallback decision to make; punctuation always stays in it.
-    let single_font = if fonts.len() == 1 {
-        fonts.primary().map(|(id, _)| id)
-    } else {
-        None
-    };
+    // With a single candidate there is no fallback decision to make; punctuation always stays in
+    // it.
+    let candidates = selection.candidates(allow_fallback);
+    let single_font = (candidates.len() == 1).then(|| candidates[0]);
 
     for (offset, cluster) in run_text.grapheme_indices(true) {
         let absolute = run.start + offset;
-        let Some(mut font) = single_font.or_else(|| fonts.select(cluster, allow_fallback)) else {
+        let Some(mut font) =
+            single_font.or_else(|| fonts.select(selection, cluster, allow_fallback))
+        else {
             return Vec::new();
         };
         let mut script = script_of(cluster);

@@ -67,7 +67,7 @@ impl TextCache {
                 .last_used = self.clock;
         } else {
             let entry = Entry {
-                key,
+                key: key.clone(),
                 layout: text_system.layout(text, style, max_width),
                 last_used: self.clock,
             };
@@ -128,7 +128,7 @@ impl TextCache {
 mod tests {
     use super::*;
     use tinim_paint::TextureId;
-    use tinim_text::TextStyle;
+    use tinim_text::{FontWeight, TextStyle};
 
     fn cache_with_font(capacity: usize) -> (TextCache, TextSystem) {
         let mut text = TextSystem::new(TextureId(1));
@@ -143,6 +143,22 @@ mod tests {
         let a = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
         let b = cache.layout(&text, "hello", &style, Some(100.0)) as *const TextLayout;
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn different_font_selections_are_different_entries() {
+        let (mut cache, text) = cache_with_font(8);
+        let regular = TextStyle::default();
+        let bold = TextStyle {
+            font_weight: FontWeight::BOLD,
+            ..Default::default()
+        };
+
+        let a = cache.layout(&text, "hello", &regular, None) as *const TextLayout;
+        let b = cache.layout(&text, "hello", &bold, None) as *const TextLayout;
+
+        assert_ne!(a, b);
+        assert_eq!(cache.len, 2);
     }
 
     #[test]
