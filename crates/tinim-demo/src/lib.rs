@@ -10,7 +10,7 @@ use web_time::{Duration, Instant};
 
 use tinim_gui::{Color32, Context, FullOutput, RawInput, TextureId, Vec2};
 
-use pages::{LayoutPage, PanePage, ScrollPage, StylePage, WidgetsPage, draw_placed_page};
+use pages::{LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
 
 /// Comic Mono is the demo's primary and fallback font on every platform.
 const FONT: &[u8] = include_bytes!("../assets/ComicMono.ttf");
@@ -37,6 +37,7 @@ pub struct Demo {
 
     widgets_page: WidgetsPage,
     layout_page: LayoutPage,
+    placed_page: PlacedPage,
     pane_page: PanePage,
     scroll_page: ScrollPage,
     style_page: StylePage,
@@ -84,6 +85,7 @@ impl Demo {
 
             widgets_page: WidgetsPage::new(),
             layout_page: LayoutPage::new(),
+            placed_page: PlacedPage::new(),
             pane_page: PanePage::new(),
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
@@ -126,7 +128,7 @@ impl Demo {
             ui.separator();
             match self.page {
                 DemoPage::Widgets => self.widgets_page.draw(ui),
-                DemoPage::Placed => draw_placed_page(ui),
+                DemoPage::Placed => self.placed_page.draw(ui),
                 DemoPage::Layout => self.layout_page.draw(ui),
                 DemoPage::Pane => self.pane_page.draw(ui),
                 DemoPage::Scroll => self.scroll_page.draw(ui),

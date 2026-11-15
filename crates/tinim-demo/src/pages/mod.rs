@@ -7,11 +7,11 @@ mod scroll;
 mod style;
 mod widgets;
 
-use tinim_gui::{Color32, Edges, FrameStyle, Stroke};
+use tinim_gui::{Color32, Edges, FrameStyle, ScrollState, Stroke, Ui};
 
 pub(crate) use layout::LayoutPage;
 pub(crate) use pane::PanePage;
-pub(crate) use placed::draw as draw_placed_page;
+pub(crate) use placed::PlacedPage;
 pub(crate) use scroll::ScrollPage;
 pub(crate) use style::StylePage;
 pub(crate) use widgets::WidgetsPage;
@@ -23,8 +23,26 @@ const FRAME_STYLE1: FrameStyle = FrameStyle {
     corner_radius: 4,
 };
 
-const FRMAE_STYLE2: FrameStyle = const {
+const FRAME_STYLE2: FrameStyle = const {
     let mut style = FRAME_STYLE1;
     style.background = Color32::from_rgb(53, 53, 61);
     style
 };
+
+/// Builds a page's content in a frame that fills the remaining viewport.
+///
+/// The frame shows the page bounds and the scrollable keeps content reachable when the window is
+/// smaller than the page. Each page owns its [`ScrollState`], so switching pages keeps their
+/// scroll positions.
+pub(crate) fn page<R>(
+    ui: &mut Ui<'_>,
+    scroll: &mut ScrollState,
+    build: impl FnOnce(&mut Ui<'_>) -> R,
+) -> R {
+    let size = ui.available_size();
+    let (result, _) = ui.sized_frame(size, FRAME_STYLE1, |ui| {
+        let size = ui.available_size();
+        ui.scrollable(size, scroll, build).0
+    });
+    result
+}

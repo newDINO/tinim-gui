@@ -2,9 +2,12 @@
 
 use std::ops::{Deref, DerefMut};
 
-use tinim_gui::{Align, FlowConfig, NumberInputState, TextEditState, Ui, vec2};
+use tinim_gui::{Align, FlowConfig, NumberInputState, ScrollState, TextEditState, Ui, vec2};
+
+use super::page;
 
 pub(crate) struct WidgetsPage {
+    scroll: ScrollState,
     counter: usize,
     checked: bool,
     radio: usize,
@@ -47,6 +50,7 @@ impl UiC<'_, '_> {
 impl WidgetsPage {
     pub(crate) fn new() -> Self {
         Self {
+            scroll: ScrollState::new(),
             counter: 0,
             checked: false,
             radio: 0,
@@ -61,90 +65,92 @@ impl WidgetsPage {
     }
 
     pub(crate) fn draw(&mut self, ui: &mut Ui) {
-        let mut ui = UiC {
-            sized_horizontal_height: 19.0,
-            ui,
-        };
-        if ui.button("+1").pressed {
-            self.counter = self.counter.saturating_add(1);
-        }
-        if ui.button("-1").pressed {
-            self.counter = self.counter.saturating_sub(1);
-        }
-        ui.label(&format!("Value: {}", self.counter));
+        page(ui, &mut self.scroll, |ui| {
+            let mut ui = UiC {
+                sized_horizontal_height: 19.0,
+                ui,
+            };
+            if ui.button("+1").pressed {
+                self.counter = self.counter.saturating_add(1);
+            }
+            if ui.button("-1").pressed {
+                self.counter = self.counter.saturating_sub(1);
+            }
+            ui.label(&format!("Value: {}", self.counter));
 
-        ui.label("separator() follows the flow direction:");
-        ui.separator();
-        ui.sized_horizontal(|ui| {
-            ui.label("left");
+            ui.label("separator() follows the flow direction:");
             ui.separator();
-            ui.label("right");
-        });
-
-        ui.sized_horizontal(|ui| {
-            ui.checkbox(&mut self.checked);
-            ui.label(if self.checked {
-                "checkbox: checked"
-            } else {
-                "checkbox: unchecked"
+            ui.sized_horizontal(|ui| {
+                ui.label("left");
+                ui.separator();
+                ui.label("right");
             });
-        });
 
-        ui.label(
-            "text_edit_singleline(): click to focus, drag to select, Ctrl+C/X/V, Enter submits:",
-        );
-        let edit = ui.text_edit_singleline(&mut self.text, &mut self.text_edit);
-        ui.label(&format!(
-            "text: {:?} | focused: {} | changed: {} | submitted: {}",
-            self.text, edit.focused, edit.changed, edit.submitted
-        ));
+            ui.sized_horizontal(|ui| {
+                ui.checkbox(&mut self.checked);
+                ui.label(if self.checked {
+                    "checkbox: checked"
+                } else {
+                    "checkbox: unchecked"
+                });
+            });
 
-        ui.label(
-            "text_edit_multiline(): wraps at the editor width, Enter inserts a newline, Up/Down and Home/End move by line:",
-        );
-        let edit = ui.text_edit_multiline(&mut self.multiline_text, &mut self.multiline_edit);
-        ui.label(&format!(
-            "multiline: {:?} | focused: {} | changed: {} | scroll_y: {:.1}",
-            self.multiline_text,
-            edit.focused,
-            edit.changed,
-            self.multiline_edit.scroll_y()
-        ));
+            ui.label(
+                "text_edit_singleline(): click to focus, drag to select, Ctrl+C/X/V, Enter submits:",
+            );
+            let edit = ui.text_edit_singleline(&mut self.text, &mut self.text_edit);
+            ui.label(&format!(
+                "text: {:?} | focused: {} | changed: {} | submitted: {}",
+                self.text, edit.focused, edit.changed, edit.submitted
+            ));
 
-        ui.label("radio(selected) is the label-free counterpart of selectable_label:");
-        ui.sized_horizontal(|ui| {
-            for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
-                if ui.radio(self.radio == index).pressed {
-                    self.radio = index;
+            ui.label(
+                "text_edit_multiline(): wraps at the editor width, Enter inserts a newline, Up/Down and Home/End move by line:",
+            );
+            let edit = ui.text_edit_multiline(&mut self.multiline_text, &mut self.multiline_edit);
+            ui.label(&format!(
+                "multiline: {:?} | focused: {} | changed: {} | scroll_y: {:.1}",
+                self.multiline_text,
+                edit.focused,
+                edit.changed,
+                self.multiline_edit.scroll_y()
+            ));
+
+            ui.label("radio(selected) is the label-free counterpart of selectable_label:");
+            ui.sized_horizontal(|ui| {
+                for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
+                    if ui.radio(self.radio == index).pressed {
+                        self.radio = index;
+                    }
+                    ui.label(label);
                 }
-                ui.label(label);
-            }
+            });
+
+            ui.label("radio_value(&mut value, selected_value) updates the value by itself:");
+            ui.sized_horizontal(|ui| {
+                for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
+                    ui.radio_value(&mut self.radio_value, index);
+                    ui.label(label);
+                }
+            });
+
+            ui.label(&format!(
+                "radio: {}, radio_value: {}",
+                self.radio, self.radio_value
+            ));
+
+            ui.label("number_input and slider edit the same value (type a number or drag):");
+            let number = ui.number_input(&mut self.value, &mut self.number_input);
+            let slider = ui.slider(&mut self.value, 0.0..=100.0);
+            ui.label(&format!(
+                "value: {:.2} | input focused: {} | changed: {} | submitted: {} | slider hovered: {} | down: {}",
+                self.value,
+                number.focused,
+                number.changed,
+                number.submitted,
+                slider.hovered,
+                slider.down
+            ));
         });
-
-        ui.label("radio_value(&mut value, selected_value) updates the value by itself:");
-        ui.sized_horizontal(|ui| {
-            for (index, label) in ["Zero", "One", "Two"].into_iter().enumerate() {
-                ui.radio_value(&mut self.radio_value, index);
-                ui.label(label);
-            }
-        });
-
-        ui.label(&format!(
-            "radio: {}, radio_value: {}",
-            self.radio, self.radio_value
-        ));
-
-        ui.label("number_input and slider edit the same value (type a number or drag):");
-        let number = ui.number_input(&mut self.value, &mut self.number_input);
-        let slider = ui.slider(&mut self.value, 0.0..=100.0);
-        ui.label(&format!(
-            "value: {:.2} | input focused: {} | changed: {} | submitted: {} | slider hovered: {} | down: {}",
-            self.value,
-            number.focused,
-            number.changed,
-            number.submitted,
-            slider.hovered,
-            slider.down
-        ));
     }
 }
