@@ -1,6 +1,6 @@
 //! Scoped and persistent style showcase.
 
-use tinim_gui::{Color32, ScrollState, Ui};
+use tinim_gui::{Color32, ScrollState, Ui, tinim_text::FontFamilies};
 
 use super::{FRAME_STYLE1, page};
 use crate::{COOL_TEXT, DEFAULT_TEXT, WARM_TEXT};
@@ -8,6 +8,7 @@ use crate::{COOL_TEXT, DEFAULT_TEXT, WARM_TEXT};
 pub(crate) struct StylePage {
     scroll: ScrollState,
     compact: bool,
+    font_families: FontFamilies,
 }
 
 impl StylePage {
@@ -15,6 +16,13 @@ impl StylePage {
         Self {
             scroll: ScrollState::new(),
             compact: false,
+            font_families: FontFamilies::new([
+                "Verdana",
+                "Helvetica",
+                "Arial",
+                "Dejavu Sans",
+                "Noto Sans",
+            ]),
         }
     }
 
@@ -47,6 +55,8 @@ impl StylePage {
                 self.compact = !self.compact;
             }
 
+            ui.separator();
+
             ui.frame(FRAME_STYLE1, |ui| {
                 ui.label("Nested scopes restore in order:");
                 ui.with_style(
@@ -64,6 +74,8 @@ impl StylePage {
                 );
             });
 
+            ui.separator();
+
             ui.label("style_mut() changes the style persistently, including future frames:");
             ui.horizontal(|ui| {
                 if ui.button("Warm text").pressed {
@@ -77,6 +89,18 @@ impl StylePage {
                 }
             });
             ui.label("This label uses the persistent style set above.");
+
+            ui.separator();
+
+            ui.label("Change font");
+            ui.with_style(
+                |style| {
+                    style.font.font_families = self.font_families.clone();
+                },
+                |ui| {
+                    ui.label("This label may be rendered with sans-serif like fonts on native.");
+                },
+            );
         });
     }
 }
