@@ -7,7 +7,7 @@ mod scroll;
 mod style;
 mod widgets;
 
-use tinim_gui::{Color32, Edges, FrameStyle, ScrollState, Stroke, Ui};
+use tinim_gui::{Color32, Edges, FrameStyle, ScrollBars, ScrollState, Stroke, Ui};
 
 pub(crate) use layout::LayoutPage;
 pub(crate) use pane::PanePage;
@@ -42,7 +42,8 @@ pub(crate) fn page<R>(
     let size = ui.available_size();
     let (result, _) = ui.sized_frame(size, FRAME_STYLE1, |ui| {
         let size = ui.available_size();
-        ui.scrollable(size, scroll, build).0
+        ui.scrollable_with_bars(size, ScrollBars::BOTH, scroll, build)
+            .0
     });
     result
 }
