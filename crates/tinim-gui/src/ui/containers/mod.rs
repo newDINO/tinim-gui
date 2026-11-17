@@ -4,7 +4,7 @@ mod frame;
 mod scroll;
 
 pub use frame::FrameResponse;
-pub use scroll::{ScrollResponse, ScrollState};
+pub use scroll::{ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState};
 
 use tinim_paint::{Pos2, Rect, Vec2};
 
@@ -148,6 +148,21 @@ impl Ui<'_> {
     ) -> (R, PaneResponse) {
         let spacing = self.spacing();
         let rect = allocate_space(&mut self.layout, size, spacing);
+        let (result, content_size) = self.pane_in(rect, offset, build);
+
+        (result, PaneResponse { rect, content_size })
+    }
+
+    /// Builds content in an already allocated viewport.
+    ///
+    /// The content origin is `rect.min + offset`, and painting and hit testing are clipped to
+    /// `rect`. The returned content size is independent of `offset`.
+    pub(super) fn pane_in<R>(
+        &mut self,
+        rect: Rect,
+        offset: Vec2,
+        build: impl FnOnce(&mut Ui<'_>) -> R,
+    ) -> (R, Vec2) {
         let origin = rect.min + offset;
 
         let (result, used) = self.clipped_layout_at(rect, origin, FlowConfig::vertical(), build);
@@ -158,7 +173,7 @@ impl Ui<'_> {
             Vec2::ZERO
         };
 
-        (result, PaneResponse { rect, content_size })
+        (result, content_size)
     }
 }
 

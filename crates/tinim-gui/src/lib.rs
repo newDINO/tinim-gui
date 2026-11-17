@@ -58,10 +58,11 @@ pub use cursor::CursorIcon;
 pub use input::{ImeInput, Key, Modifiers, RawInput};
 pub use platform::{ImeOutput, PlatformOutput};
 pub use style::{
-    ButtonStyle, CheckboxStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle, SeparatorStyle,
-    SliderStyle, Style, TextEditStyle,
+    ButtonStyle, CheckboxStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle, ScrollBarStyle,
+    SeparatorStyle, SliderStyle, Style, TextEditStyle,
 };
 pub use ui::{
     Align, FlowConfig, FrameResponse, NumberInputResponse, NumberInputState, PaneResponse,
-    Response, ScrollResponse, ScrollState, TextEditResponse, TextEditState, Ui,
+    Response, ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState, TextEditResponse,
+    TextEditState, Ui,
 };

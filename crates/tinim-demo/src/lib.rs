@@ -8,7 +8,7 @@ pub use tinim_winit::winit;
 
 use web_time::{Duration, Instant};
 
-use tinim_gui::{Color32, Context, FullOutput, RawInput, ScrollState, TextureId, Vec2};
+use tinim_gui::{Color32, Context, FullOutput, RawInput, ScrollBars, ScrollState, TextureId, Vec2};
 
 use pages::{LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
 
@@ -127,17 +127,38 @@ impl Demo {
             let frame_time = format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, self.average_fps);
             ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
-            let page_bar_size = Vec2::new(ui.size().x, page_bar_height);
-            let _ = ui.scrollable(page_bar_size, &mut self.page_bar, |ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.page, DemoPage::Widgets, "Widgets");
-                    ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
-                    ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
-                    ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
-                    ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
-                    ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
-                });
-            });
+            // Reserve the bar strip inside the same viewport so the buttons are not clipped
+            // vertically when the horizontal scrollbar appears. The bar only shows while the
+            // selector is wider than its viewport.
+            let bar = ui.style().scroll_bar;
+            let bar_visible = self
+                .page_bar
+                .content_size
+                .is_some_and(|content| content.x > ui.size().x);
+            let page_bar_size = Vec2::new(
+                ui.size().x,
+                page_bar_height
+                    + if bar_visible {
+                        bar.thickness.max(0.0)
+                    } else {
+                        0.0
+                    },
+            );
+            let _ = ui.scrollable_with_bars(
+                page_bar_size,
+                ScrollBars::HORIZONTAL,
+                &mut self.page_bar,
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.page, DemoPage::Widgets, "Widgets");
+                        ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
+                        ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
+                        ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
+                        ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
+                        ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
+                    });
+                },
+            );
             match self.page {
                 DemoPage::Widgets => self.widgets_page.draw(ui),
                 DemoPage::Placed => self.placed_page.draw(ui),

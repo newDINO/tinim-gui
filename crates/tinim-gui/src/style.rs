@@ -134,6 +134,7 @@ pub struct Style {
     pub slider: SliderStyle,
     pub number_input: NumberInputStyle,
     pub text_edit: TextEditStyle,
+    pub scroll_bar: ScrollBarStyle,
 }
 
 impl Default for Style {
@@ -149,6 +150,43 @@ impl Default for Style {
             slider: SliderStyle::default(),
             number_input: NumberInputStyle::default(),
             text_edit: TextEditStyle::default(),
+            scroll_bar: ScrollBarStyle::default(),
+        }
+    }
+}
+
+/// Appearance of the scrollbars shown by [`Ui::scrollable_with_bars`](crate::Ui::scrollable_with_bars).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollBarStyle {
+    /// Width of the reserved strip, in logical points. A zero thickness hides all bars.
+    pub thickness: f32,
+    /// Space between the track and the edges of the strip, in logical points.
+    pub margin: f32,
+    /// Fill of the track. Use a transparent color for a thumb-only bar.
+    pub track: Color32,
+    /// Fill of the thumb while it is idle.
+    pub thumb: Color32,
+    /// Fill of the thumb while the pointer is over the bar.
+    pub thumb_hovered: Color32,
+    /// Fill of the thumb while it is being dragged.
+    pub thumb_dragging: Color32,
+    /// Smallest thumb length, in logical points.
+    pub min_thumb_length: f32,
+    /// Corner radius of the track and thumb, in logical points.
+    pub corner_radius: u8,
+}
+
+impl Default for ScrollBarStyle {
+    fn default() -> Self {
+        Self {
+            thickness: 10.0,
+            margin: 2.0,
+            track: Color32::from_rgba_unmultiplied(255, 255, 255, 24),
+            thumb: Color32::from_rgb(110, 110, 120),
+            thumb_hovered: Color32::from_rgb(140, 140, 150),
+            thumb_dragging: Color32::from_rgb(170, 170, 182),
+            min_thumb_length: 24.0,
+            corner_radius: 4,
         }
     }
 }
