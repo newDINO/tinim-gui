@@ -13,7 +13,7 @@ use tinim_gui::{
     Context, FrameStyle, FullOutput, Pos2, RawInput, Rect, ScrollState, TextureId, Vec2,
 };
 
-use pages::{LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
+use pages::{ImagePage, LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
 use theme::Theme;
 pub(crate) use theme::{COOL_TEXT, WARM_TEXT};
 
@@ -28,6 +28,7 @@ enum DemoPage {
     Pane,
     Scroll,
     Style,
+    Image,
 }
 
 /// Demo state and the UI built from it.
@@ -45,6 +46,7 @@ pub struct Demo {
     pane_page: PanePage,
     scroll_page: ScrollPage,
     style_page: StylePage,
+    image_page: ImagePage,
 
     max_accum_secs: f64,
     last_accum_time: Instant,
@@ -81,6 +83,8 @@ impl Demo {
         let theme = Theme::Default;
         *context.style_mut() = theme.style();
 
+        let image_page = ImagePage::new(&mut context);
+
         let now = Instant::now();
 
         Self {
@@ -95,6 +99,7 @@ impl Demo {
             pane_page: PanePage::new(),
             scroll_page: ScrollPage::new(),
             style_page: StylePage::new(),
+            image_page,
 
             max_accum_secs: 0.5,
             last_accum_time: now,
@@ -155,6 +160,7 @@ impl Demo {
                     ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
                     ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
                     ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
+                    ui.selectable_value(&mut self.page, DemoPage::Image, "Image");
                 });
             });
             match self.page {
@@ -164,6 +170,7 @@ impl Demo {
                 DemoPage::Pane => self.pane_page.draw(ui, theme),
                 DemoPage::Scroll => self.scroll_page.draw(ui, theme),
                 DemoPage::Style => self.style_page.draw(ui),
+                DemoPage::Image => self.image_page.draw(ui, theme),
             }
         });
 

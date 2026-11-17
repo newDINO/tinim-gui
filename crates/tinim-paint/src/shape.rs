@@ -1,6 +1,6 @@
 //! The shapes that make up a frame.
 
-use crate::{Color32, Mesh, Pos2, Rect};
+use crate::{Color32, Mesh, Pos2, Rect, TextureId};
 
 /// A border around a filled shape. Drawn **inside** the shape's outline.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -111,12 +111,51 @@ impl LineShape {
     }
 }
 
+/// A textured rectangle, typically used to draw an image.
+///
+/// `rect` is in logical points like every other painted shape. `uv` is normalized (`0..=1`);
+/// use [`ImageShape::with_uv`] to draw a sub-rectangle of an atlas or to crop an image.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageShape {
+    pub rect: Rect,
+    /// Normalized texture coordinates. The default is the whole texture.
+    pub uv: Rect,
+    pub texture_id: TextureId,
+    /// Multiplied with the sampled texels. Alpha scales the image's opacity.
+    pub tint: Color32,
+}
+
+impl ImageShape {
+    #[inline]
+    pub fn new(rect: Rect, texture_id: TextureId) -> Self {
+        Self {
+            rect,
+            uv: Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            texture_id,
+            tint: Color32::WHITE,
+        }
+    }
+
+    #[inline]
+    pub fn with_uv(mut self, uv: Rect) -> Self {
+        self.uv = uv;
+        self
+    }
+
+    #[inline]
+    pub fn with_tint(mut self, tint: Color32) -> Self {
+        self.tint = tint;
+        self
+    }
+}
+
 /// Anything that can be tessellated into triangles.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Shape {
     Rect(RectShape),
     Circle(CircleShape),
     Line(LineShape),
+    Image(ImageShape),
     /// Custom geometry. Its coordinate space is given by [`Mesh::space`].
     Mesh(Mesh),
 }
@@ -135,6 +174,11 @@ impl Shape {
     #[inline]
     pub fn line(points: Vec<Pos2>, width: f32, color: Color32) -> Self {
         Self::Line(LineShape::new(points, width, color))
+    }
+
+    #[inline]
+    pub fn image(rect: Rect, texture_id: TextureId) -> Self {
+        Self::Image(ImageShape::new(rect, texture_id))
     }
 
     #[inline]

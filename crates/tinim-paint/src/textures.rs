@@ -18,6 +18,76 @@
 
 use crate::TextureId;
 
+/// How a texture is filtered when it is sampled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TextureFilter {
+    Nearest,
+    Linear,
+}
+
+/// How texture coordinates outside `0..=1` are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TextureAddressMode {
+    ClampToEdge,
+    Repeat,
+    MirrorRepeat,
+}
+
+/// Sampling options that belong to one texture.
+///
+/// The defaults match the renderer's historical behavior: linear filtering and clamped edges.
+/// Textures that should tile can use [`TextureAddressMode::Repeat`]. Note that the sampler only
+/// controls how out-of-range *UVs* are sampled; existing geometry helpers clamp UVs to `0..=1`, so
+/// tiling also needs a way to emit UVs outside that range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TextureOptions {
+    pub mag_filter: TextureFilter,
+    pub min_filter: TextureFilter,
+    pub address_mode_u: TextureAddressMode,
+    pub address_mode_v: TextureAddressMode,
+}
+
+impl Default for TextureOptions {
+    fn default() -> Self {
+        Self {
+            mag_filter: TextureFilter::Linear,
+            min_filter: TextureFilter::Linear,
+            address_mode_u: TextureAddressMode::ClampToEdge,
+            address_mode_v: TextureAddressMode::ClampToEdge,
+        }
+    }
+}
+
+/// The allocation parameters for one texture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextureDescriptor {
+    /// Size in pixels.
+    pub size: [u32; 2],
+    pub options: TextureOptions,
+}
+
+impl TextureDescriptor {
+    #[inline]
+    pub fn new(size: [u32; 2]) -> Self {
+        Self {
+            size,
+            options: TextureOptions::default(),
+        }
+    }
+
+    #[inline]
+    pub fn with_options(mut self, options: TextureOptions) -> Self {
+        self.options = options;
+        self
+    }
+}
+
+impl From<[u32; 2]> for TextureDescriptor {
+    fn from(size: [u32; 2]) -> Self {
+        Self::new(size)
+    }
+}
+
 /// A full or partial RGBA8 texture update.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImageDelta {
@@ -60,11 +130,11 @@ impl ImageDelta {
 /// All texture changes of one frame, as produced by tessellation.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TexturesDelta {
-    /// Textures to allocate before applying [`TexturesDelta::set`], with their size in pixels.
+    /// Textures to allocate before applying [`TexturesDelta::set`].
     ///
     /// New textures are zero-initialized. A partial update can therefore be uploaded without
     /// first sending a full-size image. Creating an id that already exists replaces it.
-    pub create: Vec<(TextureId, [u32; 2])>,
+    pub create: Vec<(TextureId, TextureDescriptor)>,
     pub set: Vec<(TextureId, ImageDelta)>,
     pub free: Vec<TextureId>,
 }
@@ -80,5 +150,57 @@ impl TexturesDelta {
         self.create.clear();
         self.set.clear();
         self.free.clear();
+    }
+
+    /// Merge another frame's changes into this one.
+    ///
+    /// `create` entries from both deltas are applied before any `set` entry, so concatenating
+    /// independent producers (for example a glyph atlas and user image uploads) is safe as long
+    /// as they use disjoint texture ids.
+    #[inline]
+    pub fn append(&mut self, mut other: TexturesDelta) {
+        self.create.append(&mut other.create);
+        self.set.append(&mut other.set);
+        self.free.append(&mut other.free);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_concatenates_each_list() {
+        let mut a = TexturesDelta {
+            create: vec![(TextureId(1), TextureDescriptor::new([1, 1]))],
+            set: vec![(TextureId(1), ImageDelta::full([1, 1], vec![1, 2, 3, 4]))],
+            free: vec![TextureId(2)],
+        };
+        let b = TexturesDelta {
+            create: vec![(TextureId(3), TextureDescriptor::new([2, 2]))],
+            set: vec![(TextureId(3), ImageDelta::full([2, 2], vec![0; 16]))],
+            free: vec![TextureId(4)],
+        };
+
+        a.append(b);
+
+        assert_eq!(
+            a.create,
+            vec![
+                (TextureId(1), TextureDescriptor::new([1, 1])),
+                (TextureId(3), TextureDescriptor::new([2, 2])),
+            ]
+        );
+        assert_eq!(a.set.len(), 2);
+        assert_eq!(a.free, vec![TextureId(2), TextureId(4)]);
+    }
+
+    #[test]
+    fn texture_options_default_to_linear_clamped() {
+        let options = TextureOptions::default();
+        assert_eq!(options.mag_filter, TextureFilter::Linear);
+        assert_eq!(options.min_filter, TextureFilter::Linear);
+        assert_eq!(options.address_mode_u, TextureAddressMode::ClampToEdge);
+        assert_eq!(options.address_mode_v, TextureAddressMode::ClampToEdge);
     }
 }

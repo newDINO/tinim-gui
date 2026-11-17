@@ -3,7 +3,10 @@
 //! Skipped silently when no wgpu adapter is available (e.g. a machine without a GPU and without a
 //! software Vulkan driver).
 
-use tinim_paint::{Color32, ImageDelta, Mesh, Painter, Rect, TextureId, TexturesDelta, pos2, vec2};
+use tinim_paint::{
+    Color32, ImageDelta, Mesh, Painter, Rect, TextureDescriptor, TextureFilter, TextureId,
+    TextureOptions, TexturesDelta, pos2, vec2,
+};
 use tinim_wgpu::wgpu;
 use tinim_wgpu::{Renderer, ScreenDescriptor};
 
@@ -121,7 +124,7 @@ fn samples_textures_in_encoded_space() {
     let list = painter.finish();
 
     let textures = TexturesDelta {
-        create: vec![(texture_id, [1, 1])],
+        create: vec![(texture_id, TextureDescriptor::new([1, 1]))],
         set: vec![(
             texture_id,
             ImageDelta::partial([0, 0], [1, 1], vec![128, 128, 128, 255]),
@@ -164,6 +167,100 @@ fn samples_textures_in_encoded_space() {
     // The texture is Rgba8Unorm, so the sampler returns the stored 128 unchanged and the target
     // stores it unchanged. Decoding it as sRGB would produce roughly 55 instead.
     assert_pixel(&rgba, 4, 8, [128, 128, 128]);
+}
+
+#[test]
+fn each_texture_uses_its_own_sampler() {
+    let Some((device, queue)) = setup() else {
+        eprintln!("skipping: no wgpu adapter available");
+        return;
+    };
+
+    let rgba = render_two_texel_image(&device, &queue, TextureFilter::Nearest);
+    // A 2×1 red/blue texture stretched over the target. With nearest filtering, u < 0.5 stays
+    // red and u > 0.5 stays blue. Linear filtering would blend the two colors.
+    assert_pixel(&rgba, 13, 8, [255, 0, 0]);
+    assert_pixel(&rgba, 19, 8, [0, 0, 255]);
+}
+
+fn render_two_texel_image(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    filter: TextureFilter,
+) -> Vec<u8> {
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sampler test target"),
+        size: wgpu::Extent3d {
+            width: WIDTH,
+            height: HEIGHT,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let texture_id = TextureId(1);
+    let mut painter = Painter::new(WIDTH as f32, HEIGHT as f32, 1.0);
+    painter.image(
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(WIDTH as f32, HEIGHT as f32)),
+        texture_id,
+        Color32::WHITE,
+    );
+    let list = painter.finish();
+
+    let textures = TexturesDelta {
+        create: vec![(
+            texture_id,
+            TextureDescriptor::new([2, 1]).with_options(TextureOptions {
+                mag_filter: filter,
+                min_filter: filter,
+                ..Default::default()
+            }),
+        )],
+        set: vec![(
+            texture_id,
+            ImageDelta::full([2, 1], vec![255, 0, 0, 255, 0, 0, 255, 255]),
+        )],
+        ..Default::default()
+    };
+
+    let mut renderer = Renderer::new(device, queue, FORMAT);
+    renderer.update_textures(device, queue, &textures);
+
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(CLEAR),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        renderer.render(
+            device,
+            queue,
+            &mut pass,
+            ScreenDescriptor::new(WIDTH, HEIGHT),
+            list,
+        );
+    }
+
+    read_back(device, queue, encoder, &target)
 }
 
 fn setup() -> Option<(wgpu::Device, wgpu::Queue)> {

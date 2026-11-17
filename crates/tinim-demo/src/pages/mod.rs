@@ -1,5 +1,6 @@
 //! Demo pages.
 
+mod image;
 mod layout;
 mod pane;
 mod placed;
@@ -9,6 +10,7 @@ mod widgets;
 
 use tinim_gui::{ScrollBars, ScrollState, Ui};
 
+pub(crate) use image::ImagePage;
 pub(crate) use layout::LayoutPage;
 pub(crate) use pane::PanePage;
 pub(crate) use placed::PlacedPage;

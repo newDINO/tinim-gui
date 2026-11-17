@@ -8,7 +8,9 @@
 //! format for everything. Non-color data (masks, normals, lookup tables) and premultiplied-alpha
 //! images need a different format or a preprocessing step.
 
-use tinim_paint::ImageDelta;
+use tinim_paint::{
+    ImageDelta, TextureAddressMode, TextureDescriptor, TextureFilter, TextureOptions,
+};
 
 /// Texture format shared by the white texel and every user texture.
 ///
@@ -24,10 +26,10 @@ impl TextureEntry {
     pub(crate) fn new(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        sampler: &wgpu::Sampler,
-        size: [u32; 2],
+        descriptor: TextureDescriptor,
         label: &str,
     ) -> Self {
+        let size = descriptor.size;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d {
@@ -43,6 +45,10 @@ impl TextureEntry {
             view_formats: &[],
         });
 
+        // Each texture owns its sampler so images can choose filtering and address modes
+        // independently (for example nearest-neighbor pixel art, or repeat for tiling).
+        let sampler = device.create_sampler(&sampler_descriptor(descriptor.options));
+
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(label),
@@ -54,7 +60,7 @@ impl TextureEntry {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });
@@ -98,5 +104,33 @@ impl TextureEntry {
                 depth_or_array_layers: 1,
             },
         );
+    }
+}
+
+fn sampler_descriptor(options: TextureOptions) -> wgpu::SamplerDescriptor<'static> {
+    wgpu::SamplerDescriptor {
+        label: Some("tinim texture sampler"),
+        address_mode_u: address_mode(options.address_mode_u),
+        address_mode_v: address_mode(options.address_mode_v),
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: filter_mode(options.mag_filter),
+        min_filter: filter_mode(options.min_filter),
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    }
+}
+
+fn address_mode(mode: TextureAddressMode) -> wgpu::AddressMode {
+    match mode {
+        TextureAddressMode::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+        TextureAddressMode::Repeat => wgpu::AddressMode::Repeat,
+        TextureAddressMode::MirrorRepeat => wgpu::AddressMode::MirrorRepeat,
+    }
+}
+
+fn filter_mode(filter: TextureFilter) -> wgpu::FilterMode {
+    match filter {
+        TextureFilter::Nearest => wgpu::FilterMode::Nearest,
+        TextureFilter::Linear => wgpu::FilterMode::Linear,
     }
 }

@@ -9,12 +9,14 @@ use super::layout::{allocate_space, available_size, pointer_over};
 use crate::input::RawInput;
 
 mod button;
+mod image;
 mod number_input;
 mod separator;
 mod slider;
 mod text_edit;
 mod toggle;
 
+pub use image::{ImageFit, ImageOptions};
 pub use number_input::{NumberInputResponse, NumberInputState};
 pub use text_edit::{TextEditResponse, TextEditState};
 

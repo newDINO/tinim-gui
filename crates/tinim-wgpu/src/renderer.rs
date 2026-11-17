@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use tinim_paint::{PaintList, Rect, TextureId, TexturesDelta, Vertex};
+use tinim_paint::{PaintList, Rect, TextureDescriptor, TextureId, TexturesDelta, Vertex};
 
 use crate::hash::HashMap;
 use crate::texture::TextureEntry;
@@ -75,7 +75,6 @@ pub struct Renderer {
     globals_buffer: wgpu::Buffer,
     globals_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
     textures: HashMap<TextureId, TextureEntry>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -206,24 +205,12 @@ impl Renderer {
             }],
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("tinim sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-
         let mut textures = HashMap::default();
         // A single opaque white texel: every untextured shape samples it through `WHITE_UV`.
         let white = TextureEntry::new(
             device,
             &texture_layout,
-            &sampler,
-            [1, 1],
+            TextureDescriptor::new([1, 1]),
             "tinim white texel",
         );
         white.upload(
@@ -237,7 +224,6 @@ impl Renderer {
             globals_buffer,
             globals_bind_group,
             texture_layout,
-            sampler,
             textures,
             vertex_buffer: create_buffer(device, INITIAL_VERTEX_BYTES, wgpu::BufferUsages::VERTEX),
             index_buffer: create_buffer(device, INITIAL_INDEX_BYTES, wgpu::BufferUsages::INDEX),
@@ -248,26 +234,27 @@ impl Renderer {
     ///
     /// `create` entries allocate zero-initialized textures (replacing any existing texture with
     /// the same id), then `set` entries are applied in order. [`TextureId::WHITE`] is never
-    /// replaced by a delta.
+    /// replaced by a delta. Each texture gets the sampler described by its
+    /// [`TextureDescriptor::options`].
     pub fn update_textures(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         delta: &TexturesDelta,
     ) {
-        for (id, size) in &delta.create {
-            let entry = TextureEntry::new(
-                device,
-                &self.texture_layout,
-                &self.sampler,
-                [size[0].max(1), size[1].max(1)],
-                "tinim texture",
-            );
+        let mut created_ids = Vec::with_capacity(delta.create.len());
+        for (id, descriptor) in &delta.create {
+            let entry =
+                TextureEntry::new(device, &self.texture_layout, *descriptor, "tinim texture");
             self.textures.insert(*id, entry);
+            created_ids.push(*id);
         }
 
         for (id, image) in &delta.set {
-            let needs_new_texture = image.pos.is_none() || !self.textures.contains_key(id);
+            // A full image set normally creates the texture when it does not exist. If the same
+            // delta just created it, keep that texture so its size and sampler options survive.
+            let needs_new_texture = !self.textures.contains_key(id)
+                || (image.pos.is_none() && !created_ids.contains(id));
             if needs_new_texture {
                 let size = match image.pos {
                     Some([x, y]) => [x + image.size[0], y + image.size[1]],
@@ -276,8 +263,7 @@ impl Renderer {
                 let entry = TextureEntry::new(
                     device,
                     &self.texture_layout,
-                    &self.sampler,
-                    size,
+                    TextureDescriptor::new(size),
                     "tinim texture",
                 );
                 self.textures.insert(*id, entry);

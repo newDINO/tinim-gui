@@ -1,6 +1,6 @@
 //! A shelf-packed RGBA8 atlas that uploads glyphs as individual texture patches.
 
-use tinim_paint::{ImageDelta, Rect, TextureId, TexturesDelta, pos2};
+use tinim_paint::{ImageDelta, Rect, TextureDescriptor, TextureId, TexturesDelta, pos2};
 use tinim_text::{FontId, RasterizedGlyph};
 
 use crate::hash::HashMap;
@@ -227,7 +227,9 @@ impl Atlas {
         self.requested = false;
         if create {
             self.uploaded_size = Some(size);
-            delta.create.push((self.texture_id, size));
+            delta
+                .create
+                .push((self.texture_id, TextureDescriptor::new(size)));
             // New textures are zero-initialized, so the reserved white texel has to be uploaded
             // whenever the texture is created or replaced after growth.
             delta.set.push((
@@ -302,7 +304,10 @@ mod tests {
 
         atlas.ensure_texture();
         let delta = atlas.take_textures();
-        assert_eq!(delta.create, vec![(TextureId(1), [8, 8])]);
+        assert_eq!(
+            delta.create,
+            vec![(TextureId(1), TextureDescriptor::new([8, 8]))]
+        );
         assert_eq!(delta.set.len(), 1);
         assert_eq!(delta.set[0].0, TextureId(1));
         assert!(is_white(&delta.set[0].1));
@@ -318,7 +323,10 @@ mod tests {
         atlas.alloc(key(1), glyph(4, 4)).unwrap();
 
         let delta = atlas.take_textures();
-        assert_eq!(delta.create, vec![(TextureId(1), [8, 8])]);
+        assert_eq!(
+            delta.create,
+            vec![(TextureId(1), TextureDescriptor::new([8, 8]))]
+        );
         assert_eq!(delta.set.len(), 2);
         assert!(is_white(&delta.set[0].1));
         assert!(!is_white(&delta.set[1].1));
@@ -336,7 +344,10 @@ mod tests {
         assert!(slot.uv.min.y * 16.0 >= 2.0, "white stays at the top-left");
 
         let delta = atlas.take_textures();
-        assert_eq!(delta.create, vec![(TextureId(1), [16, 16])]);
+        assert_eq!(
+            delta.create,
+            vec![(TextureId(1), TextureDescriptor::new([16, 16]))]
+        );
         assert!(delta.set.iter().any(|(_, image)| is_white(image)));
     }
 
@@ -357,7 +368,10 @@ mod tests {
         let mut atlas = Atlas::new(TextureId(1), 1, 1, 1);
         atlas.ensure_texture();
         let delta = atlas.take_textures();
-        assert_eq!(delta.create, vec![(TextureId(1), [2, 2])]);
+        assert_eq!(
+            delta.create,
+            vec![(TextureId(1), TextureDescriptor::new([2, 2]))]
+        );
         assert!(is_white(&delta.set[0].1));
     }
 }

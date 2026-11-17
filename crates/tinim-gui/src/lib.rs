@@ -45,10 +45,12 @@ mod input;
 mod platform;
 mod style;
 mod text_cache;
+mod texture;
 mod ui;
 
 pub use tinim_paint::{
-    Color32, PaintList, Pos2, Rect, Stroke, TextureId, TexturesDelta, Vec2, pos2, vec2,
+    Color32, PaintList, Pos2, Rect, Stroke, TextureAddressMode, TextureDescriptor, TextureFilter,
+    TextureId, TextureOptions, TexturesDelta, Vec2, pos2, vec2,
 };
 pub use tinim_paint_text;
 pub use tinim_text;
@@ -61,8 +63,9 @@ pub use style::{
     ButtonStyle, CheckboxStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle, ScrollBarStyle,
     SeparatorStyle, SliderStyle, Style, TextEditStyle,
 };
+pub use texture::{ImageData, TextureHandle};
 pub use ui::{
-    Align, FlowConfig, FrameResponse, NumberInputResponse, NumberInputState, PaneResponse,
-    Response, ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState, TextEditResponse,
-    TextEditState, Ui,
+    Align, FlowConfig, FrameResponse, ImageFit, ImageOptions, NumberInputResponse,
+    NumberInputState, PaneResponse, Response, ScrollBarAxis, ScrollBars, ScrollResponse,
+    ScrollState, TextEditResponse, TextEditState, Ui,
 };

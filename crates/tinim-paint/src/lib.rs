@@ -16,8 +16,9 @@
 //! Steps:
 //! 1. Create a [`Painter`] with the canvas size and `pixels_per_point`. It tracks the current clip
 //!    rectangle, clamps it to the canvas and tessellates geometry immediately.
-//! 2. Add shapes with [`Painter::rect`], [`Painter::circle`], [`Painter::line`] or
-//!    [`Painter::add`]. Geometry is appended to one shared vertex/index arena.
+//! 2. Add shapes with [`Painter::rect`], [`Painter::circle`], [`Painter::line`],
+//!    [`Painter::image`] or [`Painter::add`]. Geometry is appended to one shared vertex/index
+//!    arena.
 //! 3. Call [`Painter::finish`] to flush the last run and get a [`PaintList`]. Each
 //!    [`DrawCommand`] covers a contiguous index range with one clip rectangle and texture.
 //! 4. Hand the list to a renderer (`tinim-wgpu`) together with [`TexturesDelta`].
@@ -35,7 +36,9 @@
 //!   Untextured geometry samples [`Vertex::WHITE_UV`], which is `(0, 0)`.
 //! * Textures listed in `TexturesDelta::create` are allocated and zero-initialized. Creating an id
 //!   that already exists replaces the texture and discards every previous texel. Apply `create`
-//!   before `set`, and apply `set` entries in order.
+//!   before `set`, and apply `set` entries in order. Each create entry carries a
+//!   [`TextureDescriptor`] with its size and per-texture [`TextureOptions`] (filtering and address
+//!   modes).
 //! * An [`ImageDelta`] with `pos = Some(..)` is a partial update and is only valid after the
 //!   texture has been created, either earlier or by the same delta.
 //! * Textures not mentioned by the delta keep their contents; ids in `TexturesDelta::free` are
@@ -59,5 +62,7 @@ pub use color::Color32;
 pub use math::{Pos2, Rangef, Rect, Vec2, pos2, vec2};
 pub use mesh::{DrawCommand, Mesh, MeshMismatch, MeshSpace, PaintList, TextureId, Vertex};
 pub use painter::{Painter, RectPaintSlot};
-pub use shape::{CircleShape, LineShape, RectShape, Shape, Stroke};
-pub use textures::{ImageDelta, TexturesDelta};
+pub use shape::{CircleShape, ImageShape, LineShape, RectShape, Shape, Stroke};
+pub use textures::{
+    ImageDelta, TextureAddressMode, TextureDescriptor, TextureFilter, TextureOptions, TexturesDelta,
+};

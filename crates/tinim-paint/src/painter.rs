@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::tessellate::{add_circle, add_line, add_rect};
 use crate::{
-    CircleShape, Color32, DrawCommand, Mesh, MeshSpace, PaintList, Pos2, Rect, RectShape, Shape,
-    TextureId, Vec2, Vertex,
+    CircleShape, Color32, DrawCommand, ImageShape, Mesh, MeshSpace, PaintList, Pos2, Rect,
+    RectShape, Shape, TextureId, Vec2, Vertex,
 };
 
 /// Builds a frame's geometry while tracking the current clip rectangle.
@@ -188,6 +188,7 @@ impl Painter {
                     self.pixels_per_point,
                 );
             }
+            Shape::Image(shape) => self.add_image(shape),
             Shape::Mesh(mesh) => self.add_mesh(mesh),
         }
     }
@@ -228,6 +229,42 @@ impl Painter {
         let texture = self.solid_texture;
         self.use_texture(texture);
         add_line(&mut self.list, points, width, color, self.pixels_per_point);
+    }
+
+    /// Draw a texture over the whole of `rect`.
+    ///
+    /// `rect` is in logical points. `tint` is multiplied with the sampled texels; use
+    /// [`Color32::WHITE`] for the unmodified image and a lower alpha to fade it.
+    pub fn image(&mut self, rect: Rect, texture_id: TextureId, tint: Color32) {
+        self.image_uv(
+            rect,
+            texture_id,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            tint,
+        );
+    }
+
+    /// Draw a sub-rectangle of a texture over `rect`.
+    ///
+    /// `uv` is normalized to `0..=1` and is clamped by the mesh builder. Both `rect` and `uv`
+    /// must be positive for anything to be emitted.
+    pub fn image_uv(&mut self, rect: Rect, texture_id: TextureId, uv: Rect, tint: Color32) {
+        self.add_image(ImageShape {
+            rect,
+            uv,
+            texture_id,
+            tint,
+        });
+    }
+
+    fn add_image(&mut self, shape: ImageShape) {
+        if !self.clip_rect.is_positive() || !shape.rect.is_positive() || !shape.uv.is_positive() {
+            return;
+        }
+
+        let mut mesh = Mesh::with_texture(shape.texture_id);
+        mesh.add_rect_with_uv(shape.rect, shape.uv, shape.tint);
+        self.add_mesh(mesh);
     }
 
     /// Append custom geometry using the current clip.
@@ -558,6 +595,91 @@ mod tests {
         assert_eq!(list.draws.len(), 2);
         assert_eq!(list.draws[0].texture_id, TextureId::WHITE);
         assert_eq!(list.draws[1].texture_id, TextureId(7));
+    }
+
+    #[test]
+    fn image_emits_one_textured_draw() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(30.0, 40.0));
+
+        painter.image(rect, texture, Color32::WHITE);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(list.draws[0].texture_id, texture);
+        assert_eq!(list.vertices.len(), 4);
+        assert_eq!(list.indices.len(), 6);
+        assert_eq!(list.vertices[0].pos, [10.0, 20.0]);
+        assert_eq!(list.vertices[2].pos, [40.0, 60.0]);
+        assert_eq!(list.vertices[0].uv, [0, 0]);
+        assert_eq!(list.vertices[2].uv, [65535, 65535]);
+        assert_eq!(list.vertices[0].color, Color32::WHITE.to_array());
+    }
+
+    #[test]
+    fn image_uv_and_tint_are_applied() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0));
+        let uv = Rect::from_min_max(pos2(0.25, 0.5), pos2(0.75, 1.0));
+        let tint = Color32::from_rgba_unmultiplied(255, 128, 0, 128);
+
+        painter.image_uv(rect, texture, uv, tint);
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.vertices[0].uv, [16384, 32768]);
+        assert_eq!(list.vertices[2].uv, [49151, 65535]);
+        assert_eq!(list.vertices[0].color, tint.to_array());
+    }
+
+    #[test]
+    fn images_with_the_same_texture_share_a_draw() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        for x in [0.0, 20.0] {
+            painter.image(
+                Rect::from_min_size(pos2(x, 0.0), vec2(10.0, 10.0)),
+                texture,
+                Color32::WHITE,
+            );
+        }
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(list.vertices.len(), 8);
+        assert_eq!(list.indices.len(), 12);
+    }
+
+    #[test]
+    fn image_texture_changes_start_new_draws() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        for texture in [TextureId(1), TextureId(2)] {
+            painter.image(
+                Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+                texture,
+                Color32::WHITE,
+            );
+        }
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 2);
+        assert_eq!(list.draws[0].texture_id, TextureId(1));
+        assert_eq!(list.draws[1].texture_id, TextureId(2));
+    }
+
+    #[test]
+    fn image_shape_works_through_painter_add() {
+        let mut painter = Painter::new(100.0, 100.0, 1.0);
+        let texture = TextureId(7);
+        painter.add(Shape::image(
+            Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+            texture,
+        ));
+
+        let list = check_draws(&mut painter);
+        assert_eq!(list.draws.len(), 1);
+        assert_eq!(list.draws[0].texture_id, texture);
     }
 
     #[test]

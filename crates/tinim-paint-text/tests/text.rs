@@ -4,7 +4,9 @@
 use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1};
 use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
-use tinim_paint::{Color32, ImageDelta, MeshSpace, Rect, TextureId, TexturesDelta, pos2, vec2};
+use tinim_paint::{
+    Color32, ImageDelta, MeshSpace, Rect, TextureDescriptor, TextureId, TexturesDelta, pos2, vec2,
+};
 use tinim_paint_text::TextSystem;
 use tinim_text::TextStyle;
 
@@ -72,7 +74,7 @@ fn atlas_grows_instead_of_resetting() {
 
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
-    let [width, height] = textures.create[0].1;
+    let [width, height] = textures.create[0].1.size;
     assert!(width > 64, "the atlas should grow beyond its initial size");
     assert_eq!(width, height);
     assert!(
@@ -94,7 +96,10 @@ fn growth_recreates_an_existing_texture() {
     let small = system.layout("a", &style(16.0), None);
     system.prepare(&small, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
-    assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
+    assert_eq!(
+        textures.create,
+        vec![(TextureId(1), TextureDescriptor::new([64, 64]))]
+    );
     assert_eq!(textures.set.len(), 2);
     assert!(is_white_texel(&textures.set[0].1));
 
@@ -104,7 +109,7 @@ fn growth_recreates_an_existing_texture() {
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
     assert!(
-        textures.create[0].1[0] > 64,
+        textures.create[0].1.size[0] > 64,
         "the renderer is told to replace the texture"
     );
     assert!(textures.set.len() > 1);
@@ -119,7 +124,10 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     let first = system.layout("a", &style(16.0), None);
     system.prepare(&first, pos2(0.0, 0.0), Color32::BLACK, 1.0);
     let textures = system.take_textures();
-    assert_eq!(textures.create, vec![(TextureId(1), [64, 64])]);
+    assert_eq!(
+        textures.create,
+        vec![(TextureId(1), TextureDescriptor::new([64, 64]))]
+    );
     assert_eq!(textures.set.len(), 2);
     assert!(is_white_texel(&textures.set[0].1));
 
@@ -151,7 +159,7 @@ fn growth_is_deferred_when_a_mesh_already_exists() {
     assert_eq!(full.vertices.len(), glyph_count * 4);
     let textures = system.take_textures();
     assert_eq!(textures.create.len(), 1);
-    assert!(textures.create[0].1[0] > 64);
+    assert!(textures.create[0].1.size[0] > 64);
 }
 
 #[test]
@@ -292,7 +300,10 @@ fn ensure_atlas_texture_allocates_without_glyphs() {
     system.ensure_atlas_texture();
 
     let textures = system.take_textures();
-    assert_eq!(textures.create, vec![(TextureId(1), [512, 512])]);
+    assert_eq!(
+        textures.create,
+        vec![(TextureId(1), TextureDescriptor::new([512, 512]))]
+    );
     assert_eq!(textures.set.len(), 1);
     assert_eq!(textures.set[0].0, TextureId(1));
     assert!(is_white_texel(&textures.set[0].1));

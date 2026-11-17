@@ -1,12 +1,16 @@
 //! The per-application GUI context and the output of one frame.
 
-use tinim_paint::{PaintList, Painter, TextureId, TexturesDelta, Vec2};
+use tinim_paint::{
+    ImageDelta, PaintList, Painter, TextureDescriptor, TextureId, TextureOptions, TexturesDelta,
+    Vec2,
+};
 use tinim_paint_text::TextSystem;
 
 use crate::input::RawInput;
 use crate::platform::PlatformOutput;
 use crate::style::Style;
 use crate::text_cache::TextCache;
+use crate::texture::{ImageData, TextureHandle};
 use crate::ui::Ui;
 
 /// Owns the text system, painter and text cache.
@@ -22,13 +26,16 @@ pub struct Context {
     size: Vec2,
     pub(crate) pixels_per_point: f32,
     pub(crate) platform: PlatformOutput,
+    /// Textures allocated by [`Context::load_texture`] that have not been emitted yet.
+    pending_textures: TexturesDelta,
+    next_texture_id: u32,
 }
 
 /// Everything produced by one frame.
 pub struct FullOutput<'a> {
     /// Tessellated geometry in physical pixels.
     pub paint: &'a PaintList,
-    /// Glyph atlas uploads produced while building the frame.
+    /// Glyph atlas and image texture uploads produced by the frame.
     pub textures: TexturesDelta,
     /// Non-rendering requests for the platform or application.
     ///
@@ -58,6 +65,10 @@ impl Context {
             size: Vec2::ZERO,
             pixels_per_point: 1.0,
             platform: PlatformOutput::default(),
+            pending_textures: TexturesDelta::default(),
+            // Start above the atlas id so handles created by this context do not collide with it
+            // or with the renderer's reserved white texture. The allocator skips both anyway.
+            next_texture_id: texture_id.0.wrapping_add(1).max(1),
         }
     }
 
@@ -71,6 +82,57 @@ impl Context {
 
     pub fn text_system_mut(&mut self) -> &mut TextSystem {
         &mut self.text_system
+    }
+
+    /// Uploads an image and returns a handle that can be drawn with
+    /// [`Ui::image`](crate::Ui::image).
+    ///
+    /// The texture is allocated in the next frame's [`FullOutput::textures`], so uploading can
+    /// happen before the first frame or between frames. The default sampler uses linear
+    /// filtering and clamps to the texture edge; use [`Context::load_texture_with`] for nearest
+    /// filtering or repeat addressing.
+    ///
+    /// Call [`Context::free_texture`] when the image is no longer used.
+    pub fn load_texture(&mut self, image: ImageData) -> TextureHandle {
+        self.load_texture_with(image, TextureOptions::default())
+    }
+
+    /// Uploads an image with explicit sampler options.
+    pub fn load_texture_with(
+        &mut self,
+        image: ImageData,
+        options: TextureOptions,
+    ) -> TextureHandle {
+        let id = self.allocate_texture_id();
+        let size = image.size;
+        self.pending_textures
+            .create
+            .push((id, TextureDescriptor::new(size).with_options(options)));
+        self.pending_textures
+            .set
+            .push((id, ImageDelta::full(size, image.rgba)));
+        TextureHandle::new(id, size)
+    }
+
+    /// Releases a texture at the start of the next frame.
+    ///
+    /// Draw commands that still reference the handle during the frame in which it is freed are a
+    /// contract violation; renderers may treat the texture as missing.
+    pub fn free_texture(&mut self, handle: TextureHandle) {
+        debug_assert_ne!(handle.id(), TextureId::WHITE);
+        debug_assert_ne!(handle.id(), self.text_system.atlas_texture_id());
+        self.pending_textures.free.push(handle.id());
+    }
+
+    fn allocate_texture_id(&mut self) -> TextureId {
+        let atlas_id = self.text_system.atlas_texture_id();
+        loop {
+            let id = TextureId(self.next_texture_id);
+            self.next_texture_id = self.next_texture_id.wrapping_add(1);
+            if id != TextureId::WHITE && id != atlas_id {
+                return id;
+            }
+        }
     }
 
     pub fn style(&self) -> &Style {
@@ -117,7 +179,8 @@ impl Context {
         }
 
         let paint = self.painter.finish();
-        let textures = self.text_system.take_textures();
+        let mut textures = self.text_system.take_textures();
+        textures.append(std::mem::take(&mut self.pending_textures));
         let platform = std::mem::take(&mut self.platform);
         FullOutput {
             paint,
@@ -168,6 +231,7 @@ fn sanitize_scale(scale: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tinim_paint::{TextureAddressMode, TextureFilter};
 
     #[test]
     fn first_frame_allocates_the_atlas_even_without_text() {
@@ -175,7 +239,10 @@ mod tests {
         let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
 
         assert!(frame.paint.draws.is_empty());
-        assert_eq!(frame.textures.create, vec![(TextureId(1), [512, 512])]);
+        assert_eq!(
+            frame.textures.create,
+            vec![(TextureId(1), TextureDescriptor::new([512, 512]))]
+        );
         assert_eq!(frame.textures.set.len(), 1);
         assert_eq!(frame.textures.set[0].1.pos, Some([0, 0]));
         assert_eq!(frame.textures.set[0].1.size, [1, 1]);
@@ -198,5 +265,85 @@ mod tests {
         });
         assert_eq!(frame.paint.draws.len(), 1, "rect and text share the atlas");
         assert_eq!(frame.paint.draws[0].texture_id, TextureId(1));
+    }
+
+    #[test]
+    fn load_texture_allocates_an_id_and_uploads_through_the_frame() {
+        let mut context = Context::new(TextureId(1));
+        let handle = context.load_texture(ImageData::new([2, 2], vec![9; 16]));
+        assert_ne!(handle.id(), TextureId::WHITE);
+        assert_ne!(handle.id(), TextureId(1));
+        assert_eq!(handle.pixel_size(), [2, 2]);
+        assert_eq!(handle.size(), Vec2::new(2.0, 2.0));
+
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |ui| {
+            ui.image(&handle);
+        });
+
+        assert_eq!(
+            frame.textures.create,
+            vec![
+                (TextureId(1), TextureDescriptor::new([512, 512])),
+                (handle.id(), TextureDescriptor::new([2, 2])),
+            ]
+        );
+        assert_eq!(frame.paint.draws.len(), 1);
+        assert_eq!(frame.paint.draws[0].texture_id, handle.id());
+        assert!(
+            frame
+                .textures
+                .set
+                .iter()
+                .any(|(id, delta)| *id == handle.id() && delta.pos.is_none())
+        );
+    }
+
+    #[test]
+    fn load_texture_with_carries_sampler_options() {
+        let mut context = Context::new(TextureId(1));
+        let options = TextureOptions {
+            mag_filter: TextureFilter::Nearest,
+            min_filter: TextureFilter::Nearest,
+            address_mode_u: TextureAddressMode::Repeat,
+            address_mode_v: TextureAddressMode::ClampToEdge,
+        };
+        let handle = context.load_texture_with(ImageData::new([1, 1], vec![1, 2, 3, 4]), options);
+
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
+
+        let (_, descriptor) = frame
+            .textures
+            .create
+            .iter()
+            .find(|(id, _)| *id == handle.id())
+            .unwrap();
+        assert_eq!(descriptor.options, options);
+    }
+
+    #[test]
+    fn free_texture_is_emitted_with_the_next_frame() {
+        let mut context = Context::new(TextureId(1));
+        let handle = context.load_texture(ImageData::new([1, 1], vec![1, 2, 3, 4]));
+
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
+        assert!(frame.textures.free.is_empty());
+        drop(frame);
+
+        context.free_texture(handle);
+        let frame = context.run(Vec2::new(100.0, 100.0), 1.0, RawInput::default(), |_| {});
+        assert_eq!(frame.textures.free, vec![handle.id()]);
+    }
+
+    #[test]
+    fn texture_ids_skip_the_atlas_and_white() {
+        let mut context = Context::new(TextureId(2));
+        let a = context.load_texture(ImageData::new([1, 1], vec![0; 4]));
+        let b = context.load_texture(ImageData::new([1, 1], vec![0; 4]));
+
+        assert_ne!(a.id(), TextureId::WHITE);
+        assert_ne!(a.id(), TextureId(2));
+        assert_ne!(b.id(), TextureId::WHITE);
+        assert_ne!(b.id(), TextureId(2));
+        assert_ne!(a.id(), b.id());
     }
 }
