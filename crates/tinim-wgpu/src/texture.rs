@@ -1,19 +1,19 @@
 //! Texture storage for the renderer.
 //!
-//! Textures are `Rgba8UnormSrgb`: RGB is sRGB color with straight alpha, and the sampler converts
-//! it to linear space for the shader. Alpha is linear coverage (for example glyph coverage) and is
-//! not affected by the sRGB conversion. Untextured geometry samples the renderer's 1×1 opaque
-//! white texture, so there is a single texture format for everything.
+//! Uploads are straight-alpha sRGB pixels. Textures are `Rgba8Unorm`, not `Rgba8UnormSrgb`, so the
+//! sampler returns the stored values unchanged and the renderer blends them in encoded (gamma)
+//! space. This matches a browser's UI compositor; see the crate-level renderer docs.
 //!
-//! Uploads must therefore contain straight-alpha sRGB pixels. Non-color data (masks, normals,
-//! lookup tables) and premultiplied-alpha images need a different format or a preprocessing step.
+//! Untextured geometry samples the renderer's 1×1 opaque white texture, so there is one texture
+//! format for everything. Non-color data (masks, normals, lookup tables) and premultiplied-alpha
+//! images need a different format or a preprocessing step.
 
 use tinim_paint::ImageDelta;
 
-/// Shader-visible texture format, shared by the white texel and user textures.
+/// Texture format shared by the white texel and every user texture.
 ///
-/// The sampler decodes RGB from sRGB to linear; upload sRGB-encoded, straight-alpha pixels.
-pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// RGB stays encoded; upload sRGB-encoded, straight-alpha pixels.
+pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,

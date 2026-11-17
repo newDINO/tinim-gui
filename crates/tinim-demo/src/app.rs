@@ -38,6 +38,8 @@ pub struct AppInner {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    /// The view format used for rendering. It is non-sRGB even when the surface itself is sRGB.
+    render_format: wgpu::TextureFormat,
 
     demo: Demo,
     platform: WinitPlatform,
@@ -206,32 +208,31 @@ impl AppInner {
             .await
             .map_err(|error| format!("failed to create the GPU device: {error}"))?;
 
-        let surface_config = {
-            let surface_caps = surface.get_capabilities(&adapter);
-            let surface_format = surface_caps
-                .formats
-                .iter()
-                .find(|f| f.is_srgb())
-                .copied()
-                .unwrap_or(surface_caps.formats[0]);
-            wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: surface_format,
-                width: size.width,
-                height: size.height,
-                present_mode: wgpu::PresentMode::AutoVsync,
-                alpha_mode: wgpu::CompositeAlphaMode::Auto,
-                view_formats: vec![surface_format.add_srgb_suffix()],
-                desired_maximum_frame_latency: 2,
-                color_space: wgpu::SurfaceColorSpace::Srgb,
-            }
+        let surface_caps = surface.get_capabilities(&adapter);
+        let (surface_format, render_format) =
+            tinim_wgpu::gamma_surface_formats(&surface_caps.formats)
+                .ok_or_else(|| "the surface exposes no texture formats".to_string())?;
+        let view_formats = if render_format == surface_format {
+            Vec::new()
+        } else {
+            vec![render_format]
         };
-        let surface_format = surface_config.view_formats[0];
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats,
+            desired_maximum_frame_latency: 2,
+            color_space: wgpu::SurfaceColorSpace::Srgb,
+        };
         surface.configure(&device, &surface_config);
 
         let demo = Demo::new();
         let platform = WinitPlatform::new(&window);
-        let renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
+        let renderer = tinim_wgpu::Renderer::new(&device, &queue, render_format);
 
         Ok(Self {
             window,
@@ -239,6 +240,7 @@ impl AppInner {
             queue,
             surface,
             surface_config,
+            render_format,
             demo,
             platform,
             renderer,
@@ -281,7 +283,7 @@ impl AppInner {
             _ => return,
         };
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(self.surface_config.format.add_srgb_suffix()),
+            format: Some(self.render_format),
             ..Default::default()
         });
 

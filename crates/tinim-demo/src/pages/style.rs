@@ -1,6 +1,9 @@
 //! Scoped and persistent style showcase.
 
-use tinim_gui::{Color32, ScrollState, Ui, tinim_text::FontFamilies};
+use tinim_gui::{
+    Color32, ScrollState, Ui,
+    tinim_text::{FontFamilies, FontWeight},
+};
 
 use super::{FRAME_STYLE1, page};
 use crate::{COOL_TEXT, DEFAULT_TEXT, WARM_TEXT};
@@ -20,8 +23,9 @@ impl StylePage {
                 "Verdana",
                 "Helvetica",
                 "Arial",
-                "Dejavu Sans",
                 "Noto Sans",
+                "DejaVu Sans",
+                "Adwaita Sans",
             ]),
         }
     }
@@ -96,9 +100,16 @@ impl StylePage {
             ui.with_style(
                 |style| {
                     style.font.font_families = self.font_families.clone();
+                    style.font.font_size = 36.0;
+                    style.font.font_weight = FontWeight::BOLD;
                 },
                 |ui| {
                     ui.label("This label may be rendered with sans-serif like fonts on native.");
+                    ui.label("CLANNAD");
+                    ui.with_style(
+                        |style| style.text_color = Color32::BLACK,
+                        |ui| ui.label("CLANNAD"),
+                    );
                 },
             );
         });

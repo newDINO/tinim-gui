@@ -15,7 +15,8 @@ use crate::font::FontFace;
 ///
 /// For coverage glyphs the RGB channels are opaque white and alpha is the coverage. For color
 /// glyphs the RGB channels are *straight sRGB* color and alpha is the coverage. A paint backend
-/// that samples the pixels through an sRGB texture gets linear RGB automatically.
+/// that samples the pixels through an `Rgba8Unorm` texture gets those encoded values unchanged,
+/// which is what the gamma-space renderer expects.
 pub struct RasterizedGlyph {
     /// Width in physical pixels.
     pub width: u32,
@@ -204,7 +205,7 @@ fn rasterize_bitmap(
     if width > 4096 || height > 4096 {
         return None;
     }
-    // Keep the bitmap in sRGB space: the renderer's sRGB texture format decodes it on sample.
+    // Keep the bitmap in sRGB space: the renderer's non-sRGB texture samples it unchanged.
     let pixels = scale_rgba(&source, source_width, source_height, width, height);
 
     // The outer bearings (`bearing_x`/`bearing_y`) are in font units; the inner bearings are in
@@ -487,11 +488,11 @@ fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
 
     let mut canvas = vec![[0.0f32; 4]; width as usize * height as usize];
     for (raster, color) in &layers {
-        // Palette colors are sRGB with straight alpha: only RGB goes through the transfer curve.
+        // Composite layers in encoded sRGB space, like the renderer and a browser's UI compositor.
         let color = [
-            srgb_to_linear(color[0]),
-            srgb_to_linear(color[1]),
-            srgb_to_linear(color[2]),
+            color[0] as f32 / 255.0,
+            color[1] as f32 / 255.0,
+            color[2] as f32 / 255.0,
             color[3] as f32 / 255.0,
         ];
         let layer_alpha = color[3];
@@ -530,8 +531,9 @@ fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
         let offset = index * 4;
         if alpha > 0.0 {
             for channel in 0..3 {
-                // Layers are composited in linear space above, but the output stores sRGB.
-                pixels[offset + channel] = linear_to_srgb_u8(premultiplied[channel] / alpha);
+                pixels[offset + channel] = ((premultiplied[channel] / alpha) * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
             }
         }
         pixels[offset + 3] = (alpha * 255.0).round() as u8;
@@ -588,39 +590,9 @@ impl ColorPainter for ColrV0Painter<'_> {
     fn push_layer(&mut self, _composite_mode: CompositeMode) {}
 }
 
-fn srgb_to_linear(channel: u8) -> f32 {
-    let value = channel as f32 / 255.0;
-    if value <= 0.04045 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn linear_to_srgb_u8(channel: f32) -> u8 {
-    let value = channel.clamp(0.0, 1.0);
-    let encoded = if value <= 0.003_130_8 {
-        12.92 * value
-    } else {
-        1.055 * value.powf(1.0 / 2.4) - 0.055
-    };
-    (encoded * 255.0).round() as u8
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn srgb_round_trips_through_linear() {
-        for channel in [0u8, 1, 16, 64, 128, 192, 254, 255] {
-            let round_trip = linear_to_srgb_u8(srgb_to_linear(channel));
-            assert!(
-                (round_trip as i32 - channel as i32).abs() <= 1,
-                "{channel} became {round_trip}"
-            );
-        }
-    }
 
     #[test]
     fn scaling_keeps_a_single_color() {

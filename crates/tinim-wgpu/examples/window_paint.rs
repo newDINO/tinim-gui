@@ -17,6 +17,7 @@ struct AppInner {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+    render_format: wgpu::TextureFormat,
 
     painter: tinim_paint::Painter,
     d2_renderer: tinim_wgpu::Renderer,
@@ -46,12 +47,14 @@ impl AppInner {
             .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
+        let (surface_format, render_format) =
+            tinim_wgpu::gamma_surface_formats(&surface_caps.formats)
+                .expect("the surface exposes no texture formats");
+        let view_formats = if render_format == surface_format {
+            vec![]
+        } else {
+            vec![render_format]
+        };
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -59,14 +62,14 @@ impl AppInner {
             height: size.height,
             present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
+            view_formats,
             desired_maximum_frame_latency: 2,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+            color_space: wgpu::SurfaceColorSpace::Srgb,
         };
         surface.configure(&device, &surface_config);
 
         let mut painter = tinim_paint::Painter::new(size.width as f32, size.height as f32, 1.0);
-        let d2_renderer = tinim_wgpu::Renderer::new(&device, &queue, surface_format);
+        let d2_renderer = tinim_wgpu::Renderer::new(&device, &queue, render_format);
         let mut text_system = tinim_paint_text::TextSystem::new(tinim_paint::TextureId(1));
         text_system.load_system_fonts();
         text_system.ensure_atlas_texture();
@@ -78,6 +81,7 @@ impl AppInner {
             queue,
             surface,
             surface_config,
+            render_format,
 
             painter,
             d2_renderer,
@@ -100,9 +104,10 @@ impl AppInner {
             wgpu::CurrentSurfaceTexture::Suboptimal(surface_texture) => surface_texture,
             _ => return,
         };
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.render_format),
+            ..Default::default()
+        });
 
         {
             self.painter.clear();

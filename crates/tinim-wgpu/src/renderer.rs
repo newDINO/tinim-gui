@@ -10,6 +10,30 @@ use crate::texture::TextureEntry;
 const INITIAL_VERTEX_BYTES: u64 = 16 * 1024;
 const INITIAL_INDEX_BYTES: u64 = 8 * 1024;
 
+/// Picks a surface format and a render view format for gamma-space blending.
+///
+/// Prefers a non-sRGB surface format. If the surface only advertises sRGB formats, the second
+/// value is the non-sRGB view format of the first surface format. In that case configure the
+/// surface with `view_formats: vec![render_format]` and create the render view with
+/// `format: Some(render_format)`.
+///
+/// Returns `None` only when `formats` is empty.
+pub fn gamma_surface_formats(
+    formats: &[wgpu::TextureFormat],
+) -> Option<(wgpu::TextureFormat, wgpu::TextureFormat)> {
+    let surface_format = formats
+        .iter()
+        .copied()
+        .find(|format| !format.is_srgb())
+        .or_else(|| formats.first().copied())?;
+    let render_format = if surface_format.is_srgb() {
+        surface_format.remove_srgb_suffix()
+    } else {
+        surface_format
+    };
+    Some((surface_format, render_format))
+}
+
 /// The render target size, in physical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScreenDescriptor {
@@ -36,8 +60,16 @@ impl ScreenDescriptor {
 /// Missing textures fall back to [`TextureId::WHITE`] (and assert in debug builds) rather than
 /// dropping the draw.
 ///
-/// `target_format` should be an sRGB format (`*Srgb`) so that the linear-space blending done by
-/// the shader is converted correctly on write.
+/// All blending happens in encoded (gamma) space, like a browser's UI compositor. Vertex colors and
+/// textures keep their sRGB encoding and the target stores the blended encoded values. This keeps
+/// anti-aliased text at the weight people expect: dark text on a light background does not become
+/// thinner, and light text on a dark background does not become thicker.
+///
+/// `target_format` must therefore be a **non-sRGB** format (`Rgba8Unorm`, `Bgra8Unorm`, ...). An
+/// sRGB target would decode the destination, blend in linear light, and re-encode on write, which
+/// changes the result and double-encodes the shader output. If a surface only offers sRGB formats,
+/// create a non-sRGB view of it with [`wgpu::TextureFormat::remove_srgb_suffix`] and pass that
+/// format here.
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
@@ -60,6 +92,15 @@ impl Renderer {
             label: Some("tinim shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
+
+        // Blending in encoded space requires a target that the hardware does not decode/encode.
+        // An sRGB target would silently reintroduce linear-light blending and double-encode the
+        // fragment output, so catch that in debug builds.
+        debug_assert!(
+            !target_format.is_srgb(),
+            "tinim-wgpu blends in gamma space and needs a non-sRGB target; \
+             got {target_format:?}. Use remove_srgb_suffix() on sRGB-only surfaces."
+        );
 
         let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tinim globals layout"),
@@ -368,6 +409,26 @@ fn clamp_scissor(clip: Rect, target: [u32; 2]) -> Option<[u32; 4]> {
 mod tests {
     use super::*;
     use tinim_paint::{pos2, vec2};
+
+    #[test]
+    fn gamma_surface_formats_avoid_an_srgb_render_target() {
+        use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba8Unorm, Rgba8UnormSrgb};
+
+        assert_eq!(
+            gamma_surface_formats(&[Bgra8UnormSrgb, Bgra8Unorm]),
+            Some((Bgra8Unorm, Bgra8Unorm))
+        );
+        // An sRGB-only surface renders through its non-sRGB view.
+        assert_eq!(
+            gamma_surface_formats(&[Rgba8UnormSrgb]),
+            Some((Rgba8UnormSrgb, Rgba8Unorm))
+        );
+        assert_eq!(
+            gamma_surface_formats(&[Bgra8Unorm]),
+            Some((Bgra8Unorm, Bgra8Unorm))
+        );
+        assert_eq!(gamma_surface_formats(&[]), None);
+    }
 
     #[test]
     fn scissor_rounds_outward() {

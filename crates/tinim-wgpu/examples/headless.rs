@@ -12,7 +12,7 @@ use tinim_wgpu::{Renderer, ScreenDescriptor};
 
 const WIDTH: u32 = 480;
 const HEIGHT: u32 = 240;
-const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 const BACKGROUND: Color32 = Color32::from_rgb(26, 27, 32);
 const BUTTON_FILL: Color32 = Color32::from_rgb(58, 62, 74);

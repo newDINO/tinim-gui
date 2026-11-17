@@ -2,8 +2,8 @@
 
 /// A color in sRGB space with straight alpha.
 ///
-/// This is the format widgets and shapes are authored in. Conversion to linear space happens in
-/// the shader, right before blending, so that alpha compositing is physically correct.
+/// This is the format widgets and shapes are authored in. Blending happens on these encoded
+/// values, matching a browser's UI compositor; no linear-space conversion is applied.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Color32(pub [u8; 4]);
 

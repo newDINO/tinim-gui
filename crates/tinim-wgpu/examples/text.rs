@@ -23,7 +23,7 @@ use tinim_wgpu::{Renderer, ScreenDescriptor};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 800;
-const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// Size and top edge of the atlas debug preview, in points.
 const ATLAS_PREVIEW: f32 = 384.0;

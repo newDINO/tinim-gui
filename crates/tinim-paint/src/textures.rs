@@ -1,8 +1,9 @@
 //! Texture uploads for the renderer (images and glyph coverage).
 //!
-//! Pixel data is straight-alpha sRGB: RGB is sRGB color and alpha is linear coverage. The renderer
-//! uploads it into an sRGB texture, so the sampler converts RGB to linear space. Non-color data
-//! (masks, normals, lookup tables) does not belong in this format.
+//! Pixel data is straight-alpha sRGB: RGB is sRGB-encoded color and alpha is coverage. The renderer
+//! uploads it into an `Rgba8Unorm` texture, so the sampler returns the encoded values unchanged and
+//! blending happens in encoded (gamma) space. Non-color data (masks, normals, lookup tables) does
+//! not belong in this format.
 //!
 //! ## Backend contract
 //!

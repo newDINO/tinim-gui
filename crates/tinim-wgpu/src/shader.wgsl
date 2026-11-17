@@ -6,9 +6,9 @@ struct Globals {
 
 @group(0) @binding(0) var<uniform> globals: Globals;
 
-// The bound texture supplies color and coverage. It is an sRGB texture, so the sampler has already
-// converted its RGB to linear space; alpha stays linear. Untextured geometry samples the renderer's
-// opaque white texel (TextureId::WHITE).
+// The bound texture supplies color and coverage. It is a non-sRGB (`Rgba8Unorm`) texture, so the
+// sampler returns the stored sRGB-encoded values unchanged. Alpha is coverage. Untextured geometry
+// samples the renderer's opaque white texel (TextureId::WHITE).
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var tex_sampler: sampler;
 
@@ -37,17 +37,16 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
-    let low = c / 12.92;
-    let high = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-    return select(high, low, c <= vec3<f32>(0.04045));
-}
-
+// Blend in encoded (gamma) space, like a browser's UI compositor. Vertex colors and texels keep
+// their sRGB encoding, so the fixed-function blender composites the same values that are displayed.
+// Doing this in linear light instead makes anti-aliased dark text on a light background look
+// thinner, and light text on a dark background look thicker. The render target must therefore be a
+// non-sRGB format; an sRGB target would decode/encode around the blend and change the result.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(tex, tex_sampler, in.uv);
     let alpha = in.color.a * texel.a;
-    // Premultiplied alpha: color is already multiplied by alpha.
-    let rgb = srgb_to_linear(in.color.rgb) * texel.rgb * alpha;
+    // Premultiplied alpha in encoded space.
+    let rgb = in.color.rgb * texel.rgb * alpha;
     return vec4<f32>(rgb, alpha);
 }
