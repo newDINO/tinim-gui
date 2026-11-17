@@ -2,7 +2,8 @@
 
 use tinim_gui::{ScrollState, Ui, vec2};
 
-use super::{FRAME_STYLE1, FRAME_STYLE2, page};
+use super::page;
+use crate::Theme;
 
 pub(crate) struct ScrollPage {
     scroll: ScrollState,
@@ -17,14 +18,14 @@ impl ScrollPage {
         }
     }
 
-    pub(crate) fn draw(&mut self, ui: &mut Ui) {
-        page(ui, &mut self.scroll, |ui| {
+    pub(crate) fn draw(&mut self, ui: &mut Ui, theme: Theme) {
+        page(ui, &mut self.scroll, theme, |ui| {
             ui.label(
                 "scrollable() clips content, scrolls nested areas from the inside out, \
                  and clamps the caller-owned scroll position.",
             );
 
-            let (scroll, _) = ui.frame(FRAME_STYLE1, |ui| {
+            let (scroll, _) = ui.frame(theme.page_frame(), |ui| {
                 let (_, scroll) = tinim_gui::scrollable!(ui, vec2(300.0, 150.0), |ui| {
                     ui.label(
                         "Wheel or drag over this area to scroll; the inner area scrolls independently.",
@@ -34,7 +35,7 @@ impl ScrollPage {
                             self.action = Some(format!("pressed \"Scroll item {index}\""));
                         }
                     }
-                    ui.frame(FRAME_STYLE2, |ui| {
+                    ui.frame(theme.panel_frame(), |ui| {
                         tinim_gui::scrollable!(ui, vec2(200.0, 100.0), |ui| {
                             for _ in 0..10 {
                                 ui.label("inner scrollable");

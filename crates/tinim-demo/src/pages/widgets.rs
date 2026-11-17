@@ -5,6 +5,7 @@ use std::ops::{Deref, DerefMut};
 use tinim_gui::{Align, FlowConfig, NumberInputState, ScrollState, TextEditState, Ui, vec2};
 
 use super::page;
+use crate::Theme;
 
 pub(crate) struct WidgetsPage {
     scroll: ScrollState,
@@ -64,8 +65,8 @@ impl WidgetsPage {
         }
     }
 
-    pub(crate) fn draw(&mut self, ui: &mut Ui) {
-        page(ui, &mut self.scroll, |ui| {
+    pub(crate) fn draw(&mut self, ui: &mut Ui, theme: Theme) {
+        page(ui, &mut self.scroll, theme, |ui| {
             let mut ui = UiC {
                 sized_horizontal_height: 19.0,
                 ui,

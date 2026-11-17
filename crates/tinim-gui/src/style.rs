@@ -1,7 +1,7 @@
 //! Small default style shared by the built-in widgets.
 
 use tinim_paint::{Color32, Rect, Stroke, Vec2, vec2};
-use tinim_text::TextStyle;
+use tinim_text::{FontFamilies, TextStyle};
 
 /// Insets for the four sides of a rectangle, in logical points.
 ///
@@ -153,6 +153,124 @@ impl Default for Style {
             scroll_bar: ScrollBarStyle::default(),
         }
     }
+}
+
+impl Style {
+    /// A plain, browser-like style.
+    ///
+    /// Uses light colors, square corners and a platform-specific sans-serif font stack. Widgets
+    /// look like default HTML controls rather than the dark toolbar style returned by
+    /// [`Style::default`].
+    pub fn plain() -> Self {
+        Self {
+            font: TextStyle {
+                font_families: plain_font_families(),
+                ..TextStyle::default()
+            },
+            text_color: Color32::BLACK,
+            spacing: 8.0,
+            separator: SeparatorStyle {
+                color: Color32::from_rgb(200, 200, 200),
+                thickness: 1.0,
+            },
+            button: ButtonStyle {
+                normal: Color32::from_rgb(235, 235, 235),
+                hovered: Color32::from_rgb(224, 224, 224),
+                pressed: Color32::from_rgb(208, 208, 208),
+                selected: Color32::from_rgb(200, 220, 245),
+                text: Color32::BLACK,
+                corner_radius: 0,
+                min_size: vec2(64.0, 28.0),
+                padding: vec2(12.0, 6.0),
+            },
+            checkbox: CheckboxStyle {
+                normal: Color32::WHITE,
+                hovered: Color32::from_rgb(245, 245, 245),
+                pressed: Color32::from_rgb(224, 224, 224),
+                checked: Color32::from_rgb(0, 117, 255),
+                border: Color32::from_rgb(118, 118, 118),
+                check: Color32::WHITE,
+                corner_radius: 0,
+                size: vec2(20.0, 20.0),
+                border_width: 1.0,
+                check_width: 2.0,
+            },
+            radio: RadioStyle {
+                normal: Color32::WHITE,
+                hovered: Color32::from_rgb(245, 245, 245),
+                pressed: Color32::from_rgb(224, 224, 224),
+                selected: Color32::from_rgb(0, 117, 255),
+                border: Color32::from_rgb(118, 118, 118),
+                dot: Color32::WHITE,
+                radius: 10.0,
+                border_width: 1.0,
+                dot_radius: 4.0,
+            },
+            slider: SliderStyle {
+                track: Color32::from_rgb(210, 210, 210),
+                filled: Color32::from_rgb(0, 117, 255),
+                handle: Color32::from_rgb(0, 117, 255),
+                handle_hovered: Color32::from_rgb(40, 140, 255),
+                handle_active: Color32::from_rgb(0, 95, 210),
+                track_height: 4.0,
+                handle_radius: 8.0,
+                min_size: vec2(180.0, 24.0),
+            },
+            number_input: NumberInputStyle::default(),
+            text_edit: TextEditStyle {
+                normal: Color32::WHITE,
+                hovered: Color32::WHITE,
+                focused: Color32::WHITE,
+                border: Color32::from_rgb(118, 118, 118),
+                border_width: 1.0,
+                corner_radius: 0,
+                padding: vec2(8.0, 4.0),
+                text: Color32::BLACK,
+                selection: Color32::from_rgb(180, 210, 255),
+                cursor: Color32::BLACK,
+                cursor_width: 1.5,
+                min_size: vec2(240.0, 28.0),
+                multiline_min_size: vec2(240.0, 96.0),
+            },
+            scroll_bar: ScrollBarStyle {
+                thickness: 10.0,
+                margin: 2.0,
+                track: Color32::from_rgb(241, 241, 241),
+                thumb: Color32::from_rgb(193, 193, 193),
+                thumb_hovered: Color32::from_rgb(170, 170, 170),
+                thumb_dragging: Color32::from_rgb(140, 140, 140),
+                min_thumb_length: 24.0,
+                corner_radius: 0,
+            },
+        }
+    }
+}
+
+/// A concrete sans-serif family stack for the current platform.
+///
+/// `tinim-text` does not interpret generic CSS families such as `sans-serif`, so the stack lists
+/// concrete names. Families that are not loaded are skipped by the font matcher.
+fn plain_font_families() -> FontFamilies {
+    let families: &[&str] = if cfg!(target_os = "windows") {
+        &["Segoe UI", "Tahoma", "Arial"]
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+        &["Helvetica Neue", "Helvetica", "Arial"]
+    } else if cfg!(target_os = "android") {
+        &["Roboto", "Noto Sans", "Droid Sans"]
+    } else if cfg!(target_arch = "wasm32") {
+        // The demo does not load system fonts in browsers, but these names still resolve on
+        // platforms that do.
+        &["Arial", "Helvetica", "Noto Sans", "DejaVu Sans"]
+    } else {
+        &[
+            "Noto Sans",
+            "DejaVu Sans",
+            "Liberation Sans",
+            "Arial",
+            "Helvetica",
+        ]
+    };
+    FontFamilies::new(families)
 }
 
 /// Appearance of the scrollbars shown by [`Ui::scrollable_with_bars`](crate::Ui::scrollable_with_bars).
@@ -448,5 +566,21 @@ mod tests {
         assert_eq!(Edges::all(3.0), Edges::symmetric(3.0, 3.0));
         assert_eq!(Edges::horizontal(2.0), Edges::symmetric(2.0, 0.0));
         assert_eq!(Edges::vertical(2.0), Edges::symmetric(0.0, 2.0));
+    }
+
+    #[test]
+    fn plain_style_has_no_rounded_corners() {
+        let style = Style::plain();
+        assert_eq!(style.button.corner_radius, 0);
+        assert_eq!(style.checkbox.corner_radius, 0);
+        assert_eq!(style.text_edit.corner_radius, 0);
+        assert_eq!(style.scroll_bar.corner_radius, 0);
+    }
+
+    #[test]
+    fn plain_style_is_light_and_uses_a_sans_serif_font_stack() {
+        let style = Style::plain();
+        assert_eq!(style.text_color, Color32::BLACK);
+        assert!(!style.font.font_families.is_empty());
     }
 }

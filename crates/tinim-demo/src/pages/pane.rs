@@ -2,7 +2,8 @@
 
 use tinim_gui::{ScrollState, Ui, Vec2, vec2};
 
-use super::{FRAME_STYLE1, page};
+use super::page;
+use crate::Theme;
 
 pub(crate) struct PanePage {
     scroll: ScrollState,
@@ -19,8 +20,8 @@ impl PanePage {
         }
     }
 
-    pub(crate) fn draw(&mut self, ui: &mut Ui) {
-        page(ui, &mut self.scroll, |ui| {
+    pub(crate) fn draw(&mut self, ui: &mut Ui, theme: Theme) {
+        page(ui, &mut self.scroll, theme, |ui| {
             ui.label("pane() clips content to a fixed viewport; offset moves it.");
             ui.horizontal(|ui| {
                 if ui.button("x -20").pressed {
@@ -44,7 +45,7 @@ impl PanePage {
                 self.pane_offset.x, self.pane_offset.y
             ));
 
-            let (pane, _) = ui.frame(FRAME_STYLE1, |ui| {
+            let (pane, _) = ui.frame(theme.page_frame(), |ui| {
                 let (_, pane) = ui.pane(vec2(300.0, 150.0), self.pane_offset, |ui| {
                     ui.label("This content is clipped to a 300 x 150 viewport.");
                     for index in 0..12 {

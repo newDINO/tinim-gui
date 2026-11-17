@@ -2,7 +2,8 @@
 
 use tinim_gui::{Align, FlowConfig, ScrollState, Ui, vec2};
 
-use super::{FRAME_STYLE1, page};
+use super::page;
+use crate::Theme;
 
 pub(crate) struct LayoutPage {
     scroll: ScrollState,
@@ -17,8 +18,8 @@ impl LayoutPage {
         }
     }
 
-    pub(crate) fn draw(&mut self, ui: &mut Ui) {
-        page(ui, &mut self.scroll, |ui| {
+    pub(crate) fn draw(&mut self, ui: &mut Ui, theme: Theme) {
+        page(ui, &mut self.scroll, theme, |ui| {
             ui.label(
                 "flow() is content-sized and sets direction + cross-axis alignment; \
                  sized_flow() gives a reverse flow a fixed box.",
@@ -39,7 +40,7 @@ impl LayoutPage {
             });
 
             ui.horizontal(|ui| {
-                ui.frame(FRAME_STYLE1, |ui| {
+                ui.frame(theme.page_frame(), |ui| {
                     ui.sized_flow(
                         vec2(220.0, 130.0),
                         FlowConfig::vertical().align(self.align),
@@ -50,7 +51,7 @@ impl LayoutPage {
                         },
                     );
                 });
-                ui.frame(FRAME_STYLE1, |ui| {
+                ui.frame(theme.page_frame(), |ui| {
                     ui.sized_flow(vec2(220.0, 130.0), FlowConfig::bottom_to_top(), |ui| {
                         ui.label("bottom_to_top");
                         ui.button("first");
@@ -59,7 +60,7 @@ impl LayoutPage {
                 });
             });
 
-            ui.frame(FRAME_STYLE1, |ui| {
+            ui.frame(theme.page_frame(), |ui| {
                 ui.sized_flow(vec2(460.0, 70.0), FlowConfig::right_to_left(), |ui| {
                     ui.button("right");
                     ui.button("middle");

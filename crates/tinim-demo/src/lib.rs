@@ -2,22 +2,23 @@
 
 mod app;
 mod pages;
+mod theme;
 
 pub use app::{App, AppInner};
 pub use tinim_winit::winit;
 
 use web_time::{Duration, Instant};
 
-use tinim_gui::{Color32, Context, FullOutput, RawInput, ScrollState, TextureId, Vec2};
+use tinim_gui::{
+    Context, FrameStyle, FullOutput, Pos2, RawInput, Rect, ScrollState, TextureId, Vec2,
+};
 
 use pages::{LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
+use theme::Theme;
+pub(crate) use theme::{COOL_TEXT, WARM_TEXT};
 
 /// Comic Mono is the demo's primary and fallback font on every platform.
 const FONT: &[u8] = include_bytes!("../assets/ComicMono.ttf");
-
-const DEFAULT_TEXT: Color32 = Color32::from_rgb(230, 230, 230);
-const WARM_TEXT: Color32 = Color32::from_rgb(255, 196, 120);
-const COOL_TEXT: Color32 = Color32::from_rgb(180, 210, 255);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DemoPage {
@@ -32,6 +33,7 @@ enum DemoPage {
 /// Demo state and the UI built from it.
 pub struct Demo {
     context: Context,
+    theme: Theme,
 
     page: DemoPage,
     /// Horizontal scroll position of the page selector.
@@ -76,13 +78,14 @@ impl Demo {
             let added = context.text_system_mut().load_system_fonts();
             log::info!("loaded {added} system font faces for fallback");
         }
-        context.style_mut().text_color = DEFAULT_TEXT;
-        context.style_mut().text_edit.text = DEFAULT_TEXT;
+        let theme = Theme::Default;
+        *context.style_mut() = theme.style();
 
         let now = Instant::now();
 
         Self {
             context,
+            theme,
             page: DemoPage::Widgets,
             page_bar: ScrollState::new(),
 
@@ -113,6 +116,14 @@ impl Demo {
     ) -> FullOutput<'_> {
         let start_time = web_time::Instant::now();
 
+        // The style page owns the theme selection. Apply it once when it changes so that
+        // `style_mut()` changes made elsewhere in the demo are not overwritten every frame.
+        let theme = self.style_page.theme();
+        if theme != self.theme {
+            self.theme = theme;
+            *self.context.style_mut() = theme.style();
+        }
+
         // The selector is a single row of buttons. Measure its natural height so the viewport
         // does not clip the buttons, and let it scroll horizontally when the window is narrow.
         let style = self.context.style();
@@ -121,6 +132,14 @@ impl Demo {
             .max(style.button.min_size.y);
 
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
+            ui.paint_frame(
+                Rect::from_min_size(Pos2::ZERO, viewport),
+                FrameStyle {
+                    background: theme.background(),
+                    ..FrameStyle::default()
+                },
+            );
+
             ui.label("tinim-gui demo");
             let ui_time = format!("{:.2} ms", self.average_ui_dt * 1e3);
             let frame_secs = 1.0 / self.average_fps;
@@ -139,11 +158,11 @@ impl Demo {
                 });
             });
             match self.page {
-                DemoPage::Widgets => self.widgets_page.draw(ui),
-                DemoPage::Placed => self.placed_page.draw(ui),
-                DemoPage::Layout => self.layout_page.draw(ui),
-                DemoPage::Pane => self.pane_page.draw(ui),
-                DemoPage::Scroll => self.scroll_page.draw(ui),
+                DemoPage::Widgets => self.widgets_page.draw(ui, theme),
+                DemoPage::Placed => self.placed_page.draw(ui, theme),
+                DemoPage::Layout => self.layout_page.draw(ui, theme),
+                DemoPage::Pane => self.pane_page.draw(ui, theme),
+                DemoPage::Scroll => self.scroll_page.draw(ui, theme),
                 DemoPage::Style => self.style_page.draw(ui),
             }
         });
