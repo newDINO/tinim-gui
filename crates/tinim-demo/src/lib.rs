@@ -8,7 +8,7 @@ pub use tinim_winit::winit;
 
 use web_time::{Duration, Instant};
 
-use tinim_gui::{Color32, Context, FullOutput, RawInput, TextureId, Vec2};
+use tinim_gui::{Color32, Context, FullOutput, RawInput, ScrollState, TextureId, Vec2};
 
 use pages::{LayoutPage, PanePage, PlacedPage, ScrollPage, StylePage, WidgetsPage};
 
@@ -34,6 +34,8 @@ pub struct Demo {
     context: Context,
 
     page: DemoPage,
+    /// Horizontal scroll position of the page selector.
+    page_bar: ScrollState,
 
     widgets_page: WidgetsPage,
     layout_page: LayoutPage,
@@ -82,6 +84,7 @@ impl Demo {
         Self {
             context,
             page: DemoPage::Widgets,
+            page_bar: ScrollState::new(),
 
             widgets_page: WidgetsPage::new(),
             layout_page: LayoutPage::new(),
@@ -110,6 +113,13 @@ impl Demo {
     ) -> FullOutput<'_> {
         let start_time = web_time::Instant::now();
 
+        // The selector is a single row of buttons. Measure its natural height so the viewport
+        // does not clip the buttons, and let it scroll horizontally when the window is narrow.
+        let style = self.context.style();
+        let page_bar_height = (self.context.text_system().line_height(&style.font)
+            + style.button.padding.y * 2.0)
+            .max(style.button.min_size.y);
+
         let frame = self.context.run(viewport, pixels_per_point, input, |ui| {
             ui.label("tinim-gui demo");
             let ui_time = format!("{:.2} ms", self.average_ui_dt * 1e3);
@@ -117,13 +127,16 @@ impl Demo {
             let frame_time = format!("{:.2} ms | FPS: {:.1}", frame_secs * 1e3, self.average_fps);
             ui.label(&format!("UI: {ui_time} | Frame: {frame_time}"));
 
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.page, DemoPage::Widgets, "Widgets");
-                ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
-                ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
-                ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
-                ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
-                ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
+            let page_bar_size = Vec2::new(ui.size().x, page_bar_height);
+            let _ = ui.scrollable(page_bar_size, &mut self.page_bar, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.page, DemoPage::Widgets, "Widgets");
+                    ui.selectable_value(&mut self.page, DemoPage::Placed, "Placed");
+                    ui.selectable_value(&mut self.page, DemoPage::Layout, "Layout");
+                    ui.selectable_value(&mut self.page, DemoPage::Pane, "Pane");
+                    ui.selectable_value(&mut self.page, DemoPage::Scroll, "Scroll");
+                    ui.selectable_value(&mut self.page, DemoPage::Style, "Style");
+                });
             });
             ui.separator();
             match self.page {
