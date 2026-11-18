@@ -3,9 +3,9 @@
 use tinim_paint::{RectShape, Shape, Vec2};
 
 use super::super::Ui;
-use super::super::layout::allocate_space;
+use super::super::layout::{Align2, allocate_space};
 use super::super::response::Response;
-use super::{interaction, is_visible};
+use super::{interaction, is_visible, paint_text_rect};
 use crate::cursor::CursorIcon;
 
 impl Ui<'_> {
@@ -87,14 +87,15 @@ impl Ui<'_> {
                 RectShape::new(rect, fill).with_corner_radius(button.corner_radius),
             ));
 
-            let origin = rect.center() - text_size * 0.5;
-            let mesh = self.ctx.text_system.prepare(
-                layout,
-                origin,
-                button.text,
+            paint_text_rect(
+                &mut self.ctx.text_system,
+                &mut self.ctx.painter,
                 self.ctx.pixels_per_point,
+                layout,
+                rect,
+                Align2::CENTER,
+                button.text,
             );
-            self.ctx.painter.add_mesh(mesh);
         }
 
         Response {

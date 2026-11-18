@@ -65,7 +65,7 @@ pub use style::{
 };
 pub use texture::{ImageData, TextureHandle};
 pub use ui::{
-    Align, FlowConfig, FrameResponse, ImageFit, ImageOptions, NumberInputResponse,
+    Align, Align2, FlowConfig, FrameResponse, ImageFit, ImageOptions, NumberInputResponse,
     NumberInputState, PaneResponse, Response, ScrollBarAxis, ScrollBars, ScrollResponse,
     ScrollState, TextEditResponse, TextEditState, Ui,
 };

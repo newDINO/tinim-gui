@@ -14,7 +14,7 @@ mod test_util;
 pub use containers::{
     FrameResponse, PaneResponse, ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState,
 };
-pub use layout::{Align, FlowConfig};
+pub use layout::{Align, Align2, FlowConfig};
 pub use response::Response;
 pub use widgets::{
     ImageFit, ImageOptions, NumberInputResponse, NumberInputState, TextEditResponse, TextEditState,

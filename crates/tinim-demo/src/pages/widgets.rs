@@ -3,8 +3,8 @@
 use std::ops::{Deref, DerefMut};
 
 use tinim_gui::{
-    Align, Color32, Context, CursorIcon, Edges, FlowConfig, FrameStyle, ImageData, ImageFit,
-    ImageOptions, NumberInputState, Rect, Response, ScrollState, Stroke, TextEditState,
+    Align, Align2, Color32, Context, CursorIcon, Edges, FlowConfig, FrameStyle, ImageData,
+    ImageFit, ImageOptions, NumberInputState, Rect, Response, ScrollState, Stroke, TextEditState,
     TextureHandle, Ui, vec2,
 };
 
@@ -96,6 +96,25 @@ impl WidgetsPage {
                 "icon button: hovered: {} | down: {}",
                 icon.hovered, icon.down
             ));
+
+            ui.label(
+                "text_in(rect, Align2) paints a text block inside an explicit rectangle without advancing the flow:",
+            );
+            let frame = theme.panel_frame();
+            let spacing = ui.style().spacing;
+            let row_width = ui.available_size().x;
+            let box_width = ((row_width - spacing * 2.0) / 3.0).max(0.0);
+            ui.sized_flow(vec2(row_width, 56.0), FlowConfig::horizontal(), |ui| {
+                for (align, text) in [
+                    (Align2::LEFT_TOP, "left/top"),
+                    (Align2::CENTER, "center"),
+                    (Align2::RIGHT_BOTTOM, "right/bottom"),
+                ] {
+                    let rect = ui.allocate_space(vec2(box_width, 56.0));
+                    ui.paint_frame(rect, frame);
+                    ui.text_in(text, frame.content_rect(rect), align, theme.text_color());
+                }
+            });
 
             ui.label("separator() follows the flow direction:");
             ui.separator();

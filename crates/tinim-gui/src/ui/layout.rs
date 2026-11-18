@@ -51,6 +51,90 @@ pub enum Align {
     Stretch,
 }
 
+impl Align {
+    /// Fraction of the free space before the content on this axis.
+    ///
+    /// [`Align::Stretch`] only makes sense for flow layout, so it is treated like
+    /// [`Align::Start`] by two-axis alignment.
+    fn fraction(self) -> f32 {
+        match self {
+            Self::Start | Self::Stretch => 0.0,
+            Self::Center => 0.5,
+            Self::End => 1.0,
+        }
+    }
+}
+
+/// Alignment of a rectangle inside another rectangle on both axes.
+///
+/// This is used where content is painted into an explicitly known rectangle, such as
+/// [`Ui::text_in`](crate::Ui::text_in), rather than placed by a flow. [`Align::Stretch`] has no
+/// meaning here and behaves like [`Align::Start`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Align2 {
+    /// Alignment on the horizontal axis.
+    pub x: Align,
+    /// Alignment on the vertical axis.
+    pub y: Align,
+}
+
+impl Align2 {
+    /// Left and top aligned.
+    pub const LEFT_TOP: Self = Self {
+        x: Align::Start,
+        y: Align::Start,
+    };
+    /// Horizontally centered, top aligned.
+    pub const CENTER_TOP: Self = Self {
+        x: Align::Center,
+        y: Align::Start,
+    };
+    /// Right and top aligned.
+    pub const RIGHT_TOP: Self = Self {
+        x: Align::End,
+        y: Align::Start,
+    };
+    /// Left aligned, vertically centered.
+    pub const LEFT_CENTER: Self = Self {
+        x: Align::Start,
+        y: Align::Center,
+    };
+    /// Centered on both axes.
+    pub const CENTER: Self = Self {
+        x: Align::Center,
+        y: Align::Center,
+    };
+    /// Right aligned, vertically centered.
+    pub const RIGHT_CENTER: Self = Self {
+        x: Align::End,
+        y: Align::Center,
+    };
+    /// Left and bottom aligned.
+    pub const LEFT_BOTTOM: Self = Self {
+        x: Align::Start,
+        y: Align::End,
+    };
+    /// Horizontally centered, bottom aligned.
+    pub const CENTER_BOTTOM: Self = Self {
+        x: Align::Center,
+        y: Align::End,
+    };
+    /// Right and bottom aligned.
+    pub const RIGHT_BOTTOM: Self = Self {
+        x: Align::End,
+        y: Align::End,
+    };
+
+    /// Position of a `size`-sized rectangle aligned inside `rect`.
+    pub fn anchor(self, rect: Rect, size: Vec2) -> Pos2 {
+        rect.min
+            + Vec2::new(
+                (rect.width() - size.x) * self.x.fraction(),
+                (rect.height() - size.y) * self.y.fraction(),
+            )
+    }
+}
+
 /// Direction and cross-axis alignment of a flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlowConfig {
