@@ -26,7 +26,10 @@ use crate::context::Context;
 use crate::cursor::CursorIcon;
 use crate::style::{Edges, Style};
 
-use layout::{Axis, Direction, Layout, allocate_space, available_size, next_pos, sanitize_extent};
+use layout::{
+    Axis, Direction, Layout, allocate_space, available_size, next_pos, pointer_over,
+    sanitize_extent,
+};
 
 /// Builds one frame's widgets.
 ///
@@ -108,6 +111,25 @@ impl<'a> Ui<'a> {
     pub fn allocate_space(&mut self, size: Vec2) -> Rect {
         let spacing = self.spacing();
         allocate_space(&mut self.layout, size, spacing)
+    }
+
+    /// Hit-tests an arbitrary rectangle against the pointer.
+    ///
+    /// `rect` is in absolute logical coordinates, like the rectangles returned by widgets. The
+    /// result is clipped to the current region, so the part of `rect` outside a [`Ui::pane`] does
+    /// not react. This does not allocate space, advance the cursor or paint anything, which makes
+    /// it useful for containers and custom widgets whose rectangle is already known.
+    ///
+    /// This only reports the pointer state. Interactable regions that want a cursor can call
+    /// [`Ui::set_cursor_icon`] while this response is hovered.
+    pub fn interact(&self, rect: Rect) -> Response {
+        let hovered = pointer_over(self.clip, &self.ctx.input, rect);
+        Response {
+            rect,
+            hovered,
+            pressed: hovered && self.ctx.input.primary_pressed,
+            down: hovered && self.ctx.input.primary_down,
+        }
     }
 
     /// Requests the mouse cursor icon used while the pointer is over a widget.
@@ -288,7 +310,7 @@ macro_rules! scrollable {
 mod tests {
     use super::*;
     use crate::ui::test_util::context;
-    use crate::{Color32, RawInput, vec2};
+    use crate::{Color32, RawInput, pos2, vec2};
 
     #[test]
     fn with_style_restores_the_previous_style() {
@@ -409,6 +431,64 @@ mod tests {
 
         assert_eq!(second.min.y, first.max.y + 3.0);
         assert_eq!(context.style().spacing, 3.0);
+    }
+
+    #[test]
+    fn interact_reports_pointer_state_for_an_arbitrary_rect() {
+        let mut context = context();
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(40.0, 20.0));
+        let outside = Rect::from_min_size(pos2(100.0, 100.0), vec2(10.0, 10.0));
+        let mut inside_response = None;
+        let mut outside_response = None;
+
+        let input = RawInput {
+            pointer: Some(pos2(15.0, 15.0)),
+            primary_down: true,
+            primary_pressed: true,
+            ..Default::default()
+        };
+        let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+            inside_response = Some(ui.interact(rect));
+            outside_response = Some(ui.interact(outside));
+        });
+
+        let inside = inside_response.unwrap();
+        assert_eq!(inside.rect, rect);
+        assert!(inside.hovered);
+        assert!(inside.pressed);
+        assert!(inside.down);
+
+        let outside = outside_response.unwrap();
+        assert_eq!(
+            outside.rect,
+            Rect::from_min_size(pos2(100.0, 100.0), vec2(10.0, 10.0))
+        );
+        assert!(!outside.hovered);
+        assert!(!outside.pressed);
+        assert!(!outside.down);
+    }
+
+    #[test]
+    fn interact_is_clipped_to_the_current_region() {
+        let mut context = context();
+        let rect = Rect::from_min_size(pos2(0.0, 40.0), vec2(20.0, 20.0));
+        let mut hovered_at = |pointer| {
+            let mut hovered = None;
+            let input = RawInput {
+                pointer: Some(pointer),
+                ..Default::default()
+            };
+            let _ = context.run(vec2(200.0, 200.0), 1.0, input, |ui| {
+                ui.pane(vec2(100.0, 50.0), Vec2::ZERO, |ui| {
+                    hovered = Some(ui.interact(rect).hovered);
+                });
+            });
+            hovered.unwrap()
+        };
+
+        assert!(hovered_at(pos2(10.0, 45.0)));
+        // The pointer is over `rect`, but the pane's clip ends at y=50.
+        assert!(!hovered_at(pos2(10.0, 55.0)));
     }
 
     #[test]

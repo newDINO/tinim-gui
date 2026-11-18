@@ -83,6 +83,7 @@ impl Demo {
         let theme = Theme::Default;
         *context.style_mut() = theme.style();
 
+        let widgets_page = WidgetsPage::new(&mut context);
         let image_page = ImagePage::new(&mut context);
 
         let now = Instant::now();
@@ -93,7 +94,7 @@ impl Demo {
             page: DemoPage::Widgets,
             page_bar: ScrollState::new(),
 
-            widgets_page: WidgetsPage::new(),
+            widgets_page,
             layout_page: LayoutPage::new(),
             placed_page: PlacedPage::new(),
             pane_page: PanePage::new(),
