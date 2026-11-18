@@ -20,7 +20,7 @@ pub use widgets::{
     ImageFit, ImageOptions, NumberInputResponse, NumberInputState, TextEditResponse, TextEditState,
 };
 
-use tinim_paint::{Pos2, Rect, Vec2, vec2};
+use tinim_paint::{Pos2, Rect, Shape, Vec2, vec2};
 
 use crate::context::Context;
 use crate::cursor::CursorIcon;
@@ -63,6 +63,11 @@ impl<'a> Ui<'a> {
             clip: rect,
             scroll_remaining,
         }
+    }
+
+    /// Paint a shape with absolute coordinate.
+    pub fn paint_shape(&mut self, shape: Shape) {
+        self.ctx.painter.add(shape);
     }
 
     /// The style used by subsequently built widgets.
