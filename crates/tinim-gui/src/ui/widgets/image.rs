@@ -11,30 +11,35 @@ use crate::texture::TextureHandle;
 /// How an image is mapped into its allocated rectangle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImageFit {
-    /// Draw at the image's natural size, centered in the allocated rectangle.
+    /// Draw at the source region's natural size, centered in the allocated rectangle.
     ///
-    /// If the allocated rectangle is smaller than the image, the image is scaled down to fit
+    /// If the allocated rectangle is smaller than the source, the source is scaled down to fit
     /// while preserving its aspect ratio. It is never upscaled.
     #[default]
     Original,
-    /// Stretch to fill the allocated rectangle, ignoring the aspect ratio.
+    /// Stretch the source region to fill the allocated rectangle, ignoring the aspect ratio.
     Fill,
-    /// Scale uniformly so the whole image fits inside the rectangle and center it.
+    /// Scale the source region uniformly so it fits inside the rectangle and center it.
     Contain,
-    /// Scale uniformly so the image covers the rectangle and crop the extra source pixels.
+    /// Scale the source region uniformly so it covers the rectangle and crop the extra source
+    /// pixels inside the configured UV rectangle.
     Cover,
 }
 
 /// Options for [`Ui::image_with`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ImageOptions {
-    /// Allocated size in logical points. `None` uses the image's natural size.
+    /// Allocated size in logical points. `None` uses the natural size of the configured UV region.
     ///
-    /// [`ImageFit::Original`] ignores this as a stretch target and centers the natural-size image
+    /// [`ImageFit::Original`] ignores this as a stretch target and centers the natural-size source
     /// inside it instead.
     pub size: Option<Vec2>,
     pub fit: ImageFit,
     /// Normalized source rectangle. The default is the whole texture.
+    ///
+    /// Layout and fitting operate on this region rather than on the full texture: a UV rectangle
+    /// covering half the texture has half the natural size, and its aspect ratio is used by
+    /// [`ImageFit::Contain`] and [`ImageFit::Cover`].
     pub uv: Rect,
     /// Multiplied with the sampled texels. Alpha scales the image's opacity.
     pub tint: Color32,
@@ -89,14 +94,14 @@ impl Ui<'_> {
 
     /// Draws a texture with explicit options.
     pub fn image_with(&mut self, texture: &TextureHandle, options: ImageOptions) -> Response {
-        let natural = texture.size();
-        let allocated = options.size.unwrap_or(natural);
+        let source = source_size(texture.size(), options.uv);
+        let allocated = options.size.unwrap_or(source);
         let spacing = self.spacing();
         let rect = allocate_space(&mut self.layout, allocated, spacing);
         let hit = interaction(self.clip, &self.ctx.input, rect);
 
         if is_visible(&self.ctx.painter, rect)
-            && let Some((draw_rect, uv)) = image_geometry(rect, natural, options)
+            && let Some((draw_rect, uv)) = image_geometry(rect, source, options)
         {
             self.ctx
                 .painter
@@ -112,38 +117,52 @@ impl Ui<'_> {
     }
 }
 
+/// The natural size, in logical points, of the selected UV region.
+fn source_size(texture_size: Vec2, uv: Rect) -> Vec2 {
+    Vec2::new(texture_size.x * uv.width(), texture_size.y * uv.height())
+}
+
 /// Resolve the draw rectangle and source UV for an image inside `rect`.
-fn image_geometry(rect: Rect, natural: Vec2, options: ImageOptions) -> Option<(Rect, Rect)> {
-    if !rect.is_positive() || !options.uv.is_positive() || natural.x <= 0.0 || natural.y <= 0.0 {
+///
+/// `source` is the natural size of the configured UV region, not necessarily the full texture.
+fn image_geometry(rect: Rect, source: Vec2, options: ImageOptions) -> Option<(Rect, Rect)> {
+    if !rect.is_positive() || !options.uv.is_positive() || source.x <= 0.0 || source.y <= 0.0 {
         return None;
     }
 
     match options.fit {
         ImageFit::Original => {
-            let size = Vec2::new(natural.x.min(rect.width()), natural.y.min(rect.height()));
-            Some((Rect::from_center_size(rect.center(), size), options.uv))
+            let scale = (rect.width() / source.x)
+                .min(rect.height() / source.y)
+                .min(1.0);
+            Some((
+                Rect::from_center_size(rect.center(), source * scale),
+                options.uv,
+            ))
         }
         ImageFit::Fill => Some((rect, options.uv)),
         ImageFit::Contain => {
-            let scale = (rect.width() / natural.x).min(rect.height() / natural.y);
-            let size = natural * scale;
-            Some((Rect::from_center_size(rect.center(), size), options.uv))
+            let scale = (rect.width() / source.x).min(rect.height() / source.y);
+            Some((
+                Rect::from_center_size(rect.center(), source * scale),
+                options.uv,
+            ))
         }
         ImageFit::Cover => {
-            let natural_aspect = natural.x / natural.y;
+            let source_aspect = source.x / source.y;
             let target_aspect = rect.width() / rect.height();
             let mut uv = options.uv;
 
-            if natural_aspect > target_aspect {
+            if source_aspect > target_aspect {
                 // The source is wider than the target: crop the left and right edges.
-                let fraction = target_aspect / natural_aspect;
+                let fraction = target_aspect / source_aspect;
                 let span = uv.width() * fraction;
                 let center = uv.center().x;
                 uv.min.x = center - span * 0.5;
                 uv.max.x = center + span * 0.5;
-            } else if natural_aspect < target_aspect {
+            } else if source_aspect < target_aspect {
                 // The source is taller than the target: crop the top and bottom edges.
-                let fraction = natural_aspect / target_aspect;
+                let fraction = source_aspect / target_aspect;
                 let span = uv.height() * fraction;
                 let center = uv.center().y;
                 uv.min.y = center - span * 0.5;
@@ -195,6 +214,80 @@ mod tests {
 
         assert_eq!(second.min.y, first.max.y + spacing);
         assert_eq!(second.min.x, first.min.x);
+    }
+
+    #[test]
+    fn uv_region_defines_the_natural_size() {
+        let mut context = context();
+        let mut response = None;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            response = Some(
+                ui.image_with(
+                    &handle([100, 100]),
+                    ImageOptions::default()
+                        .with_uv(Rect::from_min_max(Pos2::ZERO, Pos2::new(0.5, 0.5))),
+                ),
+            );
+        });
+
+        // The selected quarter is 50x50, so it allocates and draws at 50x50, not 100x100.
+        assert_eq!(response.unwrap().rect.size(), vec2(50.0, 50.0));
+    }
+
+    #[test]
+    fn original_preserves_the_aspect_ratio_when_it_must_shrink() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.image_with(
+                &handle([20, 10]),
+                ImageOptions::default()
+                    .with_size(vec2(10.0, 40.0))
+                    .with_fit(ImageFit::Original),
+            );
+        });
+
+        // 20x10 shrinks by 0.5 to 10x5; it must not become 10x10.
+        assert_eq!(frame.paint.vertices[0].pos, [0.0, 17.5]);
+        assert_eq!(frame.paint.vertices[2].pos, [10.0, 22.5]);
+    }
+
+    #[test]
+    fn contain_uses_the_uv_regions_aspect_ratio() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.image_with(
+                &handle([100, 100]),
+                ImageOptions::default()
+                    .with_size(vec2(40.0, 40.0))
+                    .with_fit(ImageFit::Contain)
+                    .with_uv(Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 0.5))),
+            );
+        });
+
+        // The UV region is 100x50 (2:1), so containing it in 40x40 gives 40x20 at y=10..30.
+        assert_eq!(frame.paint.vertices[0].pos, [0.0, 10.0]);
+        assert_eq!(frame.paint.vertices[2].pos, [40.0, 30.0]);
+    }
+
+    #[test]
+    fn cover_crops_inside_the_configured_uv_region() {
+        let mut context = context();
+        let frame = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.image_with(
+                &handle([100, 100]),
+                ImageOptions::default()
+                    .with_size(vec2(10.0, 10.0))
+                    .with_fit(ImageFit::Cover)
+                    .with_uv(Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 0.5))),
+            );
+        });
+
+        // The UV region is 2:1 and the target is 1:1, so crop x to 0.25..=0.75 inside the region.
+        // y stays 0..=0.5 because the configured UV does not cover the whole texture.
+        assert_eq!(frame.paint.vertices[0].uv, [16384, 0]);
+        assert_eq!(frame.paint.vertices[1].uv, [49151, 0]);
+        assert_eq!(frame.paint.vertices[3].uv, [16384, 32768]);
     }
 
     #[test]
