@@ -1,29 +1,32 @@
 //! Glyph atlas and mesh generation for [`tinim_text`] on top of [`tinim_paint`].
 //!
 //! [`tinim_text`] owns shaping, line layout and glyph rasterization. This crate caches the
-//! rasterized glyphs in one shelf-packed RGBA8 atlas and turns a [`TextLayout`] into a
-//! [`tinim_paint::Mesh`] that can be added to a painter.
+//! rasterized glyphs in one shelf-packed RGBA8 atlas and either turns a [`TextLayout`] into a
+//! [`tinim_paint::Mesh`] or writes its glyph quads straight into a
+//! [`tinim_paint::Painter`].
 //!
 //! ```
-//! use tinim_paint::{Color32, TextureId, pos2};
+//! use tinim_paint::{Color32, Painter, TextureId, pos2};
 //! use tinim_paint_text::TextSystem;
 //! use tinim_text::TextStyle;
 //!
 //! # fn build(font_data: Vec<u8>) {
 //! let mut text = TextSystem::new(TextureId(1));
 //! text.add_font(font_data).unwrap();
+//! let mut painter = Painter::new(200.0, 100.0, 1.0);
 //!
 //! let layout = text.layout("Hello", &TextStyle::default(), Some(200.0));
-//! let mesh = text.prepare(&layout, pos2(10.0, 20.0), Color32::BLACK, 1.0);
+//! text.prepare_into(&mut painter, &layout, pos2(10.0, 20.0), Color32::BLACK, 1.0);
 //! let textures = text.take_textures();
-//! # let _ = (mesh, textures);
+//! # let _ = textures;
 //! # }
 //! ```
 //!
 //! Coordinates in [`TextLayout`] are logical points. [`TextSystem::prepare`] takes the current
 //! `pixels_per_point` and emits a [`tinim_paint::Mesh`] in physical pixels. The mesh is tagged as
 //! [`tinim_paint::MeshSpace::Physical`], so [`tinim_paint::Painter::add_mesh`] appends it
-//! unchanged instead of scaling it again.
+//! unchanged instead of scaling it again. [`TextSystem::prepare_into`] avoids the intermediate
+//! allocation entirely by appending the same physical-pixel geometry directly to a painter.
 //!
 //! Upload [`TextSystem::take_textures`] before drawing the mesh. The atlas reserves an opaque
 //! white texel at `(0, 0)`, so the same texture can also be used as the painter's solid texture
@@ -35,12 +38,14 @@ mod packer;
 
 use std::path::Path;
 
-use tinim_paint::{Color32, Mesh, Pos2, Rect, TextureId, TexturesDelta, pos2, vec2};
+use tinim_paint::{
+    Color32, Mesh, MeshSpace, Painter, Pos2, Rect, TextureId, TexturesDelta, pos2, vec2,
+};
 use tinim_text::{
     FontError, FontFace, FontId, FontStack, TextContext, TextLayout, TextStyle, rasterize,
 };
 
-use atlas::{Atlas, GlyphKey};
+use atlas::{Atlas, GlyphKey, GlyphSlot};
 
 /// The atlas starts small and doubles when it fills up.
 const INITIAL_ATLAS_SIZE: u32 = 512;
@@ -58,6 +63,19 @@ enum AtlasAction {
     Reset,
 }
 
+/// Sanitizes `pixels_per_point` and returns it together with the rasterization size in pixels.
+fn prepare_scale(layout: &TextLayout, pixels_per_point: f32) -> (f32, u32) {
+    let pixels_per_point = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        pixels_per_point
+    } else {
+        1.0
+    };
+    let ppem = (layout.style().font_size() * pixels_per_point)
+        .round()
+        .clamp(1.0, MAX_PPEM) as u32;
+    (pixels_per_point, ppem)
+}
+
 /// Owns the font stack, the glyph atlas and the rasterization cache.
 ///
 /// This is the paint-facing facade over [`TextContext`]. Use [`TextSystem::text_context`] to
@@ -72,6 +90,9 @@ pub struct TextSystem {
     /// skips the glyphs that do not fit and the action is deferred to the next frame.
     prepared_since_take: bool,
     pending_atlas: Option<AtlasAction>,
+    /// Atlas slots for the glyphs currently being prepared. Reused across calls so preparing text
+    /// does not allocate on the hot path.
+    slots: Vec<Option<GlyphSlot>>,
 }
 
 impl TextSystem {
@@ -97,6 +118,7 @@ impl TextSystem {
             atlas: Atlas::new(texture_id, size, size, max_size),
             prepared_since_take: false,
             pending_atlas: None,
+            slots: Vec::new(),
         }
     }
 
@@ -170,6 +192,10 @@ impl TextSystem {
     /// parameter and is not part of the cached layout. The mesh is tagged
     /// [`tinim_paint::MeshSpace::Physical`], so [`tinim_paint::Painter::add_mesh`] appends it
     /// without scaling it again. Upload [`TextSystem::take_textures`] before drawing the mesh.
+    ///
+    /// When the text is painted immediately, prefer [`TextSystem::prepare_into`]: it writes the
+    /// quads directly into the painter and skips both this mesh's allocation and the copy into
+    /// the painter's vertex arena.
     pub fn prepare(
         &mut self,
         layout: &TextLayout,
@@ -177,39 +203,86 @@ impl TextSystem {
         color: Color32,
         pixels_per_point: f32,
     ) -> Mesh {
-        let pixels_per_point = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
-            pixels_per_point
-        } else {
-            1.0
-        };
-        let ppem = (layout.style().font_size() * pixels_per_point)
-            .round()
-            .clamp(1.0, MAX_PPEM) as u32;
+        let (pixels_per_point, ppem) = prepare_scale(layout, pixels_per_point);
+        self.resolve_slots(layout, ppem);
 
-        self.apply_pending_atlas_action();
+        let mut mesh = Mesh::physical(self.atlas.texture_id());
+        self.emit_quads(
+            layout,
+            origin,
+            color,
+            pixels_per_point,
+            |rect, uv, color| {
+                mesh.add_rect_with_uv(rect, uv, color);
+            },
+        );
+        mesh
+    }
 
-        // If the atlas overflows there are two cases:
-        //
-        // * No mesh has been built since the last take: re-packing the atlas is safe, so grow it
-        //   (or clear it once it is at the maximum size) and retry.
-        // * A mesh already references the current atlas: moving glyphs would invalidate that
-        //   mesh. Defer the action and draw only the glyphs that fit in this frame.
-        //
-        // Building the mesh only after every glyph has been allocated makes both retries safe:
-        // no stale UVs are left behind.
-        let can_repack = !self.prepared_since_take;
-        let mut allow_overflow = false;
-        loop {
-            if let Some(mesh) = self.try_prepare(
+    /// Rasterizes any new glyphs and appends their geometry directly to `painter` in physical
+    /// pixels.
+    ///
+    /// This is the allocation-free counterpart of [`TextSystem::prepare`]: glyph quads are written
+    /// straight into the painter's shared vertex and index arena instead of being collected into a
+    /// temporary [`Mesh`] that is then copied. Upload [`TextSystem::take_textures`] before drawing.
+    ///
+    /// `origin` is the top-left corner of the text block in logical points. `color` is a paint
+    /// parameter and is not part of the cached layout.
+    pub fn prepare_into(
+        &mut self,
+        painter: &mut Painter,
+        layout: &TextLayout,
+        origin: Pos2,
+        color: Color32,
+        pixels_per_point: f32,
+    ) {
+        if !painter.clip_rect().is_positive() {
+            return;
+        }
+
+        let (pixels_per_point, ppem) = prepare_scale(layout, pixels_per_point);
+        self.resolve_slots(layout, ppem);
+
+        // Nothing to draw (empty text, missing glyphs or spaces). Avoid switching the painter's
+        // texture, which would otherwise split the surrounding draw run for no reason.
+        if !self.slots.iter().any(Option::is_some) {
+            return;
+        }
+
+        let texture_id = self.atlas.texture_id();
+        painter.add_mesh_with(texture_id, MeshSpace::Physical, |mesh| {
+            self.emit_quads(
                 layout,
                 origin,
                 color,
                 pixels_per_point,
-                ppem,
-                allow_overflow,
-            ) {
+                |rect, uv, color| {
+                    mesh.add_rect_with_uv(rect, uv, color);
+                },
+            );
+        });
+    }
+
+    /// Ensures every glyph of `layout` has an atlas slot, growing or resetting the atlas if needed.
+    ///
+    /// If the atlas overflows there are two cases:
+    ///
+    /// * No mesh has been built since the last take: re-packing the atlas is safe, so grow it (or
+    ///   clear it once it is at the maximum size) and retry.
+    /// * A mesh already references the current atlas: moving glyphs would invalidate that mesh.
+    ///   Defer the action and draw only the glyphs that fit in this frame.
+    ///
+    /// Resolving every slot before emitting geometry makes both retries safe: no stale UVs are
+    /// left behind.
+    fn resolve_slots(&mut self, layout: &TextLayout, ppem: u32) {
+        self.apply_pending_atlas_action();
+
+        let can_repack = !self.prepared_since_take;
+        let mut allow_overflow = false;
+        loop {
+            if self.try_resolve_slots(layout, ppem, allow_overflow) {
                 self.prepared_since_take = true;
-                return mesh;
+                return;
             }
 
             if !can_repack {
@@ -229,6 +302,35 @@ impl TextSystem {
             }
             self.atlas.reset();
             allow_overflow = true;
+        }
+    }
+
+    /// Writes the atlas quads for `layout` into `emit`, reusing the slot scratch buffer.
+    fn emit_quads(
+        &self,
+        layout: &TextLayout,
+        origin: Pos2,
+        color: Color32,
+        pixels_per_point: f32,
+        mut emit: impl FnMut(Rect, Rect, Color32),
+    ) {
+        let mut index = 0;
+        for line in layout.lines() {
+            let baseline = (origin.y + line.baseline()) * pixels_per_point;
+            for glyph in line.glyphs() {
+                if let Some(slot) = self.slots[index] {
+                    let x = ((origin.x + glyph.x()) * pixels_per_point + slot.left).round();
+                    let y = (baseline - glyph.y_offset() * pixels_per_point - slot.top).round();
+                    let rect = Rect::from_min_size(pos2(x, y), vec2(slot.width, slot.height));
+                    let color = if slot.color {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, color.to_array()[3])
+                    } else {
+                        color
+                    };
+                    emit(rect, slot.uv, color);
+                }
+                index += 1;
+            }
         }
     }
 
@@ -281,17 +383,10 @@ impl TextSystem {
         }
     }
 
-    fn try_prepare(
-        &mut self,
-        layout: &TextLayout,
-        origin: Pos2,
-        color: Color32,
-        pixels_per_point: f32,
-        ppem: u32,
-        skip_overflow: bool,
-    ) -> Option<Mesh> {
+    fn try_resolve_slots(&mut self, layout: &TextLayout, ppem: u32, skip_overflow: bool) -> bool {
         let glyph_count: usize = layout.lines().iter().map(|line| line.glyphs().len()).sum();
-        let mut slots = Vec::with_capacity(glyph_count);
+        self.slots.clear();
+        self.slots.reserve(glyph_count);
 
         for line in layout.lines() {
             for glyph in line.glyphs() {
@@ -301,56 +396,36 @@ impl TextSystem {
                     ppem,
                 };
                 if let Some(slot) = self.atlas.get(&key) {
-                    slots.push(Some(slot));
+                    self.slots.push(Some(slot));
                     continue;
                 }
                 let Some(face) = self.text.font(glyph.font()) else {
-                    slots.push(None);
+                    self.slots.push(None);
                     continue;
                 };
                 let Some(raster) = rasterize(face, glyph.glyph_id(), ppem as f32) else {
-                    slots.push(None);
+                    self.slots.push(None);
                     continue;
                 };
                 // Empty glyphs (spaces, missing outlines) never need atlas space and must not
                 // trigger growth.
                 if raster.width == 0 || raster.height == 0 {
-                    slots.push(None);
+                    self.slots.push(None);
                     continue;
                 }
                 if !self.atlas.can_ever_fit(raster.width, raster.height) {
-                    slots.push(None);
+                    self.slots.push(None);
                     continue;
                 }
                 match self.atlas.alloc(key, raster) {
-                    Some(slot) => slots.push(Some(slot)),
-                    None if skip_overflow => slots.push(None),
-                    None => return None,
+                    Some(slot) => self.slots.push(Some(slot)),
+                    None if skip_overflow => self.slots.push(None),
+                    None => return false,
                 }
             }
         }
 
-        let mut mesh = Mesh::physical(self.atlas.texture_id());
-        let mut index = 0;
-        for line in layout.lines() {
-            let baseline = (origin.y + line.baseline()) * pixels_per_point;
-            for glyph in line.glyphs() {
-                if let Some(slot) = slots[index] {
-                    let x = ((origin.x + glyph.x()) * pixels_per_point + slot.left).round();
-                    let y = (baseline - glyph.y_offset() * pixels_per_point - slot.top).round();
-                    let rect = Rect::from_min_size(pos2(x, y), vec2(slot.width, slot.height));
-                    let color = if slot.color {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, color.to_array()[3])
-                    } else {
-                        color
-                    };
-                    mesh.add_rect_with_uv(rect, slot.uv, color);
-                }
-                index += 1;
-            }
-        }
-
-        Some(mesh)
+        true
     }
 
     /// Returns this frame's atlas uploads and clears the dirty state.

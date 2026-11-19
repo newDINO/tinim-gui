@@ -5,7 +5,8 @@ use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1};
 use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
 use tinim_paint::{
-    Color32, ImageDelta, MeshSpace, Rect, TextureDescriptor, TextureId, TexturesDelta, pos2, vec2,
+    Color32, ImageDelta, MeshSpace, Painter, Rect, TextureDescriptor, TextureId, TexturesDelta,
+    pos2, vec2,
 };
 use tinim_paint_text::TextSystem;
 use tinim_text::TextStyle;
@@ -422,6 +423,24 @@ fn first_bitmap_char(font_data: &[u8]) -> (char, skrifa::GlyphId) {
             }
         })
         .expect("test font has at least one bitmap glyph")
+}
+
+#[test]
+fn prepare_into_writes_the_same_geometry_as_prepare() {
+    let mut system = TextSystem::new(TextureId(1));
+    system.add_font(AHEM.to_vec()).unwrap();
+
+    let layout = system.layout("aaa", &style(16.0), None);
+    let mesh = system.prepare(&layout, pos2(10.0, 20.0), Color32::BLACK, 2.0);
+
+    let mut painter = Painter::new(200.0, 200.0, 2.0);
+    system.prepare_into(&mut painter, &layout, pos2(10.0, 20.0), Color32::BLACK, 2.0);
+    let list = painter.finish();
+
+    assert_eq!(list.vertices, mesh.vertices);
+    assert_eq!(list.indices, mesh.indices);
+    assert_eq!(list.draws.len(), 1);
+    assert_eq!(list.draws[0].texture_id, TextureId(1));
 }
 
 fn is_white_texel(delta: &ImageDelta) -> bool {

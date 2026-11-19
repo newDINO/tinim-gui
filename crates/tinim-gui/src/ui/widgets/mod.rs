@@ -130,8 +130,7 @@ fn paint_text(
     if !painter.clip_rect().is_positive() {
         return;
     }
-    let mesh = text.prepare(layout, origin, color, pixels_per_point);
-    painter.add_mesh(mesh);
+    text.prepare_into(painter, layout, origin, color, pixels_per_point);
 }
 
 #[cfg(test)]

@@ -126,12 +126,13 @@ impl AppInner {
                 &tinim_text::TextStyle::default(),
                 None,
             );
-            self.painter.add_mesh(self.text_system.prepare(
+            self.text_system.prepare_into(
+                &mut self.painter,
                 &layout,
                 vec2(10.0, 10.0),
                 Color32::WHITE,
                 1.0,
-            ));
+            );
         }
 
         {

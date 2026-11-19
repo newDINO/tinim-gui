@@ -110,34 +110,7 @@ impl Mesh {
 
     /// Add an axis-aligned quad sampling the given `uv` rectangle (in `0..=1`).
     pub fn add_rect_with_uv(&mut self, rect: Rect, uv: Rect, color: Color32) {
-        let base = self.vertices.len() as u32;
-        let uv_min = uv.min;
-        let uv_max = uv.max;
-
-        let corners = [
-            (rect.min, Pos2::new(uv_min.x, uv_min.y)),
-            (
-                Pos2::new(rect.max.x, rect.min.y),
-                Pos2::new(uv_max.x, uv_min.y),
-            ),
-            (rect.max, Pos2::new(uv_max.x, uv_max.y)),
-            (
-                Pos2::new(rect.min.x, rect.max.y),
-                Pos2::new(uv_min.x, uv_max.y),
-            ),
-        ];
-        for (p, t) in corners {
-            self.vertices.push(Vertex::new(
-                p,
-                [
-                    (t.x.clamp(0.0, 1.0) * 65535.0).round() as u16,
-                    (t.y.clamp(0.0, 1.0) * 65535.0).round() as u16,
-                ],
-                color,
-            ));
-        }
-        self.indices
-            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        push_quad(&mut self.vertices, &mut self.indices, rect, uv, color, 1.0);
     }
 
     /// Append `other`, offsetting its indices by the current vertex count.
@@ -164,6 +137,111 @@ impl Mesh {
         self.indices.extend(other.indices.iter().map(|&i| i + base));
         Ok(())
     }
+}
+
+/// Appends quads directly into a [`PaintList`], without building an intermediate [`Mesh`].
+///
+/// Create one with [`Painter::add_mesh_with`](crate::Painter::add_mesh_with). Writers are expected
+/// to emit triangles in one go; the builder offsets indices and applies the coordinate-space scale
+/// as geometry is added.
+///
+/// # Example
+///
+/// ```
+/// use tinim_paint::{Color32, Painter, Pos2, Rect, TextureId, pos2, vec2};
+///
+/// let mut painter = Painter::new(100.0, 100.0, 2.0);
+/// painter.add_mesh_with(TextureId(1), tinim_paint::MeshSpace::Logical, |mesh| {
+///     mesh.add_rect_with_uv(
+///         Rect::from_min_size(pos2(1.0, 1.0), vec2(10.0, 10.0)),
+///         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+///         Color32::WHITE,
+///     );
+/// });
+/// ```
+pub struct MeshBuilder<'a> {
+    vertices: &'a mut Vec<Vertex>,
+    indices: &'a mut Vec<u32>,
+    scale: f32,
+}
+
+impl<'a> MeshBuilder<'a> {
+    pub(crate) fn new(
+        vertices: &'a mut Vec<Vertex>,
+        indices: &'a mut Vec<u32>,
+        scale: f32,
+    ) -> Self {
+        MeshBuilder {
+            vertices,
+            indices,
+            scale,
+        }
+    }
+
+    /// Add an axis-aligned quad sampling the given `uv` rectangle (in `0..=1`).
+    pub fn add_rect_with_uv(&mut self, rect: Rect, uv: Rect, color: Color32) {
+        push_quad(self.vertices, self.indices, rect, uv, color, self.scale);
+    }
+
+    /// Append raw geometry, offsetting its indices by the current vertex count.
+    pub fn append(&mut self, vertices: &[Vertex], indices: &[u32]) {
+        let base = self.vertices.len() as u32;
+        if self.scale == 1.0 {
+            self.vertices.extend_from_slice(vertices);
+        } else {
+            self.vertices.extend(vertices.iter().map(|vertex| {
+                let mut vertex = *vertex;
+                vertex.pos[0] *= self.scale;
+                vertex.pos[1] *= self.scale;
+                vertex
+            }));
+        }
+        self.indices
+            .extend(indices.iter().map(|&index| index + base));
+    }
+}
+
+/// Push one textured quad, scaling its positions by `scale`.
+fn push_quad(
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+    rect: Rect,
+    uv: Rect,
+    color: Color32,
+    scale: f32,
+) {
+    let base = vertices.len() as u32;
+    let uv_min = uv.min;
+    let uv_max = uv.max;
+
+    let corners = [
+        (rect.min, Pos2::new(uv_min.x, uv_min.y)),
+        (
+            Pos2::new(rect.max.x, rect.min.y),
+            Pos2::new(uv_max.x, uv_min.y),
+        ),
+        (rect.max, Pos2::new(uv_max.x, uv_max.y)),
+        (
+            Pos2::new(rect.min.x, rect.max.y),
+            Pos2::new(uv_min.x, uv_max.y),
+        ),
+    ];
+    for (p, t) in corners {
+        let pos = if scale == 1.0 {
+            p
+        } else {
+            Pos2::new(p.x * scale, p.y * scale)
+        };
+        vertices.push(Vertex::new(
+            pos,
+            [
+                (t.x.clamp(0.0, 1.0) * 65535.0).round() as u16,
+                (t.y.clamp(0.0, 1.0) * 65535.0).round() as u16,
+            ],
+            color,
+        ));
+    }
+    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
 }
 
 /// Error returned when two meshes with incompatible textures or coordinate spaces are appended.
@@ -239,14 +317,6 @@ impl PaintList {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
-    }
-
-    /// Append raw geometry, offsetting indices by the current vertex count.
-    pub(crate) fn append_geometry(&mut self, vertices: &[Vertex], indices: &[u32]) {
-        let base = self.vertices.len() as u32;
-        self.vertices.extend_from_slice(vertices);
-        self.indices
-            .extend(indices.iter().map(|&index| index + base));
     }
 }
 

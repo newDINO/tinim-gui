@@ -394,8 +394,13 @@ fn build_painter(
     painter.set_solid_texture(text.atlas_texture_id());
     painter.rect(painter.canvas_rect(), theme.bg);
     for (row, layout) in rows {
-        let mesh = text.prepare(layout, pos2(row.x, row.origin_y), theme.fg, scale);
-        painter.add_mesh(mesh);
+        text.prepare_into(
+            &mut painter,
+            layout,
+            pos2(row.x, row.origin_y),
+            theme.fg,
+            scale,
+        );
     }
     painter.finish().clone()
 }

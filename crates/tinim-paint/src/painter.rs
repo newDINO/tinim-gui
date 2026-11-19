@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::tessellate::{add_circle, add_line, add_rect};
 use crate::{
-    CircleShape, Color32, DrawCommand, ImageShape, Mesh, MeshSpace, PaintList, Pos2, Rect,
-    RectShape, Shape, TextureId, Vec2, Vertex,
+    CircleShape, Color32, DrawCommand, ImageShape, Mesh, MeshBuilder, MeshSpace, PaintList, Pos2,
+    Rect, RectShape, Shape, TextureId, Vec2, Vertex,
 };
 
 /// Builds a frame's geometry while tracking the current clip rectangle.
@@ -262,30 +262,56 @@ impl Painter {
             return;
         }
 
-        let mut mesh = Mesh::with_texture(shape.texture_id);
-        mesh.add_rect_with_uv(shape.rect, shape.uv, shape.tint);
-        self.add_mesh(mesh);
+        self.add_mesh_with(shape.texture_id, MeshSpace::Logical, |mesh| {
+            mesh.add_rect_with_uv(shape.rect, shape.uv, shape.tint);
+        });
     }
 
     /// Append custom geometry using the current clip.
     ///
     /// Logical-point meshes (the default from [`Mesh::with_texture`]) are scaled by
     /// `pixels_per_point`. Physical-pixel meshes (from [`Mesh::physical`]) are appended unchanged.
-    pub fn add_mesh(&mut self, mut mesh: Mesh) {
+    pub fn add_mesh(&mut self, mesh: Mesh) {
         if !self.clip_rect.is_positive() || mesh.is_empty() || mesh.vertices.is_empty() {
             return;
         }
-        if mesh.space == MeshSpace::Logical {
-            let scale = self.pixels_per_point;
-            if scale != 1.0 {
-                for vertex in &mut mesh.vertices {
-                    vertex.pos[0] *= scale;
-                    vertex.pos[1] *= scale;
-                }
-            }
+        self.add_mesh_with(mesh.texture_id, mesh.space, |builder| {
+            builder.append(&mesh.vertices, &mesh.indices);
+        });
+    }
+
+    /// Append custom geometry without building an intermediate [`Mesh`].
+    ///
+    /// The closure writes quads (or raw triangles) directly into the painter's shared vertex and
+    /// index arena through a [`MeshBuilder`]. This avoids the per-call `Vec` allocations and the
+    /// copy that [`Painter::add_mesh`] performs, which matters for geometry that is rebuilt every
+    /// frame, such as text.
+    ///
+    /// `space` describes the positions written by the closure: [`MeshSpace::Logical`] positions are
+    /// scaled by `pixels_per_point`, [`MeshSpace::Physical`] positions are used unchanged. Shapes
+    /// added while the clip is empty are dropped, and the closure is not called.
+    ///
+    /// ```ignore
+    /// painter.add_mesh_with(texture_id, MeshSpace::Physical, |mesh| {
+    ///     mesh.add_rect_with_uv(rect, uv, color);
+    /// });
+    /// ```
+    pub fn add_mesh_with(
+        &mut self,
+        texture_id: TextureId,
+        space: MeshSpace,
+        build: impl FnOnce(&mut MeshBuilder<'_>),
+    ) {
+        if !self.clip_rect.is_positive() {
+            return;
         }
-        self.use_texture(mesh.texture_id);
-        self.list.append_geometry(&mesh.vertices, &mesh.indices);
+        self.use_texture(texture_id);
+        let scale = match space {
+            MeshSpace::Logical => self.pixels_per_point,
+            MeshSpace::Physical => 1.0,
+        };
+        let mut builder = MeshBuilder::new(&mut self.list.vertices, &mut self.list.indices, scale);
+        build(&mut builder);
     }
 
     /// Reserve space for a rectangle and record its position in the draw order.
@@ -791,6 +817,41 @@ mod tests {
         let list = check_draws(&mut painter);
         assert_eq!(list.vertices[0].pos, [2.0, 2.0]);
         assert_eq!(list.vertices[2].pos, [22.0, 22.0]);
+    }
+
+    #[test]
+    fn add_mesh_with_matches_add_mesh() {
+        let rect = Rect::from_min_size(pos2(1.0, 2.0), vec2(10.0, 20.0));
+        let uv = Rect::from_min_max(pos2(0.25, 0.5), pos2(0.75, 1.0));
+
+        let mut via_mesh = Painter::new(100.0, 100.0, 2.0);
+        let mut mesh = Mesh::with_texture(TextureId(1));
+        mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+        via_mesh.add_mesh(mesh);
+
+        let mut via_builder = Painter::new(100.0, 100.0, 2.0);
+        via_builder.add_mesh_with(TextureId(1), MeshSpace::Logical, |mesh| {
+            mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+        });
+
+        assert_eq!(via_mesh.finish(), via_builder.finish());
+    }
+
+    #[test]
+    fn add_mesh_with_is_skipped_by_an_empty_clip() {
+        let mut painter = Painter::new(10.0, 10.0, 1.0);
+        painter.set_clip_rect(Rect::from_min_max(pos2(20.0, 20.0), pos2(30.0, 30.0)));
+        painter.add_mesh_with(TextureId(1), MeshSpace::Logical, |mesh| {
+            mesh.add_rect_with_uv(
+                Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0)),
+                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        });
+
+        let list = check_draws(&mut painter);
+        assert!(list.draws.is_empty());
+        assert!(list.vertices.is_empty());
     }
 
     #[test]

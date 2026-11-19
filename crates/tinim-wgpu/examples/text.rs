@@ -201,16 +201,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     timed("prepare title", || {
-        painter.add_mesh(text.prepare(&title, pos2(60.0, 32.0), FOREGROUND, 1.0))
+        text.prepare_into(&mut painter, &title, pos2(60.0, 32.0), FOREGROUND, 1.0)
     });
     timed("prepare body", || {
-        painter.add_mesh(text.prepare(&body, pos2(60.0, 130.0), MUTED, 1.0))
+        text.prepare_into(&mut painter, &body, pos2(60.0, 130.0), MUTED, 1.0)
     });
     timed("prepare cjk", || {
-        painter.add_mesh(text.prepare(&cjk, pos2(60.0, 230.0), FOREGROUND, 1.0))
+        text.prepare_into(&mut painter, &cjk, pos2(60.0, 230.0), FOREGROUND, 1.0)
     });
     timed("prepare rtl", || {
-        painter.add_mesh(text.prepare(&rtl, pos2(60.0, 280.0), ACCENT, 1.0))
+        text.prepare_into(&mut painter, &rtl, pos2(60.0, 280.0), ACCENT, 1.0)
     });
 
     // Draw the whole atlas as a debug preview. It uses the same texture as the solid background,

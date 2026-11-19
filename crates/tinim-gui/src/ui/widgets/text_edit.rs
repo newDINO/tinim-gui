@@ -557,13 +557,13 @@ impl Ui<'_> {
 
                 if !layout.lines().is_empty() {
                     let origin = pos2(inner.min.x - state.scroll, text_top);
-                    let mesh = self.ctx.text_system.prepare(
+                    self.ctx.text_system.prepare_into(
+                        &mut self.ctx.painter,
                         layout,
                         origin,
                         edit_style.text,
                         self.ctx.pixels_per_point,
                     );
-                    self.ctx.painter.add_mesh(mesh);
                 }
 
                 // Underline the composition string so it is distinguishable from committed text.
