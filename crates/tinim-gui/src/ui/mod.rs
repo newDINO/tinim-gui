@@ -173,11 +173,13 @@ impl<'a> Ui<'a> {
     /// The parent flow advances by the rectangle used by the children, expanded by `inset`. When
     /// `cross_size` is set, the cross-axis part of the region is included even if the children are
     /// narrower, so a fixed-width column or a fixed-height row reserves its space. The second
-    /// return value is that outer rectangle, or a zero-size rectangle at the region start when
-    /// nothing was placed.
+    /// return value is that outer rectangle, or a zero-size rectangle at the region's minimum
+    /// corner when nothing was placed.
     ///
-    /// Only forward directions are supported; callers must check that the current region and
-    /// `config` are forward flows before calling this.
+    /// Reverse parents grow from their minimum corner toward the cursor. A matching reverse child
+    /// then anchors at `rect.max`, which is the current cursor rather than the parent's far
+    /// corner. Callers must ensure the parent and child directions are compatible; see
+    /// [`Direction::can_host_content_flow`].
     fn content_region<R>(
         &mut self,
         inset: Edges,
@@ -186,19 +188,42 @@ impl<'a> Ui<'a> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
         let start = next_pos(&self.layout, self.spacing());
-        let origin = start + vec2(inset.left, inset.top);
+        let content_min = self.layout.rect.min + vec2(inset.left, inset.top);
+        let content_max = self.layout.rect.max - vec2(inset.right, inset.bottom);
 
         let axis = config.direction.axis();
         let cross_extent = cross_size.map(sanitize_extent);
-        let parent_max = self.layout.rect.max - vec2(inset.right, inset.bottom);
-        let max = match cross_extent {
-            Some(cross_extent) => match axis {
-                Axis::Vertical => Pos2::new(origin.x + cross_extent, parent_max.y),
-                Axis::Horizontal => Pos2::new(parent_max.x, origin.y + cross_extent),
-            },
-            None => parent_max,
+
+        // Forward regions grow from the cursor toward the parent's far corner. Reverse regions
+        // grow from the parent's near corner toward the cursor, so the child can anchor at
+        // `rect.max`, which is the current cursor rather than the parent's far corner.
+        let rect = if self.layout.direction.is_reverse() {
+            let max = match axis {
+                Axis::Vertical => Pos2::new(
+                    cross_extent.map_or(content_max.x, |extent| content_min.x + extent),
+                    start.y - inset.bottom,
+                ),
+                Axis::Horizontal => Pos2::new(
+                    start.x - inset.right,
+                    cross_extent.map_or(content_max.y, |extent| content_min.y + extent),
+                ),
+            };
+            Rect::from_min_max(content_min, max.max(content_min))
+        } else {
+            let min = start + vec2(inset.left, inset.top);
+            let max = match axis {
+                Axis::Vertical => Pos2::new(
+                    cross_extent.map_or(content_max.x, |extent| min.x + extent),
+                    content_max.y,
+                ),
+                Axis::Horizontal => Pos2::new(
+                    content_max.x,
+                    cross_extent.map_or(content_max.y, |extent| min.y + extent),
+                ),
+            };
+            Rect::from_min_max(min, max.max(min))
         };
-        let rect = Rect::from_min_max(origin, max.max(origin));
+        let origin = rect.min;
 
         let (result, used) = self.layout_at(rect, origin, config, build);
 

@@ -28,12 +28,26 @@ impl Direction {
         }
     }
 
+    /// Whether this direction grows toward decreasing coordinates (up or left).
     pub(super) fn is_reverse(self) -> bool {
         matches!(self, Self::VerticalReverse | Self::HorizontalReverse)
     }
 
+    /// Whether this direction grows toward increasing coordinates (down or right).
+    ///
+    /// This is an absolute property of the axis, not a direction relative to another flow.
     pub(super) fn is_forward(self) -> bool {
         !self.is_reverse()
+    }
+
+    /// Whether a content-sized flow with `child` direction can be nested in this direction.
+    ///
+    /// Content-sized flows need a known near edge. A child can be built when it grows in the
+    /// same direction on the same axis, or when both flows are forward. The remaining
+    /// combinations would need the child's measured extent before placing it; use
+    /// [`Ui::sized_flow`](crate::Ui::sized_flow) for those.
+    pub(super) fn can_host_content_flow(self, child: Self) -> bool {
+        (self.axis() == child.axis() && self == child) || (self.is_forward() && child.is_forward())
     }
 }
 

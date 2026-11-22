@@ -31,7 +31,7 @@ impl Ui<'_> {
     /// if any; the stack itself is not a clipping region.
     ///
     /// The stack inherits the enclosing region's width. Use [`Ui::flow`] with a `cross_size` to
-    /// constrain it.
+    /// constrain it. As a content-sized flow, it follows [`Ui::flow`]'s nesting rules.
     pub fn vertical<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
         self.flow(FlowConfig::vertical(), None, build)
     }
@@ -42,7 +42,7 @@ impl Ui<'_> {
     /// if any; the stack itself is not a clipping region.
     ///
     /// The stack inherits the enclosing region's height. Use [`Ui::flow`] with a `cross_size` to
-    /// constrain it.
+    /// constrain it. As a content-sized flow, it follows [`Ui::flow`]'s nesting rules.
     pub fn horizontal<R>(&mut self, build: impl FnOnce(&mut Ui<'_>) -> R) -> R {
         self.flow(FlowConfig::horizontal(), None, build)
     }
@@ -57,11 +57,11 @@ impl Ui<'_> {
     /// `Some(height)` acts as a fixed-height row. Children are not clipped and may still overflow
     /// the extent. Non-finite values are treated as zero.
     ///
-    /// Only forward directions ([`FlowConfig::vertical`] and [`FlowConfig::horizontal`]) are
-    /// supported. Reverse flows need a known extent; use [`Ui::sized_flow`] for those.
-    ///
-    /// A content-sized flow must also be nested in a forward flow. Inside a reverse
-    /// [`Ui::sized_flow`], wrap it in another `sized_flow`.
+    /// Content-sized flows need a known near edge. A child can be built when it has the same
+    /// direction on the same axis as the enclosing flow, or when both flows are forward. In
+    /// particular, a reverse flow can be nested in a reverse flow on the same axis, but
+    /// opposite directions on the same axis and reverse-perpendicular combinations need a known
+    /// extent; use [`Ui::sized_flow`] for those.
     ///
     /// Like [`Ui::vertical`] and [`Ui::horizontal`], this changes layout only and does not clip.
     pub fn flow<R>(
@@ -71,12 +71,11 @@ impl Ui<'_> {
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> R {
         debug_assert!(
-            config.direction.is_forward(),
-            "content-sized flow requires a forward direction; use sized_flow for reverse directions"
-        );
-        debug_assert!(
-            self.layout.direction.is_forward(),
-            "content-sized flow inside a reverse flow is unsupported; wrap it in sized_flow"
+            self.layout
+                .direction
+                .can_host_content_flow(config.direction),
+            "content-sized flow requires matching directions on the same axis, or forward flows; \
+             use sized_flow for other combinations"
         );
 
         self.content_region(Edges::ZERO, cross_size, config, build)
@@ -88,8 +87,9 @@ impl Ui<'_> {
     /// The box is allocated in the parent flow. Unlike [`Ui::pane`], it does not clip. All flow
     /// directions are supported, including bottom-to-top and right-to-left.
     ///
-    /// A content-sized flow such as [`Ui::vertical`] cannot be nested directly inside a reverse
-    /// `sized_flow`; wrap it in another `sized_flow` or use leaf widgets.
+    /// A forward content-sized flow such as [`Ui::vertical`] cannot be nested directly inside a
+    /// reverse `sized_flow`; use a reverse content-sized flow with the same axis, wrap it in
+    /// another `sized_flow`, or use leaf widgets.
     pub fn sized_flow<R>(
         &mut self,
         size: Vec2,
@@ -304,6 +304,126 @@ mod tests {
         assert_eq!(inside.max.x, 20.0);
         assert_eq!(inside.min.y, 80.0);
         assert_eq!(inside.max.y, 85.0);
+    }
+
+    #[test]
+    fn content_sized_bottom_to_top_inside_bottom_to_top() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut second = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 100.0), FlowConfig::bottom_to_top(), |ui| {
+                ui.flow(FlowConfig::bottom_to_top(), None, |ui| {
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                    second = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                after = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(first.min.x, 0.0);
+        assert_eq!(first.max.y, 100.0);
+        assert_eq!(first.min.y, 90.0);
+        assert_eq!(second.max.y, first.min.y - spacing);
+        assert_eq!(second.min.y, second.max.y - 10.0);
+        assert_eq!(after.max.y, second.min.y - spacing);
+    }
+
+    #[test]
+    fn content_sized_right_to_left_inside_right_to_left() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut first = Rect::NOTHING;
+        let mut second = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 50.0), FlowConfig::right_to_left(), |ui| {
+                ui.flow(FlowConfig::right_to_left(), None, |ui| {
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                    second = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                after = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(first.min.y, 0.0);
+        assert_eq!(first.max.x, 100.0);
+        assert_eq!(first.min.x, 90.0);
+        assert_eq!(second.max.x, first.min.x - spacing);
+        assert_eq!(second.min.x, second.max.x - 10.0);
+        assert_eq!(after.max.x, second.min.x - spacing);
+    }
+
+    #[test]
+    fn content_sized_bottom_to_top_reserves_its_cross_size() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut region = Vec2::ZERO;
+        let mut first = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 100.0), FlowConfig::bottom_to_top(), |ui| {
+                ui.flow(FlowConfig::bottom_to_top(), Some(40.0), |ui| {
+                    region = ui.size();
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                after = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(region, vec2(40.0, 100.0));
+        assert_eq!(first.max.y, 100.0);
+        assert_eq!(first.min.x, 0.0);
+        assert_eq!(after.max.y, first.min.y - spacing);
+    }
+
+    #[test]
+    fn content_sized_right_to_left_reserves_its_cross_size() {
+        let mut context = context();
+        let spacing = context.style().spacing;
+        let mut region = Vec2::ZERO;
+        let mut first = Rect::NOTHING;
+        let mut after = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 100.0), FlowConfig::right_to_left(), |ui| {
+                ui.flow(FlowConfig::right_to_left(), Some(30.0), |ui| {
+                    region = ui.size();
+                    first = ui.allocate_space(vec2(10.0, 10.0));
+                });
+                after = ui.allocate_space(vec2(10.0, 10.0));
+            });
+        });
+
+        assert_eq!(region, vec2(100.0, 30.0));
+        assert_eq!(first.max.x, 100.0);
+        assert_eq!(first.min.y, 0.0);
+        assert_eq!(after.max.x, first.min.x - spacing);
+    }
+
+    #[test]
+    fn nested_content_sized_reverse_flows_keep_the_cursor_adjacent() {
+        let mut context = context();
+        let mut inside = Rect::NOTHING;
+
+        let _ = context.run(vec2(200.0, 200.0), 1.0, RawInput::default(), |ui| {
+            ui.sized_flow(vec2(100.0, 100.0), FlowConfig::bottom_to_top(), |ui| {
+                ui.flow(FlowConfig::bottom_to_top(), None, |ui| {
+                    ui.flow(FlowConfig::bottom_to_top(), None, |ui| {
+                        inside = ui.allocate_space(vec2(10.0, 10.0));
+                    });
+                });
+            });
+        });
+
+        assert_eq!(inside.max.y, 100.0);
+        assert_eq!(inside.min.y, 90.0);
+        assert_eq!(inside.min.x, 0.0);
     }
 
     #[test]
