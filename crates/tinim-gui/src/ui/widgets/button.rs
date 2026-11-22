@@ -87,6 +87,12 @@ impl Ui<'_> {
                 RectShape::new(rect, fill).with_corner_radius(button.corner_radius),
             ));
 
+            let text_color = if selected {
+                button.selected_text
+            } else {
+                button.text
+            };
+
             paint_text_rect(
                 &mut self.ctx.text_system,
                 &mut self.ctx.painter,
@@ -94,7 +100,7 @@ impl Ui<'_> {
                 layout,
                 rect,
                 Align2::CENTER,
-                button.text,
+                text_color,
             );
         }
 
