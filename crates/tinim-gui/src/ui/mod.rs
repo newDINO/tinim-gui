@@ -14,7 +14,7 @@ mod test_util;
 pub use containers::{
     FrameResponse, PaneResponse, ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState,
 };
-pub use layout::{Align, Align2, FlowConfig};
+pub use layout::{Align, Align2, FlowConfig, FlowSize};
 pub use response::Response;
 pub use widgets::{
     ImageFit, ImageOptions, NumberInputResponse, NumberInputState, TextEditResponse, TextEditState,
@@ -164,94 +164,136 @@ impl<'a> Ui<'a> {
         available_size(&self.layout, self.spacing())
     }
 
-    /// Builds a content-sized region, inset by `inset` and optionally fixed on the cross axis.
+    /// Builds a content-sized region, inset by `inset` and optionally fixed on either axis.
     ///
-    /// `cross_size` fixes the cross-axis extent of the child region: the width of a vertical flow
-    /// or the height of a horizontal flow. `None` inherits the enclosing region's cross-axis
-    /// extent. This changes layout only; the clip is inherited unchanged.
+    /// `size.main` fixes the flow's arrangement axis and `size.cross` fixes the other axis.
+    /// `None` keeps an axis content-sized. This changes layout only; the clip is inherited
+    /// unchanged.
     ///
-    /// The parent flow advances by the rectangle used by the children, expanded by `inset`. When
-    /// `cross_size` is set, the cross-axis part of the region is included even if the children are
-    /// narrower, so a fixed-width column or a fixed-height row reserves its space. The second
-    /// return value is that outer rectangle, or a zero-size rectangle at the region's minimum
-    /// corner when nothing was placed.
+    /// The parent flow advances by the rectangle reserved by the children, expanded by `inset`.
+    /// Fixed extents are always reserved, so a fixed-width column or a fixed-height row keeps its
+    /// space. Content-sized cross axes use only the measured part. The second return value is
+    /// that outer rectangle, or a zero-size rectangle at the region's minimum corner when nothing
+    /// was placed.
     ///
     /// Reverse parents grow from their minimum corner toward the cursor. A matching reverse child
     /// then anchors at `rect.max`, which is the current cursor rather than the parent's far
-    /// corner. Callers must ensure the parent and child directions are compatible; see
-    /// [`Direction::can_host_content_flow`].
+    /// corner. A fixed extent on the parent's main axis lets the region anchor its far edge at the
+    /// cursor instead, so opposite-direction flows can be nested without measuring them first.
     fn content_region<R>(
         &mut self,
         inset: Edges,
-        cross_size: Option<f32>,
+        size: FlowSize,
         config: FlowConfig,
         build: impl FnOnce(&mut Ui<'_>) -> R,
     ) -> (R, Rect) {
+        let parent_direction = self.layout.direction;
+        let parent_axis = parent_direction.axis();
+        let child_axis = config.direction.axis();
+        let cross_axis = parent_axis.other();
+
         let start = next_pos(&self.layout, self.spacing());
-        let content_min = self.layout.rect.min + vec2(inset.left, inset.top);
-        let content_max = self.layout.rect.max - vec2(inset.right, inset.bottom);
+        let content_start = self.layout.origin + vec2(inset.left, inset.top);
+        let content_end =
+            (self.layout.rect.max - vec2(inset.right, inset.bottom)).max(content_start);
 
-        let axis = config.direction.axis();
-        let cross_extent = cross_size.map(sanitize_extent);
-
-        // Forward regions grow from the cursor toward the parent's far corner. Reverse regions
-        // grow from the parent's near corner toward the cursor, so the child can anchor at
-        // `rect.max`, which is the current cursor rather than the parent's far corner.
-        let rect = if self.layout.direction.is_reverse() {
-            let max = match axis {
-                Axis::Vertical => Pos2::new(
-                    cross_extent.map_or(content_max.x, |extent| content_min.x + extent),
-                    start.y - inset.bottom,
-                ),
-                Axis::Horizontal => Pos2::new(
-                    start.x - inset.right,
-                    cross_extent.map_or(content_max.y, |extent| content_min.y + extent),
-                ),
-            };
-            Rect::from_min_max(content_min, max.max(content_min))
+        // Express the requested extents in the parent's axes. A fixed extent on the parent's
+        // main axis is what anchors an opposite-direction child without measuring it first.
+        let (main_size, cross_size) = if child_axis == parent_axis {
+            (size.main, size.cross)
         } else {
-            let min = start + vec2(inset.left, inset.top);
-            let max = match axis {
-                Axis::Vertical => Pos2::new(
-                    cross_extent.map_or(content_max.x, |extent| min.x + extent),
-                    content_max.y,
-                ),
-                Axis::Horizontal => Pos2::new(
-                    content_max.x,
-                    cross_extent.map_or(content_max.y, |extent| min.y + extent),
-                ),
-            };
-            Rect::from_min_max(min, max.max(min))
+            (size.cross, size.main)
         };
+        let main_size = main_size.map(sanitize_extent);
+        let cross_size = cross_size.map(sanitize_extent);
+
+        // The cursor-side inset is the one facing the cursor: top/left for forward flows and
+        // bottom/right for reverse ones.
+        let cursor_inset = match (parent_axis, parent_direction.is_reverse()) {
+            (Axis::Vertical, false) => inset.top,
+            (Axis::Vertical, true) => inset.bottom,
+            (Axis::Horizontal, false) => inset.left,
+            (Axis::Horizontal, true) => inset.right,
+        };
+        let anchor = parent_axis.value(start);
+        let (main_start, main_end) = if parent_direction.is_reverse() {
+            match main_size {
+                Some(extent) => {
+                    let end = anchor - cursor_inset;
+                    (end - extent, end)
+                }
+                None => {
+                    let available_start = parent_axis.value(content_start);
+                    let end = (anchor - cursor_inset).max(available_start);
+                    (available_start, end)
+                }
+            }
+        } else {
+            match main_size {
+                Some(extent) => {
+                    let start = anchor + cursor_inset;
+                    (start, start + extent)
+                }
+                None => {
+                    let available_end = parent_axis.value(content_end);
+                    let start = anchor + cursor_inset;
+                    (start, available_end.max(start))
+                }
+            }
+        };
+
+        // Fixed cross extents are aligned inside the parent's cross axis just like any allocated
+        // widget. An explicit extent wins over `Stretch`, which only affects content-sized axes.
+        let cross_start = cross_axis.value(content_start);
+        let cross_end = cross_axis.value(content_end);
+        let cross_extent = (cross_end - cross_start).max(0.0);
+        let (cross_start, cross_end) = match cross_size {
+            Some(extent) => {
+                let offset = match self.layout.align {
+                    Align::Start | Align::Stretch => 0.0,
+                    Align::Center => (cross_extent - extent) * 0.5,
+                    Align::End => cross_extent - extent,
+                };
+                let start = cross_start + offset;
+                (start, start + extent)
+            }
+            None => (cross_start, cross_end),
+        };
+
+        let min = parent_axis.point(main_start, cross_start);
+        let rect = Rect::from_min_max(min, parent_axis.point(main_end, cross_end).max(min));
         let origin = rect.min;
 
         let (result, used) = self.layout_at(rect, origin, config, build);
 
-        let mut used = if used.is_positive() {
+        let used = if used.is_positive() {
             used
         } else {
             Rect::from_min_size(origin, Vec2::ZERO)
         };
-        if let Some(cross_extent) = cross_extent {
-            let cross_region = match axis {
-                Axis::Vertical => Rect::from_min_max(
-                    Pos2::new(origin.x, used.min.y),
-                    Pos2::new(origin.x + cross_extent, used.max.y),
-                ),
-                Axis::Horizontal => Rect::from_min_max(
-                    Pos2::new(used.min.x, origin.y),
-                    Pos2::new(used.max.x, origin.y + cross_extent),
-                ),
-            };
-            used = used.union(cross_region);
-        }
+        // Reserve fixed extents even when the content is smaller. Content-sized axes use only the
+        // measured part, which is how a content-sized cross axis follows its children.
+        let reserved_main = if main_size.is_some() {
+            (main_start, main_end)
+        } else {
+            (parent_axis.value(used.min), parent_axis.value(used.max))
+        };
+        let reserved_cross = if cross_size.is_some() {
+            (cross_start, cross_end)
+        } else {
+            (cross_axis.value(used.min), cross_axis.value(used.max))
+        };
+        let reserved = Rect::from_min_max(
+            parent_axis.point(reserved_main.0, reserved_cross.0),
+            parent_axis.point(reserved_main.1, reserved_cross.1),
+        );
         let outer = Rect::from_min_max(
-            used.min - vec2(inset.left, inset.top),
-            used.max + vec2(inset.right, inset.bottom),
+            reserved.min - vec2(inset.left, inset.top),
+            reserved.max + vec2(inset.right, inset.bottom),
         );
 
         if outer.is_positive() {
-            match self.layout.direction {
+            match parent_direction {
                 Direction::Vertical => {
                     self.layout.cursor.y = self.layout.cursor.y.max(outer.max.y);
                 }

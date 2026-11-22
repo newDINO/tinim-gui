@@ -11,6 +11,32 @@ pub(super) enum Axis {
     Horizontal,
 }
 
+impl Axis {
+    /// The other axis.
+    pub(super) fn other(self) -> Self {
+        match self {
+            Self::Vertical => Self::Horizontal,
+            Self::Horizontal => Self::Vertical,
+        }
+    }
+
+    /// Reads the component along this axis from `value`.
+    pub(super) fn value(self, value: Vec2) -> f32 {
+        match self {
+            Self::Vertical => value.y,
+            Self::Horizontal => value.x,
+        }
+    }
+
+    /// Builds a point from a main-axis and a cross-axis coordinate.
+    pub(super) fn point(self, main: f32, cross: f32) -> Pos2 {
+        match self {
+            Self::Vertical => Pos2::new(cross, main),
+            Self::Horizontal => Pos2::new(main, cross),
+        }
+    }
+}
+
 /// The direction in which a flow places its children.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Direction {
@@ -44,8 +70,10 @@ impl Direction {
     ///
     /// Content-sized flows need a known near edge. A child can be built when it grows in the
     /// same direction on the same axis, or when both flows are forward. The remaining
-    /// combinations would need the child's measured extent before placing it; use
-    /// [`Ui::sized_flow`](crate::Ui::sized_flow) for those.
+    /// combinations need a known extent along the parent's main axis: pass
+    /// [`FlowSize::main`](crate::FlowSize::main) for a same-axis flow or
+    /// [`FlowSize::cross`](crate::FlowSize::cross) for a perpendicular one, or use
+    /// [`Ui::sized_flow`](crate::Ui::sized_flow).
     pub(super) fn can_host_content_flow(self, child: Self) -> bool {
         (self.axis() == child.axis() && self == child) || (self.is_forward() && child.is_forward())
     }
@@ -175,8 +203,9 @@ impl FlowConfig {
 
     /// Bottom-to-top flow, aligned at the start of the cross axis.
     ///
-    /// Use this with [`Ui::sized_flow`](crate::Ui::sized_flow): a reverse flow needs a known
-    /// extent to anchor its first child.
+    /// A content-sized reverse flow needs a known near edge. Use [`FlowSize::main`] when nesting
+    /// it in an opposite-direction flow, or [`Ui::sized_flow`](crate::Ui::sized_flow) when both
+    /// extents are known.
     pub fn bottom_to_top() -> Self {
         Self {
             direction: Direction::VerticalReverse,
@@ -186,8 +215,9 @@ impl FlowConfig {
 
     /// Right-to-left flow, aligned at the start of the cross axis.
     ///
-    /// Use this with [`Ui::sized_flow`](crate::Ui::sized_flow): a reverse flow needs a known
-    /// extent to anchor its first child.
+    /// A content-sized reverse flow needs a known near edge. Use [`FlowSize::main`] when nesting
+    /// it in an opposite-direction flow, or [`Ui::sized_flow`](crate::Ui::sized_flow) when both
+    /// extents are known.
     pub fn right_to_left() -> Self {
         Self {
             direction: Direction::HorizontalReverse,
@@ -205,6 +235,79 @@ impl FlowConfig {
 impl Default for FlowConfig {
     fn default() -> Self {
         Self::vertical()
+    }
+}
+
+/// Requested extents of a content-sized flow.
+///
+/// Both values are measured in the flow's own axes: `main` is the arrangement direction (height
+/// for a vertical flow, width for a horizontal flow) and `cross` is the other axis.
+///
+/// Leaving an axis as `None` keeps it content-sized. A content-sized main axis needs a known near
+/// edge; nesting an opposite-direction flow on the same axis therefore requires `main`. Leaving
+/// `cross` as `None` inherits the parent's cross-axis extent for layout and alignment while the
+/// parent reserves only the measured part.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FlowSize {
+    /// Extent along the flow's arrangement axis. `None` fills the space left by the parent.
+    pub main: Option<f32>,
+    /// Extent along the flow's cross axis. `None` inherits the parent's cross-axis extent.
+    pub cross: Option<f32>,
+}
+
+impl FlowSize {
+    /// Both axes are content-sized.
+    pub const CONTENT: Self = Self {
+        main: None,
+        cross: None,
+    };
+
+    /// Fixes the arrangement axis; the cross axis stays content-sized.
+    pub const fn main(main: f32) -> Self {
+        Self {
+            main: Some(main),
+            cross: None,
+        }
+    }
+
+    /// Fixes the cross axis; the arrangement axis stays content-sized.
+    pub const fn cross(cross: f32) -> Self {
+        Self {
+            main: None,
+            cross: Some(cross),
+        }
+    }
+
+    /// Fixes both axes.
+    pub const fn fixed(main: f32, cross: f32) -> Self {
+        Self {
+            main: Some(main),
+            cross: Some(cross),
+        }
+    }
+
+    /// Fixes the cross axis, keeping the current main-axis setting.
+    pub const fn with_cross(self, cross: f32) -> Self {
+        Self {
+            cross: Some(cross),
+            ..self
+        }
+    }
+
+    /// Fixes the arrangement axis, keeping the current cross-axis setting.
+    pub const fn with_main(self, main: f32) -> Self {
+        Self {
+            main: Some(main),
+            ..self
+        }
+    }
+
+    /// Converts a physical size to flow-relative extents.
+    pub(super) fn from_vec(size: Vec2, config: FlowConfig) -> Self {
+        match config.direction.axis() {
+            Axis::Vertical => Self::fixed(size.y, size.x),
+            Axis::Horizontal => Self::fixed(size.x, size.y),
+        }
     }
 }
 

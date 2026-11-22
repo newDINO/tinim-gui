@@ -3,7 +3,7 @@
 use tinim_paint::{Pos2, Rect, RectShape, Shape, Vec2, vec2};
 
 use super::super::Ui;
-use super::super::layout::FlowConfig;
+use super::super::layout::{FlowConfig, FlowSize};
 use crate::style::FrameStyle;
 
 /// The result of building a frame.
@@ -76,8 +76,12 @@ impl Ui<'_> {
             .then(|| reserved_frame_shape(style))
             .and_then(|shape| self.ctx.painter.reserve_rect(shape));
 
-        let (result, rect) =
-            self.content_region(style.inset(), None, FlowConfig::vertical(), build);
+        let (result, rect) = self.content_region(
+            style.inset(),
+            FlowSize::CONTENT,
+            FlowConfig::vertical(),
+            build,
+        );
 
         if let Some(slot) = slot {
             self.ctx.painter.set_rect(slot, frame_shape(rect, style));
