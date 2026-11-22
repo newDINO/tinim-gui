@@ -199,10 +199,26 @@ fn trailing_spaces_keep_the_caret_advance() {
     assert!((line.cursor_x(2) - 32.0).abs() < 0.01);
     assert_eq!(line.byte_index_at_x(32.0), 2);
 
-    // Wrapped lines still trim the trailing space so it cannot overflow the wrap width.
+    // Wrapped lines keep trailing spaces for the caret but exclude them from the line width so
+    // they cannot overflow the wrap width.
     let wrapped = text.layout("a ", &style(16.0), Some(40.0));
-    assert_eq!(wrapped.lines()[0].glyphs().len(), 1);
+    let line = &wrapped.lines()[0];
+    assert_eq!(line.glyphs().len(), 2);
+    assert_eq!(line.range(), 0..2);
+    assert_eq!(line.content_range(), 0..1);
     assert!((wrapped.width() - 16.0).abs() < 0.01);
+    assert!((line.width() - 16.0).abs() < 0.01);
+    assert!((line.cursor_x(2) - 32.0).abs() < 0.01);
+    assert_eq!(line.byte_index_at_x(31.0), 2);
+
+    // The spaces before a break stay on the line so the caret and selection can address them.
+    let wrapped = text.layout("a  b", &style(16.0), Some(40.0));
+    assert_eq!(wrapped.line_count(), 2);
+    assert_eq!(wrapped.lines()[0].range(), 0..3);
+    assert_eq!(wrapped.lines()[0].content_range(), 0..1);
+    assert_eq!(wrapped.lines()[1].range(), 3..4);
+    assert!((wrapped.lines()[0].width() - 16.0).abs() < 0.01);
+    assert!((wrapped.lines()[0].cursor_x(3) - 48.0).abs() < 0.01);
 }
 
 #[test]

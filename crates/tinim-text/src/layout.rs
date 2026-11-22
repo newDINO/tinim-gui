@@ -272,6 +272,7 @@ pub struct TextLine {
     baseline: f32,
     start: usize,
     end: usize,
+    content_end: usize,
 }
 
 impl TextLine {
@@ -281,13 +282,26 @@ impl TextLine {
 
     /// Byte range of the source text covered by this line.
     ///
-    /// Line terminators and, for wrapped lines, trailing spaces are excluded from the range. An
-    /// empty line has an empty range at its position in the text.
+    /// The range includes trailing whitespace so editors can address caret positions after it,
+    /// but excludes line terminators. An empty line has an empty range at its position in the
+    /// text.
     pub fn range(&self) -> Range<usize> {
         self.start..self.end
     }
 
+    /// Byte range that contributes to [`TextLine::width`].
+    ///
+    /// This normally equals [`TextLine::range`]. On wrapped lines it ends before hanging trailing
+    /// whitespace, which is laid out for caret navigation but does not count toward the wrap
+    /// width.
+    pub fn content_range(&self) -> Range<usize> {
+        self.start..self.content_end
+    }
+
     /// Width of the line in logical points.
+    ///
+    /// Hanging trailing whitespace is not included so it cannot overflow the wrap width. Use
+    /// [`TextLine::cursor_x`] to place a caret after it.
     pub fn width(&self) -> f32 {
         self.width
     }
@@ -300,7 +314,8 @@ impl TextLine {
     /// X position of the caret before `byte_index`, relative to the line start.
     ///
     /// Indices inside a shaping cluster snap to the start of that cluster. An index at or past
-    /// the end of the line returns its width. This is used by text editors to draw the caret.
+    /// the end of the line returns its end position, including hanging trailing whitespace. This
+    /// is used by text editors to draw the caret.
     pub fn cursor_x(&self, byte_index: usize) -> f32 {
         let clusters = self.clusters();
         let mut after = None;
@@ -517,16 +532,24 @@ pub(crate) fn layout(
     let first_baseline = leading * 0.5 + metrics.ascent;
 
     let mut width: f32 = 0.0;
-    for (index, range) in ranges.into_iter().enumerate() {
-        let paragraph = paragraph_for(&bidi, range.start);
-        let (glyphs, line_width) = shaped.line(&bidi, paragraph, range.clone(), &style);
+    for (index, wrapped) in ranges.into_iter().enumerate() {
+        let paragraph = paragraph_for(&bidi, wrapped.start);
+        let (glyphs, shaped_width) =
+            shaped.line(&bidi, paragraph, wrapped.start..wrapped.end, &style);
+        let line_width = if measure_widths {
+            // Hanging whitespace is laid out for the caret but must not widen the line.
+            shaped.width(wrapped.start..wrapped.content_end)
+        } else {
+            shaped_width
+        };
         width = width.max(line_width);
         result.lines.push(TextLine {
             glyphs,
             width: line_width,
             baseline: first_baseline + index as f32 * line_height,
-            start: range.start,
-            end: range.end,
+            start: wrapped.start,
+            end: wrapped.end,
+            content_end: wrapped.content_end,
         });
     }
 
@@ -534,10 +557,22 @@ pub(crate) fn layout(
     result
 }
 
-fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) -> Vec<Range<usize>> {
+/// One visual line produced by wrapping.
+#[derive(Clone, Copy, Debug)]
+struct WrappedLine {
+    /// First byte of the line.
+    start: usize,
+    /// End of the content that determines the line width.
+    content_end: usize,
+    /// End of the line including hanging trailing whitespace, excluding line terminators.
+    end: usize,
+}
+
+fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) -> Vec<WrappedLine> {
     let max_width = max_width.unwrap_or(f32::INFINITY);
-    // Wrapped lines drop trailing spaces so they cannot overflow the wrap width. Unbounded
-    // layouts keep them: text editors need the advance of a trailing space to place the caret.
+    // Wrapped lines exclude trailing spaces when measuring width so they cannot overflow the
+    // wrap width. They stay in the line's range and glyphs so caret positions after them remain
+    // addressable. Unbounded layouts treat trailing spaces as content.
     let trim_spaces = max_width.is_finite();
     let breaks: Vec<(usize, BreakOpportunity)> = linebreaks(text).collect();
     let mut lines = Vec::new();
@@ -613,7 +648,12 @@ fn wrap_lines(text: &str, max_width: Option<f32>, shaped: &shape::ShapedText) ->
                 }
             }
         };
-        lines.push(start..content_end);
+        let end = trim_end(text, start, position, false);
+        lines.push(WrappedLine {
+            start,
+            content_end,
+            end,
+        });
         start = position;
     }
 
@@ -658,9 +698,10 @@ fn paragraph_for<'a>(bidi: &'a BidiInfo<'_>, position: usize) -> &'a ParagraphIn
 
 /// Trims line terminators from the end of a line, without touching NBSP.
 ///
-/// When `trim_spaces` is set, spaces and tabs are trimmed as well. Wrapped lines do that so
-/// trailing whitespace cannot overflow the wrap width; unbounded layouts keep it so caret
-/// positions after a trailing space are available.
+/// When `trim_spaces` is set, spaces and tabs are trimmed as well. Wrapping uses that to measure
+/// the content width of a line, so hanging trailing whitespace cannot overflow the wrap width.
+/// The line itself keeps that whitespace in its range and glyphs so caret positions after it
+/// remain addressable.
 fn trim_end(text: &str, start: usize, end: usize, trim_spaces: bool) -> usize {
     let mut end = end.min(text.len());
     while end > start {

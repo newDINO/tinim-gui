@@ -894,13 +894,10 @@ fn visual_line_range(layout: &TextLayout, text: &str, index: usize) -> Range<usi
 }
 
 fn visual_cursor_x(layout: &TextLayout, index: usize, byte: usize) -> f32 {
-    match layout.lines().get(index) {
-        // Wrapped layouts trim trailing spaces from the line, so positions after the range are at
-        // the visible end of the line instead of inside its last glyph.
-        Some(line) if byte > line.range().end => line.width(),
-        Some(line) => line.cursor_x(byte),
-        None => 0.0,
-    }
+    layout
+        .lines()
+        .get(index)
+        .map_or(0.0, |line| line.cursor_x(byte))
 }
 
 /// Converts an x position on a visual line to a byte index.
@@ -1897,7 +1894,7 @@ mod tests {
     }
 
     #[test]
-    fn multiline_caret_after_trailing_spaces_stays_at_the_line_end() {
+    fn multiline_caret_advances_through_trailing_spaces() {
         let mut context = context();
         let mut text = "ab   \ncd".to_owned();
         let mut state = TextEditState::new();
@@ -1919,8 +1916,55 @@ mod tests {
             .min
             .x;
 
-        // Wrapping trims the spaces from the line, so the caret sits after "ab", not before it.
-        assert!((caret_x - (8.0 + 28.0)).abs() < 0.01);
+        // Ahem advances one em per glyph. The trailing spaces are laid out for the caret even
+        // though they do not count toward the line width.
+        assert!((caret_x - (8.0 + 5.0 * 14.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn multiline_typing_a_space_moves_the_caret() {
+        let mut context = context();
+        let mut text = String::new();
+        let mut state = TextEditState::new();
+        focus_multiline(&mut context, &mut text, &mut state);
+
+        let (_, platform) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            RawInput {
+                text: "a".to_owned(),
+                ..Default::default()
+            },
+        );
+        let before = platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+
+        let (_, platform) = run_multiline(
+            &mut context,
+            &mut text,
+            &mut state,
+            None,
+            RawInput {
+                text: " ".to_owned(),
+                ..Default::default()
+            },
+        );
+        let after = platform
+            .ime
+            .expect("a focused editor reports IME state")
+            .cursor_rect
+            .min
+            .x;
+
+        assert_eq!(text, "a ");
+        assert_eq!(state.cursor(), 2);
+        assert!((after - before - 14.0).abs() < 0.01);
     }
 
     #[test]
