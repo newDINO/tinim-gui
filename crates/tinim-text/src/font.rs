@@ -5,14 +5,20 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(any(feature = "system-fonts", test))]
+use skrifa::raw::CollectionRef;
 use skrifa::{
     Font,
     GlyphId,
-    font::{attribute::Style as SkrifaStyle, glyph::color::ColorVersion, name::NameId},
+    font::{
+        attribute::Style as SkrifaStyle,
+        glyph::{bitmap::BitmapSource, color::ColorVersion},
+        name::NameId,
+    },
     // The high-level font model deliberately does not report why a face failed to load, nor
     // enumerate the faces of a collection. Both need the underlying read-fonts view, which
     // skrifa re-exports as `raw`.
-    raw::{CollectionRef, FileRef},
+    raw::FileRef,
 };
 
 use crate::error::FontError;
@@ -256,7 +262,12 @@ impl AsRef<[u8]> for SharedBytes {
 pub struct FontFace {
     index: u32,
     units_per_em: u16,
+    /// Whether the font has a table that can paint glyphs in color: COLR, CBDT/CBLC or sbix.
     has_color_tables: bool,
+    /// Whether the font has any embedded bitmap table: CBDT/CBLC, EBDT/EBLC or sbix.
+    ///
+    /// Monochrome and grayscale EBDT strikes are coverage glyphs, not color glyphs.
+    has_bitmap_tables: bool,
     /// Fontations font model. It also owns the cached layout data that harfrust attaches to the
     /// font, so it must outlive every [`harfrust::ShaperFont`].
     font: Font,
@@ -302,6 +313,7 @@ impl FontFace {
     ///
     /// A single-face file yields one face. Files that are not recognised as a collection are
     /// tried at index 0, just like a collection is read face by face.
+    #[cfg(any(feature = "system-fonts", test))]
     pub(crate) fn from_shared_collection(data: Arc<[u8]>) -> Vec<Self> {
         match CollectionRef::new(&data) {
             Ok(collection) => (0..collection.len())
@@ -339,6 +351,9 @@ impl FontFace {
         let has_color_tables = tables.colr_data().is_some()
             || tables.cbdt_data().is_some()
             || tables.cblc_data().is_some()
+            || tables.sbix_data().is_some();
+        let has_bitmap_tables = tables.cbdt_data().is_some()
+            || tables.cblc_data().is_some()
             || tables.ebdt_data().is_some()
             || tables.eblc_data().is_some()
             || tables.sbix_data().is_some();
@@ -356,6 +371,7 @@ impl FontFace {
             index,
             units_per_em,
             has_color_tables,
+            has_bitmap_tables,
             font,
             family,
             family_key,
@@ -427,7 +443,10 @@ impl FontFace {
         self.font.charmap().map_unicode(ch)
     }
 
-    /// Whether `glyph_id` is painted with a color representation (bitmap or COLRv0).
+    /// Whether `glyph_id` is painted with a color representation (COLRv0 or a color bitmap).
+    ///
+    /// Monochrome and grayscale embedded bitmaps (EBDT) are coverage glyphs and are not
+    /// considered color, so the text color still applies to them.
     pub(crate) fn has_color_glyph(&self, glyph_id: GlyphId) -> bool {
         if !self.has_color_tables {
             return false;
@@ -440,14 +459,22 @@ impl FontFace {
         {
             return true;
         }
-        self.font
-            .bitmap_strikes()
-            .iter()
-            .any(|strike| strike.get(glyph_id).is_some())
+        let strikes = self.font.bitmap_strikes();
+        if !matches!(
+            strikes.source(),
+            Some(BitmapSource::Cbdt | BitmapSource::Sbix)
+        ) {
+            return false;
+        }
+        strikes.iter().any(|strike| strike.get(glyph_id).is_some())
     }
 
     pub(crate) fn has_color_tables(&self) -> bool {
         self.has_color_tables
+    }
+
+    pub(crate) fn has_bitmap_tables(&self) -> bool {
+        self.has_bitmap_tables
     }
 
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
@@ -949,6 +976,67 @@ mod tests {
             FontFace::from_shared(b"not a font".to_vec().into(), 0),
             Err(FontError::InvalidFont)
         ));
+    }
+
+    /// Removes CBDT/CBLC from a font directory, leaving its EBDT/EBLC strikes.
+    ///
+    /// Table data stays at its original offsets; only the directory shrinks.
+    fn without_color_bitmap_tables(data: &[u8]) -> Vec<u8> {
+        let count = u16::from_be_bytes([data[4], data[5]]) as usize;
+        let records: Vec<&[u8]> = (0..count)
+            .map(|index| {
+                let start = 12 + index * 16;
+                &data[start..start + 16]
+            })
+            .filter(|record| {
+                let tag = &record[..4];
+                tag != &b"CBDT"[..] && tag != &b"CBLC"[..]
+            })
+            .collect();
+        let mut out = data.to_vec();
+        let count = records.len();
+        out[4..6].copy_from_slice(&(count as u16).to_be_bytes());
+        let max_power = if count == 0 {
+            0
+        } else {
+            1usize << count.ilog2()
+        };
+        out[6..8].copy_from_slice(&((max_power * 16) as u16).to_be_bytes());
+        out[8..10].copy_from_slice(&(max_power.trailing_zeros() as u16).to_be_bytes());
+        out[10..12]
+            .copy_from_slice(&((count * 16).saturating_sub(max_power * 16) as u16).to_be_bytes());
+        for (index, record) in records.iter().enumerate() {
+            let start = 12 + index * 16;
+            out[start..start + 16].copy_from_slice(record);
+        }
+        out
+    }
+
+    #[test]
+    fn monochrome_embedded_bitmaps_are_coverage() {
+        let data = without_color_bitmap_tables(font_test_data::EMBEDDED_BITMAPS);
+        let face = FontFace::new(data, 0).unwrap();
+        assert!(face.has_bitmap_tables());
+        assert!(!face.has_color_tables(), "EBDT is not a color table");
+
+        let font = face.font();
+        assert_eq!(font.bitmap_strikes().source(), Some(BitmapSource::Ebdt));
+        let glyph_id = (0..font.num_glyphs())
+            .map(GlyphId::new)
+            .find(|glyph_id| {
+                font.bitmap_strikes()
+                    .iter()
+                    .any(|strike| strike.get(*glyph_id).is_some())
+            })
+            .expect("the test font has an EBDT glyph");
+
+        assert!(!face.has_color_glyph(glyph_id));
+        let raster =
+            crate::rasterize(&face, glyph_id.to_u32(), 16.0).expect("the EBDT glyph rasterizes");
+        assert!(
+            !raster.color,
+            "coverage glyphs are tinted with the text color"
+        );
     }
 
     fn candidate(

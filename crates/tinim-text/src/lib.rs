@@ -46,8 +46,10 @@
 //! ## Emoji
 //!
 //! Bitmap strikes (CBDT/CBLC, EBDT/EBLC and sbix) and COLRv0 are supported. PNG-compressed strikes
-//! need the `emoji-bitmap` feature, which is on by default. COLRv1 gradient graphs are not
-//! implemented yet; those glyphs fall back to their monochrome outline when one exists.
+//! need the `emoji-bitmap` feature, which is on by default. EBDT/EBLC strikes are monochrome or
+//! grayscale coverage and are tinted with the text color; CBDT/CBLC and sbix strikes carry color.
+//! COLRv1 gradient graphs are not implemented yet; those glyphs fall back to their monochrome
+//! outline when one exists.
 
 mod error;
 mod font;

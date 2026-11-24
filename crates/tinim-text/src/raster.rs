@@ -28,7 +28,10 @@ pub struct RasterizedGlyph {
     pub left: f32,
     /// Distance from the baseline to the top edge, in physical pixels.
     pub top: f32,
-    /// True for color glyphs (bitmaps and COLRv0), which ignore the text color.
+    /// True for color glyphs (color bitmaps and COLRv0), which ignore the text color.
+    ///
+    /// Monochrome and grayscale embedded bitmaps are coverage glyphs; their pixels are white with
+    /// the bitmap coverage in alpha and they are tinted with the text color.
     pub color: bool,
     /// RGBA8 pixels, row-major, `width * height * 4` bytes.
     pub pixels: Vec<u8>,
@@ -44,6 +47,7 @@ pub fn rasterize(face: &FontFace, glyph_id: u32, ppem: f32) -> Option<Rasterized
         GlyphId::new(glyph_id),
         ppem,
         face.units_per_em(),
+        face.has_bitmap_tables(),
         face.has_color_tables(),
     )
 }
@@ -53,15 +57,14 @@ fn rasterize_font(
     glyph_id: GlyphId,
     ppem: f32,
     units_per_em: u16,
+    has_bitmap_tables: bool,
     has_color_tables: bool,
 ) -> Option<RasterizedGlyph> {
-    if has_color_tables {
-        if let Some(glyph) = rasterize_bitmap(font, glyph_id, ppem, units_per_em) {
-            return Some(glyph);
-        }
-        if let Some(glyph) = rasterize_colr_v0(font, glyph_id, ppem) {
-            return Some(glyph);
-        }
+    if has_bitmap_tables && let Some(glyph) = rasterize_bitmap(font, glyph_id, ppem, units_per_em) {
+        return Some(glyph);
+    }
+    if has_color_tables && let Some(glyph) = rasterize_colr_v0(font, glyph_id, ppem) {
+        return Some(glyph);
     }
     rasterize_outline(font, glyph_id, ppem)
 }
@@ -199,7 +202,7 @@ fn rasterize_bitmap(
             strike.get(glyph_id).map(|glyph| (strike_ppem, glyph))
         })
         .min_by(|(a, _), (b, _)| (a - ppem).abs().total_cmp(&(b - ppem).abs()))?;
-    let (source, source_width, source_height) = decode_bitmap(&bitmap)?;
+    let (source, source_width, source_height, color) = decode_bitmap(&bitmap)?;
     if source_width == 0 || source_height == 0 {
         return None;
     }
@@ -230,15 +233,18 @@ fn rasterize_bitmap(
         height,
         left,
         top,
-        color: true,
+        color,
         pixels,
     })
 }
 
-fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
+/// The decoded pixels plus whether they carry color or only coverage.
+fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32, bool)> {
     let width = bitmap.width();
     let height = bitmap.height();
-    match bitmap.pixels() {
+    let pixels = bitmap.pixels();
+    let color = pixels_are_color(pixels);
+    match pixels {
         Pixels::Bgra(data) => {
             let expected = width as usize * height as usize * 4;
             let source = data.data();
@@ -262,12 +268,12 @@ fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
                     ]);
                 }
             }
-            Some((rgba, width, height))
+            Some((rgba, width, height, color))
         }
         Pixels::Png(data) => {
             #[cfg(feature = "emoji-bitmap")]
             {
-                decode_png(data)
+                decode_png(data).map(|(rgba, width, height)| (rgba, width, height, true))
             }
             #[cfg(not(feature = "emoji-bitmap"))]
             {
@@ -277,8 +283,16 @@ fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
         }
         Pixels::Mask(mask) => {
             let rgba = decode_mask(&mask)?;
-            Some((rgba, width, height))
+            Some((rgba, width, height, false))
         }
+    }
+}
+
+/// Whether the pixel data is color rather than coverage.
+fn pixels_are_color(pixels: Pixels<'_>) -> bool {
+    match pixels {
+        Pixels::Bgra(_) | Pixels::Png(_) => true,
+        Pixels::Mask(_) => false,
     }
 }
 
@@ -586,6 +600,15 @@ mod tests {
         for pixel in scaled.as_chunks::<4>().0 {
             assert_eq!(pixel, &[255, 0, 0, 255]);
         }
+    }
+
+    #[test]
+    fn monochrome_masks_are_not_color() {
+        let mask = Mask::new(&[0xFF], 1, 1, 8, false).unwrap();
+        assert!(!pixels_are_color(Pixels::Mask(mask)));
+
+        let bgra = skrifa::font::glyph::bitmap::Bgra::new(&[0, 0, 255, 255], 1, 1).unwrap();
+        assert!(pixels_are_color(Pixels::Bgra(bgra)));
     }
 
     #[test]

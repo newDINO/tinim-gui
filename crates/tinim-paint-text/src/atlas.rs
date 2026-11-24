@@ -39,7 +39,8 @@ pub(crate) struct GlyphSlot {
     pub width: f32,
     /// Height in physical pixels.
     pub height: f32,
-    /// True for color glyphs (bitmaps and COLRv0), which ignore the text color.
+    /// True for color glyphs (color bitmaps and COLRv0), which ignore the text color.
+    /// Monochrome or grayscale embedded bitmaps are coverage and use the text color.
     pub color: bool,
 }
 
