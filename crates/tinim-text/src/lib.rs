@@ -60,8 +60,6 @@ mod system;
 use std::path::Path;
 
 pub use glam::{Vec2, vec2};
-#[cfg(feature = "system-fonts")]
-use skrifa::raw::CollectionRef;
 
 pub use error::FontError;
 pub use font::{
@@ -142,58 +140,32 @@ impl TextContext {
                 continue;
             };
             match system::map_font_file(&file) {
-                Ok(mmap) => added += self.add_font_mapped(std::sync::Arc::new(mmap)).len(),
+                Ok(mmap) => {
+                    let faces = FontFace::from_mapped_collection(std::sync::Arc::new(mmap));
+                    added += self.add_faces(faces);
+                }
                 Err(_) => {
                     // Mapping can fail on exotic filesystems; read the file instead.
                     let Ok(data) = std::fs::read(&path) else {
                         continue;
                     };
-                    added += self.add_font_bytes(data).len();
+                    let faces = FontFace::from_shared_collection(data.into());
+                    added += self.add_faces(faces);
                 }
             }
         }
         added
     }
 
+    /// Pushes every face from `faces` and returns how many were added.
     #[cfg(feature = "system-fonts")]
-    fn add_font_mapped(&mut self, data: std::sync::Arc<memmap2::Mmap>) -> Vec<FontId> {
-        // Faces of a collection share the same mapping instead of mapping the file once per face.
-        if let Ok(collection) = CollectionRef::new(&data[..]) {
-            let count = collection.len();
-            let mut ids = Vec::new();
-            for index in 0..count {
-                if let Ok(face) = FontFace::from_mapped(data.clone(), index) {
-                    ids.push(self.fonts.push(face));
-                }
-            }
-            ids
-        } else {
-            match FontFace::from_mapped(data, 0) {
-                Ok(face) => vec![self.fonts.push(face)],
-                Err(_) => Vec::new(),
-            }
+    fn add_faces(&mut self, faces: impl IntoIterator<Item = FontFace>) -> usize {
+        let mut added = 0;
+        for face in faces {
+            self.fonts.push(face);
+            added += 1;
         }
-    }
-
-    #[cfg(feature = "system-fonts")]
-    fn add_font_bytes(&mut self, data: Vec<u8>) -> Vec<FontId> {
-        // Faces of a collection share the same bytes instead of copying them once per face.
-        let data: std::sync::Arc<[u8]> = data.into();
-        if let Ok(collection) = CollectionRef::new(&data) {
-            let count = collection.len();
-            let mut ids = Vec::new();
-            for index in 0..count {
-                if let Ok(face) = FontFace::from_shared(data.clone(), index) {
-                    ids.push(self.fonts.push(face));
-                }
-            }
-            ids
-        } else {
-            match FontFace::from_shared(data, 0) {
-                Ok(face) => vec![self.fonts.push(face)],
-                Err(_) => Vec::new(),
-            }
-        }
+        added
     }
 
     /// Shapes and line-breaks `text`. Nothing is rasterized yet.

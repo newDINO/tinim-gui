@@ -6,8 +6,13 @@ use std::{
 };
 
 use skrifa::{
-    Font, GlyphId,
+    Font,
+    GlyphId,
     font::{attribute::Style as SkrifaStyle, glyph::color::ColorVersion, name::NameId},
+    // The high-level font model deliberately does not report why a face failed to load, nor
+    // enumerate the faces of a collection. Both need the underlying read-fonts view, which
+    // skrifa re-exports as `raw`.
+    raw::{CollectionRef, FileRef},
 };
 
 use crate::error::FontError;
@@ -293,13 +298,37 @@ impl FontFace {
         Self::from_data(FontData::Mapped(data), index)
     }
 
+    /// Creates every face in `data`, sharing the same byte buffer between them.
+    ///
+    /// A single-face file yields one face. Files that are not recognised as a collection are
+    /// tried at index 0, just like a collection is read face by face.
+    pub(crate) fn from_shared_collection(data: Arc<[u8]>) -> Vec<Self> {
+        match CollectionRef::new(&data) {
+            Ok(collection) => (0..collection.len())
+                .filter_map(|index| Self::from_shared(data.clone(), index).ok())
+                .collect(),
+            Err(_) => Self::from_shared(data, 0).ok().into_iter().collect(),
+        }
+    }
+
+    /// Creates every face in a memory-mapped file, sharing the mapping between them.
+    #[cfg(feature = "system-fonts")]
+    pub(crate) fn from_mapped_collection(data: Arc<memmap2::Mmap>) -> Vec<Self> {
+        match CollectionRef::new(&data[..]) {
+            Ok(collection) => (0..collection.len())
+                .filter_map(|index| Self::from_mapped(data.clone(), index).ok())
+                .collect(),
+            Err(_) => Self::from_mapped(data, 0).ok().into_iter().collect(),
+        }
+    }
+
     fn from_data(data: FontData, index: u32) -> Result<Self, FontError> {
         let font = Font::new(data.to_source(), index).ok_or_else(|| {
             // `Font::new` only reports success. Classify the failure with the raw file view so a
             // bad collection index keeps its dedicated error.
-            match skrifa::raw::FileRef::new(data.as_slice()) {
-                Ok(skrifa::raw::FileRef::Font(_)) if index != 0 => FontError::InvalidIndex(index),
-                Ok(skrifa::raw::FileRef::Collection(collection)) if index >= collection.len() => {
+            match FileRef::new(data.as_slice()) {
+                Ok(FileRef::Font(_)) if index != 0 => FontError::InvalidIndex(index),
+                Ok(FileRef::Collection(collection)) if index >= collection.len() => {
                     FontError::InvalidIndex(index)
                 }
                 _ => FontError::InvalidFont,
@@ -906,6 +935,21 @@ pub(crate) fn is_emoji_char(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collections_share_faces_and_report_bad_indices() {
+        let data: Arc<[u8]> = font_test_data::ttc::TTC.to_vec().into();
+        assert_eq!(FontFace::from_shared_collection(data.clone()).len(), 2);
+
+        assert!(matches!(
+            FontFace::from_shared(data, 2),
+            Err(FontError::InvalidIndex(2))
+        ));
+        assert!(matches!(
+            FontFace::from_shared(b"not a font".to_vec().into(), 0),
+            Err(FontError::InvalidFont)
+        ));
+    }
 
     fn candidate(
         id: u32,
