@@ -551,6 +551,10 @@ impl FontStack {
         !key.is_empty() && self.by_family.contains_key(key.as_str())
     }
 
+    pub fn get_all_families(&self) -> impl Iterator<Item = &str> {
+        self.by_family.keys().map(|s| s.as_ref())
+    }
+
     pub(crate) fn push(&mut self, face: FontFace) -> FontId {
         let id = FontId(self.faces.len() as u32);
         for name in face.family_names() {

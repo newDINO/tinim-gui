@@ -123,6 +123,10 @@ impl TextContext {
         self.fonts.has_family(family)
     }
 
+    pub fn get_all_families(&self) -> impl Iterator<Item = &str> {
+        self.fonts.get_all_families()
+    }
+
     /// Scans the usual system font directories and adds every face found.
     ///
     /// Returns the number of faces added. This is a no-op without the `system-fonts` feature.
