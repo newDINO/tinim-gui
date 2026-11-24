@@ -6,11 +6,8 @@ use std::{
 };
 
 use skrifa::{
-    FontRef, GlyphId, MetadataProvider,
-    attribute::Style as SkrifaStyle,
-    instance::{LocationRef, Size},
-    raw::TableProvider,
-    string::StringId,
+    Font, GlyphId,
+    font::{attribute::Style as SkrifaStyle, glyph::color::ColorVersion, name::NameId},
 };
 
 use crate::error::FontError;
@@ -248,17 +245,16 @@ impl AsRef<[u8]> for SharedBytes {
 
 /// A parsed font face, kept alive for as long as the [`crate::TextContext`] exists.
 ///
-/// The font is parsed again on every use. `FontRef` is a cheap view over the bytes (it only
-/// validates the table directory), so this avoids self-referential structs and any `unsafe`.
+/// The fontations font model owns a shared view of the bytes and caches the tables it reads, so
+/// metadata, outlines, bitmaps and shaping all work from this one value without reparsing.
 #[derive(Clone)]
 pub struct FontFace {
-    data: FontData,
     index: u32,
     units_per_em: u16,
     has_color_tables: bool,
-    /// Fontations font model used for shaping. It also owns the cached layout data that
-    /// harfrust attaches to the font, so it must outlive every [`harfrust::ShaperFont`].
-    shaper_font: harfrust::Font,
+    /// Fontations font model. It also owns the cached layout data that harfrust attaches to the
+    /// font, so it must outlive every [`harfrust::ShaperFont`].
+    font: Font,
     family: Box<str>,
     family_key: Box<str>,
     family_names: Box<[Box<str>]>,
@@ -298,40 +294,40 @@ impl FontFace {
     }
 
     fn from_data(data: FontData, index: u32) -> Result<Self, FontError> {
-        let font = FontRef::from_index(data.as_slice(), index).map_err(|err| match err {
-            skrifa::raw::ReadError::InvalidCollectionIndex(index) => FontError::InvalidIndex(index),
-            _ => FontError::InvalidFont,
+        let font = Font::new(data.to_source(), index).ok_or_else(|| {
+            // `Font::new` only reports success. Classify the failure with the raw file view so a
+            // bad collection index keeps its dedicated error.
+            match skrifa::raw::FileRef::new(data.as_slice()) {
+                Ok(skrifa::raw::FileRef::Font(_)) if index != 0 => FontError::InvalidIndex(index),
+                Ok(skrifa::raw::FileRef::Collection(collection)) if index >= collection.len() => {
+                    FontError::InvalidIndex(index)
+                }
+                _ => FontError::InvalidFont,
+            }
         })?;
-        let units_per_em = font
-            .head()
-            .map(|head| head.units_per_em())
-            .unwrap_or(1000)
-            .max(1);
-        let tag = |bytes| skrifa::raw::types::Tag::new(bytes);
-        let has_color_tables = font.table_data(tag(b"COLR")).is_some()
-            || font.table_data(tag(b"CBDT")).is_some()
-            || font.table_data(tag(b"CBLC")).is_some()
-            || font.table_data(tag(b"EBDT")).is_some()
-            || font.table_data(tag(b"EBLC")).is_some()
-            || font.table_data(tag(b"sbix")).is_some();
-        let shaper_font =
-            harfrust::Font::new(data.to_source(), index).ok_or(FontError::InvalidFont)?;
+        let units_per_em = font.units_per_em().max(1);
+        let tables = font.tables();
+        let has_color_tables = tables.colr_data().is_some()
+            || tables.cbdt_data().is_some()
+            || tables.cblc_data().is_some()
+            || tables.ebdt_data().is_some()
+            || tables.eblc_data().is_some()
+            || tables.sbix_data().is_some();
         let (family, family_names, full_name) = read_font_names(&font);
-        let attributes = font.attributes();
+        let attributes = font.default_attributes();
         let weight = FontWeight::new(normalize_weight(attributes.weight.value()));
         let style = match attributes.style {
             SkrifaStyle::Normal => FontStyle::Normal,
             SkrifaStyle::Italic => FontStyle::Italic,
             SkrifaStyle::Oblique(_) => FontStyle::Oblique,
         };
-        let stretch = FontStretch::new(normalize_stretch(attributes.stretch.ratio()));
+        let stretch = FontStretch::new(normalize_stretch(attributes.width.ratio()));
         let family_key = normalize_family(&family).into_boxed_str();
         Ok(Self {
-            data,
             index,
             units_per_em,
             has_color_tables,
-            shaper_font,
+            font,
             family,
             family_key,
             family_names,
@@ -383,9 +379,9 @@ impl FontFace {
         &self.family_key
     }
 
-    /// Parses this face again. Cheap: the table directory is validated, no glyph data is read.
-    pub(crate) fn font(&self) -> Result<FontRef<'_>, FontError> {
-        FontRef::from_index(self.data.as_slice(), self.index).map_err(|_| FontError::InvalidFont)
+    /// The fontations font model, including the shaping caches harfrust attaches to it.
+    pub(crate) fn font(&self) -> &Font {
+        &self.font
     }
 
     /// Font design units per em.
@@ -395,13 +391,11 @@ impl FontFace {
 
     /// Whether the font's character map has an entry for `ch`.
     pub fn has_char(&self, ch: char) -> bool {
-        self.font()
-            .map(|font| font.charmap().map(ch).is_some())
-            .unwrap_or(false)
+        self.font.charmap().map_unicode(ch).is_some()
     }
 
     pub(crate) fn glyph_for(&self, ch: char) -> Option<GlyphId> {
-        self.font().ok()?.charmap().map(ch)
+        self.font.charmap().map_unicode(ch)
     }
 
     /// Whether `glyph_id` is painted with a color representation (bitmap or COLRv0).
@@ -409,23 +403,18 @@ impl FontFace {
         if !self.has_color_tables {
             return false;
         }
-        let Ok(font) = self.font() else {
-            return false;
-        };
-        if font
+        if self
+            .font
             .color_glyphs()
-            .get_with_format(glyph_id, skrifa::color::ColorGlyphFormat::ColrV0)
+            .get_with_version(glyph_id, ColorVersion::V0)
             .is_some()
         {
             return true;
         }
-        font.bitmap_strikes()
+        self.font
+            .bitmap_strikes()
             .iter()
             .any(|strike| strike.get(glyph_id).is_some())
-    }
-
-    pub(crate) fn shaper_font(&self) -> &harfrust::Font {
-        &self.shaper_font
     }
 
     pub(crate) fn has_color_tables(&self) -> bool {
@@ -433,30 +422,31 @@ impl FontFace {
     }
 
     pub(crate) fn metrics(&self, size: f32) -> FontMetrics {
-        let Ok(font) = self.font() else {
-            return FontMetrics::fallback(size);
+        let metrics = self.font.metrics();
+        let Some(line) = metrics.h_line() else {
+            return FontMetrics::default();
         };
-        let metrics = font.metrics(Size::new(size), LocationRef::default());
+        let scale = size / metrics.units_per_em.max(1) as f32;
         FontMetrics {
-            ascent: metrics.ascent,
-            // Skrifa reports the descent as a negative offset from the baseline (the same sign
-            // as the font tables), while `FontMetrics` stores it as a positive distance.
-            descent: -metrics.descent,
-            leading: metrics.leading,
+            ascent: line.ascender.to_f32() * scale,
+            // The model stores the descender as a negative offset from the baseline, while
+            // `FontMetrics` stores it as a positive distance.
+            descent: -line.descender.to_f32() * scale,
+            leading: line.line_gap.to_f32() * scale,
         }
     }
 }
 
 /// Reads the family and full names used for matching.
-fn read_font_names(font: &FontRef<'_>) -> (Box<str>, Box<[Box<str>]>, Box<str>) {
-    let typographic = collect_names(font, StringId::TYPOGRAPHIC_FAMILY_NAME);
+fn read_font_names(font: &Font) -> (Box<str>, Box<[Box<str>]>, Box<str>) {
+    let typographic = collect_names(font, NameId::TYPOGRAPHIC_FAMILY_NAME);
     let (id, mut names) = if typographic.is_empty() {
         (
-            StringId::FAMILY_NAME,
-            collect_names(font, StringId::FAMILY_NAME),
+            NameId::FAMILY_NAME,
+            collect_names(font, NameId::FAMILY_NAME),
         )
     } else {
-        (StringId::TYPOGRAPHIC_FAMILY_NAME, typographic)
+        (NameId::TYPOGRAPHIC_FAMILY_NAME, typographic)
     };
     let family = preferred_name(font, id)
         .or_else(|| names.first().cloned())
@@ -464,15 +454,18 @@ fn read_font_names(font: &FontRef<'_>) -> (Box<str>, Box<[Box<str>]>, Box<str>) 
     if names.is_empty() && !family.is_empty() {
         names.push(family.clone());
     }
-    let full_name = preferred_name(font, StringId::FULL_NAME).unwrap_or_default();
+    let full_name = preferred_name(font, NameId::FULL_NAME).unwrap_or_default();
     (family, names.into_boxed_slice(), full_name)
 }
 
 /// Collects and de-duplicates all names with the given id.
-fn collect_names(font: &FontRef<'_>, id: StringId) -> Vec<Box<str>> {
+fn collect_names(font: &Font, id: NameId) -> Vec<Box<str>> {
     let mut names: Vec<Box<str>> = Vec::new();
-    for name in font.localized_strings(id) {
-        let value = name.to_string();
+    let Some(name) = font.names().get(id) else {
+        return names;
+    };
+    for name in name.iter() {
+        let value = name.name().to_string();
         let value = value.trim();
         if value.is_empty() || names.iter().any(|existing| existing.as_ref() == value) {
             continue;
@@ -483,10 +476,11 @@ fn collect_names(font: &FontRef<'_>, id: StringId) -> Vec<Box<str>> {
 }
 
 /// The best English (or first) name with the given id.
-fn preferred_name(font: &FontRef<'_>, id: StringId) -> Option<Box<str>> {
-    font.localized_strings(id)
+fn preferred_name(font: &Font, id: NameId) -> Option<Box<str>> {
+    font.names()
+        .get(id)?
         .english_or_first()
-        .map(|name| name.to_string())
+        .map(|name| name.name().to_string())
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty())
         .map(Into::into)

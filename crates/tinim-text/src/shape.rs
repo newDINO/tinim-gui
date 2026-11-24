@@ -396,7 +396,7 @@ fn shape_item(
     }
     let face = fonts.get(item.font)?;
 
-    let shaper = harfrust::ShaperFont::new(face.shaper_font());
+    let shaper = harfrust::ShaperFont::new(face.font());
     let mut buffer = Buffer::new();
     buffer.push_str(&text[item.range.clone()]);
     buffer.set_direction(direction);

@@ -1,12 +1,14 @@
 //! Turning glyphs into RGBA8 bitmaps: outlines, COLRv0 and embedded bitmaps.
 
 use skrifa::{
-    FontRef, GlyphId, MetadataProvider,
-    bitmap::{BitmapData, BitmapGlyph, Origin},
-    color::{Brush, ColorGlyphFormat, ColorPainter, CompositeMode, Transform},
-    instance::{LocationRef, Size},
-    outline::{DrawSettings, OutlinePen},
-    raw::types::BoundingBox,
+    Font, GlyphId,
+    font::glyph::{
+        GlyphSourceOrder,
+        bitmap::{BitmapGlyph, Mask, Origin, Pixels},
+        color::{Brush, ColorVersion, CompositeMode, PaintSink},
+        outline::{DrawMemory, DrawOptions, PathSink},
+    },
+    raw::types::{BoundingBox, Matrix},
 };
 
 use crate::font::FontFace;
@@ -37,9 +39,8 @@ pub struct RasterizedGlyph {
 /// Embedded bitmaps are preferred, then COLRv0, then the regular outline. `None` means that
 /// there is nothing to draw (a space, a missing glyph, or a format we cannot decode).
 pub fn rasterize(face: &FontFace, glyph_id: u32, ppem: f32) -> Option<RasterizedGlyph> {
-    let font = face.font().ok()?;
     rasterize_font(
-        &font,
+        face.font(),
         GlyphId::new(glyph_id),
         ppem,
         face.units_per_em(),
@@ -48,7 +49,7 @@ pub fn rasterize(face: &FontFace, glyph_id: u32, ppem: f32) -> Option<Rasterized
 }
 
 fn rasterize_font(
-    font: &FontRef<'_>,
+    font: &Font,
     glyph_id: GlyphId,
     ppem: f32,
     units_per_em: u16,
@@ -65,16 +66,20 @@ fn rasterize_font(
     rasterize_outline(font, glyph_id, ppem)
 }
 
-fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
-    // Pixel bounds from the font's glyph metrics. This avoids a separate bounds pass for
-    // TrueType outlines; for CFF/variable fonts skrifa computes them from the outline.
-    let bounds = font
-        .glyph_metrics(Size::new(ppem), LocationRef::default())
-        .bounds(glyph_id)?;
-    let min_x = bounds.x_min.floor();
-    let max_x = bounds.x_max.ceil();
-    let min_y = bounds.y_min.floor();
-    let max_y = bounds.y_max.ceil();
+fn rasterize_outline(font: &Font, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
+    // Pixel bounds from the glyph metrics. Asking for outlines only avoids measuring a bitmap or
+    // color representation instead of the ink we are about to draw.
+    let extents = font
+        .glyph_metrics()
+        .with_extents_source_order(GlyphSourceOrder::OUTLINES)
+        .extents_exact(glyph_id)?;
+    let scale = ppem / font.metrics().units_per_em.max(1) as f32;
+    let left = extents.x_bearing.to_f32() * scale;
+    let top = extents.y_bearing.to_f32() * scale;
+    let min_x = left.floor();
+    let max_x = (left + extents.width.to_f32() * scale).ceil();
+    let max_y = top.ceil();
+    let min_y = (top - extents.height.to_f32() * scale).floor();
     let width = (max_x - min_x) as i32;
     let height = (max_y - min_y) as i32;
     if width <= 0 || height <= 0 {
@@ -85,7 +90,8 @@ fn rasterize_outline(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
     let mut pen = RasterPen::new(width as usize, height as usize, min_x, max_y);
     glyph
         .draw(
-            DrawSettings::unhinted(Size::new(ppem), LocationRef::default()),
+            &DrawOptions::new().with_ppem(Some(ppem)),
+            DrawMemory::Scratch,
             &mut pen,
         )
         .ok()?;
@@ -138,7 +144,7 @@ impl RasterPen {
     }
 }
 
-impl OutlinePen for RasterPen {
+impl PathSink for RasterPen {
     fn move_to(&mut self, x: f32, y: f32) {
         self.start = (x, y);
         self.current = (x, y);
@@ -179,7 +185,7 @@ impl OutlinePen for RasterPen {
 }
 
 fn rasterize_bitmap(
-    font: &FontRef<'_>,
+    font: &Font,
     glyph_id: GlyphId,
     ppem: f32,
     units_per_em: u16,
@@ -189,7 +195,7 @@ fn rasterize_bitmap(
         .bitmap_strikes()
         .iter()
         .filter_map(|strike| {
-            let strike_ppem = strike.ppem();
+            let strike_ppem = strike.ppem() as f32;
             strike.get(glyph_id).map(|glyph| (strike_ppem, glyph))
         })
         .min_by(|(a, _), (b, _)| (a - ppem).abs().total_cmp(&(b - ppem).abs()))?;
@@ -208,14 +214,15 @@ fn rasterize_bitmap(
     // Keep the bitmap in sRGB space: the renderer's non-sRGB texture samples it unchanged.
     let pixels = scale_rgba(&source, source_width, source_height, width, height);
 
-    // The outer bearings (`bearing_x`/`bearing_y`) are in font units; the inner bearings are in
+    // The outer bearings (`x_bearing`/`y_bearing`) are in font units; the inner bearings are in
     // strike pixels. This mirrors Skia's fontations port, which is tested against CoreText.
     let units_to_pixels = ppem / units_per_em.max(1) as f32;
-    let left = bitmap.bearing_x * units_to_pixels + bitmap.inner_bearing_x * scale;
-    let top = bitmap.bearing_y * units_to_pixels
-        + match bitmap.placement_origin {
-            Origin::TopLeft => bitmap.inner_bearing_y * scale,
-            Origin::BottomLeft => (bitmap.inner_bearing_y + source_height as f32) * scale,
+    let left =
+        bitmap.x_bearing() as f32 * units_to_pixels + bitmap.inner_x_bearing() as f32 * scale;
+    let top = bitmap.y_bearing() as f32 * units_to_pixels
+        + match bitmap.origin() {
+            Origin::TopLeft => bitmap.inner_y_bearing() as f32 * scale,
+            Origin::BottomLeft => (bitmap.inner_y_bearing() as f32 + source_height as f32) * scale,
         };
 
     Some(RasterizedGlyph {
@@ -229,16 +236,17 @@ fn rasterize_bitmap(
 }
 
 fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
-    let width = bitmap.width;
-    let height = bitmap.height;
-    match &bitmap.data {
-        BitmapData::Bgra(data) => {
+    let width = bitmap.width();
+    let height = bitmap.height();
+    match bitmap.pixels() {
+        Pixels::Bgra(data) => {
             let expected = width as usize * height as usize * 4;
-            if data.len() < expected {
+            let source = data.data();
+            if source.len() < expected {
                 return None;
             }
             let mut rgba = Vec::with_capacity(expected);
-            for &[blue, green, red, alpha] in data[..expected].as_chunks::<4>().0 {
+            for &[blue, green, red, alpha] in source[..expected].as_chunks::<4>().0 {
                 // CBDT stores premultiplied BGRA in sRGB space; the output uses straight alpha.
                 if alpha == 0 {
                     rgba.extend_from_slice(&[0, 0, 0, 0]);
@@ -256,7 +264,7 @@ fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
             }
             Some((rgba, width, height))
         }
-        BitmapData::Png(data) => {
+        Pixels::Png(data) => {
             #[cfg(feature = "emoji-bitmap")]
             {
                 decode_png(data)
@@ -267,44 +275,23 @@ fn decode_bitmap(bitmap: &BitmapGlyph<'_>) -> Option<(Vec<u8>, u32, u32)> {
                 None
             }
         }
-        BitmapData::Mask(mask) => {
-            let rgba = decode_mask(mask, width, height)?;
+        Pixels::Mask(mask) => {
+            let rgba = decode_mask(&mask)?;
             Some((rgba, width, height))
         }
     }
 }
 
-fn decode_mask(mask: &skrifa::bitmap::MaskData<'_>, width: u32, height: u32) -> Option<Vec<u8>> {
-    let bpp = mask.bpp as usize;
-    if bpp == 0 || bpp > 8 {
-        return None;
-    }
-    let max = ((1u16 << bpp) - 1) as f32;
-    let row_bits = width as usize * bpp;
-    let stride_bits = if mask.is_packed {
-        row_bits
-    } else {
-        row_bits.div_ceil(8) * 8
-    };
-
+fn decode_mask(mask: &Mask<'_>) -> Option<Vec<u8>> {
+    let width = mask.width();
+    let height = mask.height();
     let mut rgba = vec![0u8; width as usize * height as usize * 4];
-    for y in 0..height as usize {
-        for x in 0..width as usize {
-            let bit = y * stride_bits + x * bpp;
-            let byte = mask.data.get(bit / 8).copied().unwrap_or(0);
-            let shift = 8 - bpp - (bit % 8);
-            let value = ((byte as u16) >> shift) & ((1u16 << bpp) - 1);
-            let coverage = if bpp == 8 {
-                value as u8
-            } else {
-                (value as f32 / max * 255.0).round() as u8
-            };
-            let offset = (y * width as usize + x) * 4;
-            rgba[offset] = 255;
-            rgba[offset + 1] = 255;
-            rgba[offset + 2] = 255;
-            rgba[offset + 3] = coverage;
-        }
+    for (index, coverage) in mask.pixels().enumerate() {
+        let offset = index * 4;
+        rgba[offset] = 255;
+        rgba[offset + 1] = 255;
+        rgba[offset + 2] = 255;
+        rgba[offset + 3] = coverage;
     }
     Some(rgba)
 }
@@ -411,9 +398,9 @@ fn sample_premultiplied(source: &[u8], width: u32, x: u32, y: u32) -> [f32; 4] {
     ]
 }
 
-fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
+fn rasterize_colr_v0(font: &Font, glyph_id: GlyphId, ppem: f32) -> Option<RasterizedGlyph> {
     let palette: Vec<[u8; 4]> = font
-        .color_palettes()
+        .palettes()
         .get(0)
         .map(|palette| {
             palette
@@ -429,14 +416,12 @@ fn rasterize_colr_v0(font: &FontRef<'_>, glyph_id: GlyphId, ppem: f32) -> Option
 
     let color_glyph = font
         .color_glyphs()
-        .get_with_format(glyph_id, ColorGlyphFormat::ColrV0)?;
+        .get_with_version(glyph_id, ColorVersion::V0)?;
     let mut painter = ColrV0Painter {
         palette: &palette,
         layers: Vec::new(),
     };
-    color_glyph
-        .paint(LocationRef::default(), &mut painter)
-        .ok()?;
+    color_glyph.paint(&mut painter).ok()?;
     if painter.layers.is_empty() {
         return None;
     }
@@ -554,8 +539,8 @@ struct ColrV0Painter<'a> {
     layers: Vec<(GlyphId, [u8; 4])>,
 }
 
-impl ColorPainter for ColrV0Painter<'_> {
-    fn push_transform(&mut self, _transform: Transform) {}
+impl PaintSink for ColrV0Painter<'_> {
+    fn push_transform(&mut self, _transform: Matrix<f32>) {}
 
     fn pop_transform(&mut self) {}
 
@@ -570,7 +555,7 @@ impl ColorPainter for ColrV0Painter<'_> {
     fn fill_glyph(
         &mut self,
         glyph_id: GlyphId,
-        _brush_transform: Option<Transform>,
+        _brush_transform: Option<Matrix<f32>>,
         brush: Brush<'_>,
     ) {
         let Brush::Solid {
@@ -605,12 +590,8 @@ mod tests {
 
     #[test]
     fn mask_unpacking_handles_bpp() {
-        let mask = skrifa::bitmap::MaskData {
-            bpp: 1,
-            is_packed: false,
-            data: &[0b1010_0000, 0b0101_0000],
-        };
-        let rgba = decode_mask(&mask, 4, 2).unwrap();
+        let mask = Mask::new(&[0b1010_0000, 0b0101_0000], 4, 2, 1, false).unwrap();
+        let rgba = decode_mask(&mask).unwrap();
         let alpha: Vec<u8> = rgba
             .as_chunks::<4>()
             .0

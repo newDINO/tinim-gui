@@ -3,7 +3,7 @@
 #[cfg(feature = "emoji-bitmap")]
 use font_test_data::CBDT;
 use font_test_data::{AHEM, COLRV0V1};
-use skrifa::{FontRef, MetadataProvider, color::ColorGlyphFormat};
+use skrifa::{Font, font::glyph::color::ColorVersion};
 use tinim_paint::{
     Color32, ImageDelta, MeshSpace, Painter, Rect, TextureDescriptor, TextureId, TexturesDelta,
     pos2, vec2,
@@ -269,11 +269,11 @@ fn cbdt_bitmap_glyph_is_color() {
 
 #[test]
 fn colrv0_glyph_is_composited() {
-    let font = FontRef::new(COLRV0V1).unwrap();
-    let mut charmap = font.charmap().mappings();
+    let font = Font::new(COLRV0V1, 0).unwrap();
+    let mut charmap = font.charmap().unicodes();
     let Some((codepoint, _)) = charmap.find_map(|(codepoint, glyph_id)| {
         font.color_glyphs()
-            .get_with_format(glyph_id, ColorGlyphFormat::ColrV0)
+            .get_with_version(glyph_id, ColorVersion::V0)
             .is_some()
             .then_some((codepoint, glyph_id))
     }) else {
@@ -411,10 +411,10 @@ fn empty_text_has_no_texture() {
 
 #[cfg(feature = "emoji-bitmap")]
 fn first_bitmap_char(font_data: &[u8]) -> (char, skrifa::GlyphId) {
-    let font = FontRef::new(font_data).unwrap();
+    let font = Font::new(font_data.to_vec(), 0).unwrap();
     let strikes = font.bitmap_strikes();
     font.charmap()
-        .mappings()
+        .unicodes()
         .find_map(|(codepoint, glyph_id)| {
             if strikes.iter().any(|strike| strike.get(glyph_id).is_some()) {
                 char::from_u32(codepoint).map(|ch| (ch, glyph_id))
