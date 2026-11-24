@@ -22,7 +22,7 @@ system-fonts = ["tinim-text/system-fonts"]
 [dev-dependencies]
 criterion = "0.8"
 font-test-data = "0.10"
-skrifa = { version = "0.40", default-features = false, features = ["std"] }
+skrifa = { version = "0.50", default-features = false, features = ["std"] }
 
 [[bench]]
 name = "text"

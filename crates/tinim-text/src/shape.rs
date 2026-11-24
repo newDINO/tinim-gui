@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use harfrust::{Direction, UnicodeBuffer};
+use harfrust::{Buffer, Direction, Script};
 use skrifa::GlyphId;
 use unicode_bidi::{BidiInfo, ParagraphInfo};
 use unicode_script::Script as UnicodeScript;
@@ -324,7 +324,7 @@ fn itemize(
     let mut items = Vec::new();
     let mut item_start = run.start;
     let mut item_font: Option<FontId> = None;
-    let mut item_script = harfrust::script::COMMON;
+    let mut item_script = Script::COMMON;
     // With a single candidate there is no fallback decision to make; punctuation always stays in
     // it.
     let candidates = selection.candidates(allow_fallback);
@@ -339,7 +339,7 @@ fn itemize(
         };
         let mut script = script_of(cluster);
         if single_font.is_none()
-            && script == harfrust::script::COMMON
+            && script == Script::COMMON
             && let Some(previous_font) = item_font
             && fonts.covers(previous_font, cluster)
         {
@@ -347,7 +347,7 @@ fn itemize(
             // falling back to whatever face happens to be primary.
             font = previous_font;
         }
-        if script == harfrust::script::COMMON && item_font == Some(font) {
+        if script == Script::COMMON && item_font == Some(font) {
             // Keep punctuation attached to the preceding run instead of shaping it in isolation.
             script = item_script;
         }
@@ -381,7 +381,7 @@ fn itemize(
 struct Item {
     range: Range<usize>,
     font: FontId,
-    script: harfrust::Script,
+    script: Script,
 }
 
 fn shape_item(
@@ -395,18 +395,18 @@ fn shape_item(
         return None;
     }
     let face = fonts.get(item.font)?;
-    let font = face.font().ok()?;
 
-    let shaper = face.shaper_data().shaper(&font).build();
-    let mut buffer = UnicodeBuffer::new();
+    let shaper = harfrust::ShaperFont::new(face.shaper_font());
+    let mut buffer = Buffer::new();
     buffer.push_str(&text[item.range.clone()]);
     buffer.set_direction(direction);
-    buffer.set_script(item.script);
+    buffer.set_script(Some(item.script));
     buffer.guess_segment_properties();
 
-    let shaped = shaper.shape(buffer, &[]);
-    let scale = if shaper.units_per_em() > 0 {
-        style.font_size() / shaper.units_per_em() as f32
+    harfrust::shape(&shaper, &mut buffer, harfrust::ShapeOptions::new()).ok()?;
+    let units_per_em = shaper.units_per_em();
+    let scale = if units_per_em > 0 {
+        style.font_size() / units_per_em as f32
     } else {
         0.0
     };
@@ -414,7 +414,7 @@ fn shape_item(
     // HarfBuzz reports a cluster start for every glyph. A cluster ends where the next larger
     // start begins (or at the end of the shaped range), which lets text editors map byte indices
     // to caret positions without re-shaping prefixes.
-    let mut cluster_starts: Vec<usize> = shaped
+    let mut cluster_starts: Vec<usize> = buffer
         .glyph_infos()
         .iter()
         .map(|info| item.range.start + info.cluster as usize)
@@ -422,8 +422,8 @@ fn shape_item(
     cluster_starts.sort_unstable();
     cluster_starts.dedup();
 
-    let mut glyphs = Vec::with_capacity(shaped.len());
-    for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
+    let mut glyphs = Vec::with_capacity(buffer.len());
+    for (info, position) in buffer.glyph_infos().iter().zip(buffer.glyph_positions()) {
         let glyph_id = GlyphId::new(info.glyph_id);
         let cluster_start = item.range.start + info.cluster as usize;
         let cluster_end = cluster_starts
@@ -451,27 +451,24 @@ fn shape_item(
 }
 
 /// Maps a grapheme cluster to the script HarfBuzz should shape it with.
-fn script_of(cluster: &str) -> harfrust::Script {
+fn script_of(cluster: &str) -> Script {
     // ASCII dominates UI text; skip the script table and short-name parse for it.
     if let Some(first) = cluster.chars().next()
         && first.is_ascii()
     {
         return if first.is_ascii_alphabetic() {
-            harfrust::script::LATIN
+            Script::LATIN
         } else {
-            harfrust::script::COMMON
+            Script::COMMON
         };
     }
     for ch in cluster.chars() {
         match UnicodeScript::from(ch) {
             UnicodeScript::Common | UnicodeScript::Inherited | UnicodeScript::Unknown => {}
             script => {
-                return script
-                    .short_name()
-                    .parse()
-                    .unwrap_or(harfrust::script::UNKNOWN);
+                return script.short_name().parse().unwrap_or(Script::UNKNOWN);
             }
         }
     }
-    harfrust::script::COMMON
+    Script::COMMON
 }

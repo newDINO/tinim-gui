@@ -11,8 +11,8 @@ glam.workspace = true
 
 # Font parsing/scaling/color/bitmaps and OpenType shaping. The versions are pinned to the same
 # fontations generation so that only one copy of read-fonts/font-types is compiled.
-harfrust = { version = "0.5.2", default-features = false, features = ["std"] }
-skrifa = { version = "0.40", default-features = false, features = ["std"] }
+harfrust = { version = "0.16.1", default-features = false, features = ["std"] }
+skrifa = { version = "0.50", default-features = false, features = ["std"] }
 
 unicode-bidi = "0.3"
 unicode-linebreak = "0.1"

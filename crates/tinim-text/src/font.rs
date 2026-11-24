@@ -224,6 +224,26 @@ impl FontData {
             Self::Mapped(data) => data,
         }
     }
+
+    /// Shares the bytes with a fontations [`harfrust::Font`], which takes ownership of its source.
+    fn to_source(&self) -> harfrust::font::Source {
+        let shared: Arc<dyn AsRef<[u8]> + Send + Sync> = match self {
+            Self::Owned(data) => Arc::new(SharedBytes(data.clone())),
+            #[cfg(feature = "system-fonts")]
+            Self::Mapped(data) => data.clone(),
+        };
+        shared.into()
+    }
+}
+
+/// A sized wrapper so an `Arc<[u8]>` can be turned into a shared fontations source.
+#[derive(Clone)]
+struct SharedBytes(Arc<[u8]>);
+
+impl AsRef<[u8]> for SharedBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 /// A parsed font face, kept alive for as long as the [`crate::TextContext`] exists.
@@ -236,7 +256,9 @@ pub struct FontFace {
     index: u32,
     units_per_em: u16,
     has_color_tables: bool,
-    shaper_data: Arc<harfrust::ShaperData>,
+    /// Fontations font model used for shaping. It also owns the cached layout data that
+    /// harfrust attaches to the font, so it must outlive every [`harfrust::ShaperFont`].
+    shaper_font: harfrust::Font,
     family: Box<str>,
     family_key: Box<str>,
     family_names: Box<[Box<str>]>,
@@ -292,7 +314,8 @@ impl FontFace {
             || font.table_data(tag(b"EBDT")).is_some()
             || font.table_data(tag(b"EBLC")).is_some()
             || font.table_data(tag(b"sbix")).is_some();
-        let shaper_data = Arc::new(harfrust::ShaperData::new(&font));
+        let shaper_font =
+            harfrust::Font::new(data.to_source(), index).ok_or(FontError::InvalidFont)?;
         let (family, family_names, full_name) = read_font_names(&font);
         let attributes = font.attributes();
         let weight = FontWeight::new(normalize_weight(attributes.weight.value()));
@@ -308,7 +331,7 @@ impl FontFace {
             index,
             units_per_em,
             has_color_tables,
-            shaper_data,
+            shaper_font,
             family,
             family_key,
             family_names,
@@ -401,8 +424,8 @@ impl FontFace {
             .any(|strike| strike.get(glyph_id).is_some())
     }
 
-    pub(crate) fn shaper_data(&self) -> &harfrust::ShaperData {
-        &self.shaper_data
+    pub(crate) fn shaper_font(&self) -> &harfrust::Font {
+        &self.shaper_font
     }
 
     pub(crate) fn has_color_tables(&self) -> bool {
