@@ -17,7 +17,8 @@ pub use containers::{
 pub use layout::{Align, Align2, FlowConfig, FlowSize};
 pub use response::Response;
 pub use widgets::{
-    ImageFit, ImageOptions, NumberInputResponse, NumberInputState, TextEditResponse, TextEditState,
+    DragValueOptions, DragValueResponse, DragValueState, ImageFit, ImageOptions,
+    NumberInputResponse, NumberInputState, TextEditResponse, TextEditState,
 };
 
 use tinim_paint::{Pos2, Rect, Shape, Vec2, vec2};

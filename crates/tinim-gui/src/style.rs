@@ -133,6 +133,7 @@ pub struct Style {
     pub radio: RadioStyle,
     pub slider: SliderStyle,
     pub number_input: NumberInputStyle,
+    pub drag_value: DragValueStyle,
     pub text_edit: TextEditStyle,
     pub scroll_bar: ScrollBarStyle,
 }
@@ -149,6 +150,7 @@ impl Default for Style {
             radio: RadioStyle::default(),
             slider: SliderStyle::default(),
             number_input: NumberInputStyle::default(),
+            drag_value: DragValueStyle::default(),
             text_edit: TextEditStyle::default(),
             scroll_bar: ScrollBarStyle::default(),
         }
@@ -218,6 +220,17 @@ impl Style {
                 min_size: vec2(180.0, 24.0),
             },
             number_input: NumberInputStyle::default(),
+            drag_value: DragValueStyle {
+                normal: Color32::from_rgb(235, 235, 235),
+                hovered: Color32::from_rgb(224, 224, 224),
+                dragged: Color32::from_rgb(208, 208, 208),
+                text: Color32::BLACK,
+                border: Color32::from_rgb(118, 118, 118),
+                border_width: 1.0,
+                corner_radius: 0,
+                padding: vec2(8.0, 4.0),
+                min_size: vec2(64.0, 28.0),
+            },
             text_edit: TextEditStyle {
                 normal: Color32::WHITE,
                 hovered: Color32::WHITE,
@@ -485,6 +498,45 @@ impl Default for NumberInputStyle {
     }
 }
 
+/// Appearance of a [`crate::Ui::drag_value`] while it is not being edited as text.
+///
+/// The text editor used while editing inherits these colors, padding and corner radius so that
+/// entering edit mode does not change the widget's footprint.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DragValueStyle {
+    /// Fill when the pointer is not over the widget.
+    pub normal: Color32,
+    /// Fill while the pointer is over the widget.
+    pub hovered: Color32,
+    /// Fill while the value is being dragged.
+    pub dragged: Color32,
+    /// Color of the number, its prefix and its suffix.
+    pub text: Color32,
+    pub border: Color32,
+    pub border_width: f32,
+    pub corner_radius: u8,
+    /// Space between the border and the text.
+    pub padding: Vec2,
+    /// Minimum size. The width is also capped by the available space.
+    pub min_size: Vec2,
+}
+
+impl Default for DragValueStyle {
+    fn default() -> Self {
+        Self {
+            normal: Color32::from_rgb(58, 58, 62),
+            hovered: Color32::from_rgb(76, 76, 82),
+            dragged: Color32::from_rgb(42, 42, 46),
+            text: Color32::WHITE,
+            border: Color32::TRANSPARENT,
+            border_width: 0.0,
+            corner_radius: 4,
+            padding: vec2(8.0, 4.0),
+            min_size: vec2(64.0, 28.0),
+        }
+    }
+}
+
 /// Appearance shared by [`crate::Ui::text_edit_singleline`] and [`crate::Ui::text_edit_multiline`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextEditStyle {
@@ -576,6 +628,7 @@ mod tests {
         let style = Style::plain();
         assert_eq!(style.button.corner_radius, 0);
         assert_eq!(style.checkbox.corner_radius, 0);
+        assert_eq!(style.drag_value.corner_radius, 0);
         assert_eq!(style.text_edit.corner_radius, 0);
         assert_eq!(style.scroll_bar.corner_radius, 0);
     }

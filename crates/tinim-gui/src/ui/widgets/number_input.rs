@@ -43,6 +43,29 @@ impl NumberInputState {
     pub fn set_focused(&mut self, focused: bool) {
         self.edit.set_focused(focused);
     }
+
+    /// Focuses the input and fills it with `value`, selecting all of the text.
+    ///
+    /// Used by widgets that switch from a non-editing presentation to a text field, such as
+    /// [`Ui::drag_value`](crate::Ui::drag_value). Typing then replaces the whole number.
+    pub(crate) fn begin_editing(&mut self, value: f32) {
+        self.text = format_number(value);
+        self.edited = false;
+        self.edit.set_focused(true);
+        self.edit.cursor = self.text.len();
+        self.edit.anchor = 0;
+    }
+
+    /// Replaces the text with `value` and moves the caret to the end.
+    ///
+    /// The input keeps its focus state. This is used after editing commits a value that was
+    /// clamped by the caller, so the field shows the value that was actually stored.
+    pub(crate) fn reset_to_value(&mut self, value: f32) {
+        self.text = format_number(value);
+        self.edited = false;
+        self.edit.cursor = self.text.len();
+        self.edit.anchor = self.text.len();
+    }
 }
 
 /// The result of building a [`Ui::number_input`](crate::Ui::number_input).

@@ -112,6 +112,7 @@ pub fn cursor_icon(icon: CursorIcon) -> WinitCursorIcon {
         CursorIcon::Default => WinitCursorIcon::Default,
         CursorIcon::Pointer => WinitCursorIcon::Pointer,
         CursorIcon::Text => WinitCursorIcon::Text,
+        CursorIcon::ResizeHorizontal => WinitCursorIcon::EwResize,
     }
 }
 

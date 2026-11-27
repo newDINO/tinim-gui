@@ -14,4 +14,6 @@ pub enum CursorIcon {
     Pointer,
     /// An I-beam cursor, used by text editors.
     Text,
+    /// A horizontal resize cursor, used by widgets that change a value when dragged sideways.
+    ResizeHorizontal,
 }

@@ -3,9 +3,9 @@
 use std::ops::{Deref, DerefMut};
 
 use tinim_gui::{
-    Align, Align2, Color32, Context, CursorIcon, Edges, FlowConfig, FrameStyle, ImageData,
-    ImageFit, ImageOptions, NumberInputState, Rect, Response, ScrollState, Stroke, TextEditState,
-    TextureHandle, Ui, vec2,
+    Align, Align2, Color32, Context, CursorIcon, DragValueOptions, DragValueState, Edges,
+    FlowConfig, FrameStyle, ImageData, ImageFit, ImageOptions, NumberInputState, Rect, Response,
+    ScrollState, Stroke, TextEditState, TextureHandle, Ui, vec2,
 };
 
 use super::page;
@@ -24,6 +24,7 @@ pub(crate) struct WidgetsPage {
     multiline_edit: TextEditState,
     value: f32,
     number_input: NumberInputState,
+    drag_value: DragValueState,
 }
 
 /// A custom wrapper of Ui with [`Self::sized_horizontal`] to
@@ -68,6 +69,7 @@ impl WidgetsPage {
             multiline_edit: TextEditState::new(),
             value: 42.0,
             number_input: NumberInputState::new(),
+            drag_value: DragValueState::new(),
         }
     }
 
@@ -177,15 +179,28 @@ impl WidgetsPage {
                 self.radio, self.radio_value
             ));
 
-            ui.label("number_input and slider edit the same value (type a number or drag):");
+            ui.label(
+                "number_input, drag_value and slider edit the same value (type, drag, or click the drag value to edit):",
+            );
             let number = ui.number_input(&mut self.value, &mut self.number_input);
+            let drag = ui.drag_value_with(
+                &mut self.value,
+                &mut self.drag_value,
+                DragValueOptions::default()
+                    .with_range(0.0..=100.0)
+                    .with_speed(0.5)
+                    .with_suffix(" px")
+                    .with_max_decimals(2),
+            );
             let slider = ui.slider(&mut self.value, 0.0..=100.0);
             ui.label(&format!(
-                "value: {:.2} | input focused: {} | changed: {} | submitted: {} | slider hovered: {} | down: {}",
+                "value: {:.2} | input focused: {} | drag editing: {} | dragging: {} | changed: {} | submitted: {} | slider hovered: {} | down: {}",
                 self.value,
                 number.focused,
-                number.changed,
-                number.submitted,
+                drag.focused,
+                drag.dragged,
+                number.changed || drag.changed,
+                number.submitted || drag.submitted,
                 slider.hovered,
                 slider.down
             ));

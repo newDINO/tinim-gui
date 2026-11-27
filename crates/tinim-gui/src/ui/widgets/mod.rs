@@ -1,4 +1,5 @@
-//! Leaf widgets: labels, separators, buttons, toggles, sliders, number inputs and text editing.
+//! Leaf widgets: labels, separators, buttons, toggles, sliders, number inputs, drag values and
+//! text editing.
 
 use tinim_paint::{Color32, Painter, Pos2, Rect};
 use tinim_paint_text::TextSystem;
@@ -9,6 +10,7 @@ use super::layout::{Align2, allocate_space, available_size, pointer_over};
 use crate::input::RawInput;
 
 mod button;
+mod drag_value;
 mod image;
 mod number_input;
 mod separator;
@@ -16,6 +18,7 @@ mod slider;
 mod text_edit;
 mod toggle;
 
+pub use drag_value::{DragValueOptions, DragValueResponse, DragValueState};
 pub use image::{ImageFit, ImageOptions};
 pub use number_input::{NumberInputResponse, NumberInputState};
 pub use text_edit::{TextEditResponse, TextEditState};

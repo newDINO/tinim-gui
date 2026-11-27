@@ -13,6 +13,7 @@
 //!    [`ScrollState`] contains necessary states for the scrollable, e.g. scroll position.
 //!    [`Ui::text_edit_singleline`] and [`Ui::text_edit_multiline`] take the edited
 //!    `&mut String` plus a [`TextEditState`] for the caret, selection and scroll offset.
+//!    [`Ui::drag_value`] takes a [`DragValueState`] for its drag and text-edit state.
 //!
 //! 3. Useful macros are provided to create states in place using TLS (thread local storage).
 //!    User can use [`scrollable!`] macro to create a TLS for [`ScrollState`].
@@ -60,12 +61,13 @@ pub use cursor::CursorIcon;
 pub use input::{ImeInput, Key, Modifiers, RawInput};
 pub use platform::{ImeOutput, PlatformOutput};
 pub use style::{
-    ButtonStyle, CheckboxStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle, ScrollBarStyle,
-    SeparatorStyle, SliderStyle, Style, TextEditStyle,
+    ButtonStyle, CheckboxStyle, DragValueStyle, Edges, FrameStyle, NumberInputStyle, RadioStyle,
+    ScrollBarStyle, SeparatorStyle, SliderStyle, Style, TextEditStyle,
 };
 pub use texture::{ImageData, TextureHandle};
 pub use ui::{
-    Align, Align2, FlowConfig, FlowSize, FrameResponse, ImageFit, ImageOptions,
-    NumberInputResponse, NumberInputState, PaneResponse, Response, ScrollBarAxis, ScrollBars,
-    ScrollResponse, ScrollState, TextEditResponse, TextEditState, Ui,
+    Align, Align2, DragValueOptions, DragValueResponse, DragValueState, FlowConfig, FlowSize,
+    FrameResponse, ImageFit, ImageOptions, NumberInputResponse, NumberInputState, PaneResponse,
+    Response, ScrollBarAxis, ScrollBars, ScrollResponse, ScrollState, TextEditResponse,
+    TextEditState, Ui,
 };
